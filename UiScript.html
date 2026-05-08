@@ -556,6 +556,7 @@ const FILE_WARN_SIZE = 5 * 1024 * 1024;
 const FILE_STRONG_WARN_SIZE = 10 * 1024 * 1024;
 const FILE_MAX_SIZE = 20 * 1024 * 1024;
 const FILE_TOTAL_WARN_SIZE = 50 * 1024 * 1024;
+const URL_PROTOCOL = 'https:' + String.fromCharCode(47, 47);
 
 function escapeJs(value) {
   return String(value == null ? '' : value)
@@ -564,25 +565,33 @@ function escapeJs(value) {
     .replace(/\r?\n/g, '\\n');
 }
 
+function driveFolderUrl(folderId) {
+  return URL_PROTOCOL + 'drive.google.com/drive/folders/' + encodeURIComponent(folderId || '');
+}
+
+function googleMapEmbedUrl(query) {
+  return URL_PROTOCOL + 'www.google.com/maps?q=' + encodeURIComponent(query) + '&output=embed';
+}
+
 function ensureMediaDialog() {
   let dialog = document.getElementById('mediaDialog');
   if (dialog) return dialog;
   dialog = document.createElement('div');
   dialog.id = 'mediaDialog';
   dialog.className = 'media-modal hidden';
-  dialog.innerHTML = `
-    <div class="media-modal-backdrop" onclick="closeMediaDialog()"></div>
-    <div class="media-modal-panel" role="dialog" aria-modal="true" aria-labelledby="mediaDialogTitle">
-      <div class="media-modal-head">
-        <div>
-          <h2 id="mediaDialogTitle">画像の設定</h2>
-          <div id="mediaDialogSubtitle" class="small-note"></div>
-        </div>
-        <button class="icon-action-button" type="button" onclick="closeMediaDialog()" aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button>
-      </div>
-      <div id="mediaDialogBody" class="media-modal-body"></div>
-    </div>
-  `;
+  dialog.innerHTML = [
+    '<div class="media-modal-backdrop" onclick="closeMediaDialog()"></div>',
+    '<div class="media-modal-panel" role="dialog" aria-modal="true" aria-labelledby="mediaDialogTitle">',
+    '<div class="media-modal-head">',
+    '<div>',
+    '<h2 id="mediaDialogTitle">画像の設定</h2>',
+    '<div id="mediaDialogSubtitle" class="small-note"></div>',
+    '</div>',
+    '<button class="icon-action-button" type="button" onclick="closeMediaDialog()" aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button>',
+    '</div>',
+    '<div id="mediaDialogBody" class="media-modal-body"></div>',
+    '</div>'
+  ].join('');
   document.body.appendChild(dialog);
   return dialog;
 }
@@ -659,7 +668,7 @@ async function openMediaDialog(kind, index = 0) {
     const files = context.folderId ? await getFolderMediaCached(context.folderId) : [];
     renderMediaDialog(files);
   } catch (error) {
-    document.getElementById('mediaDialogBody').innerHTML = `<div class="preview-empty">${escapeHtml(error.message || String(error))}</div>`;
+    document.getElementById('mediaDialogBody').innerHTML = '<div class="preview-empty">' + escapeHtml(error.message || String(error)) + '</div>';
   }
 }
 
@@ -674,16 +683,16 @@ function isDmFile(file) {
 
 function mediaRoleOptions(context) {
   if (context.kind !== 'exhibition') return '';
-  return `
-    <div class="field media-role-field">
-      <label>追加する種類</label>
-      <select id="mediaUploadRole">
-        <option value="work">作品画像</option>
-        <option value="dm">DM画像</option>
-        <option value="catalog">PDF目録</option>
-      </select>
-    </div>
-  `;
+  return [
+    '<div class="field media-role-field">',
+    '<label>追加する種類</label>',
+    '<select id="mediaUploadRole">',
+    '<option value="work">作品画像</option>',
+    '<option value="dm">DM画像</option>',
+    '<option value="catalog">PDF目録</option>',
+    '</select>',
+    '</div>'
+  ].join('');
 }
 
 function renderMediaDialog(files) {
@@ -693,64 +702,79 @@ function renderMediaDialog(files) {
   const dmFiles = imageFiles.filter(isDmFile);
   const workFiles = imageFiles.filter((file) => !isDmFile(file));
   const genericImages = context.kind === 'exhibition' ? workFiles : imageFiles;
-  const accept = context.kind === 'exhibition' ? 'image/*,application/pdf' : 'image/*';
-  const folderUrl = context.folderId ? `https://drive.google.com/drive/folders/${encodeURIComponent(context.folderId)}` : '';
+  const imageAccept = 'image/' + '*';
+  const accept = context.kind === 'exhibition' ? imageAccept + ',application/pdf' : imageAccept;
+  const folderUrl = context.folderId ? driveFolderUrl(context.folderId) : '';
+  const folderLinkHtml = folderUrl ? buildMediaFolderLinkHtml(folderUrl) : '';
+  const sectionsHtml = context.kind === 'exhibition'
+    ? [
+        '<div class="media-section">',
+        '<h3>DM画像</h3>',
+        renderMediaFileList(dmFiles, 'DM画像は未設定です。'),
+        '</div>',
+        '<div class="media-section">',
+        '<h3>作品画像</h3>',
+        renderMediaFileList(workFiles, '作品画像は未設定です。'),
+        '</div>',
+        '<div class="media-section">',
+        '<h3>PDF目録</h3>',
+        renderMediaFileList(pdfFiles, 'PDF目録は未設定です。'),
+        '</div>'
+      ].join('')
+    : [
+        '<div class="media-section">',
+        '<h3>画像</h3>',
+        renderMediaFileList(genericImages, '画像は未設定です。'),
+        '</div>'
+      ].join('');
 
-  document.getElementById('mediaDialogBody').innerHTML = `
-    <div class="media-upload-box">
-      <div class="media-upload-row">
-        ${mediaRoleOptions(context)}
-        <div class="field media-file-field">
-          <label>ファイルを追加</label>
-          <input id="mediaUploadInput" type="file" multiple accept="${accept}">
-        </div>
-        <button class="button success" type="button" onclick="onMediaUpload()">アップロード</button>
-      </div>
-      <div class="small-note">大きいファイルはアップロード前に警告します。20MBを超えるファイルは分割・圧縮してください。</div>
-      ${folderUrl ? `<a class="root-link-row media-folder-link" href="${escapeHtml(folderUrl)}" target="_blank" rel="noopener noreferrer"><span>Driveで開く</span><i class="fa-solid fa-up-right-from-square"></i></a>` : ''}
-    </div>
-    ${context.kind === 'exhibition' ? `
-      <div class="media-section">
-        <h3>DM画像</h3>
-        ${renderMediaFileList(dmFiles, 'DM画像は未設定です。')}
-      </div>
-      <div class="media-section">
-        <h3>作品画像</h3>
-        ${renderMediaFileList(workFiles, '作品画像は未設定です。')}
-      </div>
-      <div class="media-section">
-        <h3>PDF目録</h3>
-        ${renderMediaFileList(pdfFiles, 'PDF目録は未設定です。')}
-      </div>
-    ` : `
-      <div class="media-section">
-        <h3>画像</h3>
-        ${renderMediaFileList(genericImages, '画像は未設定です。')}
-      </div>
-    `}
-  `;
+  document.getElementById('mediaDialogBody').innerHTML = [
+    '<div class="media-upload-box">',
+    '<div class="media-upload-row">',
+    mediaRoleOptions(context),
+    '<div class="field media-file-field">',
+    '<label>ファイルを追加</label>',
+    '<input id="mediaUploadInput" type="file" multiple accept="' + escapeHtml(accept) + '">',
+    '</div>',
+    '<button class="button success" type="button" onclick="onMediaUpload()">アップロード</button>',
+    '</div>',
+    '<div class="small-note">大きいファイルはアップロード前に警告します。20MBを超えるファイルは分割・圧縮してください。</div>',
+    folderLinkHtml,
+    '</div>',
+    sectionsHtml
+  ].join('');
+}
+
+function buildMediaFolderLinkHtml(folderUrl) {
+  return [
+    '<a class="root-link-row media-folder-link" href="',
+    escapeHtml(folderUrl),
+    '" target="_blank" rel="noopener noreferrer">',
+    '<span>Driveで開く</span>',
+    '</a>'
+  ].join('');
 }
 
 function renderMediaFileList(files, emptyText) {
-  if (!files.length) return `<div class="preview-empty">${escapeHtml(emptyText)}</div>`;
-  return `<div class="media-file-grid">${files.map((file) => renderMediaFileCard(file)).join('')}</div>`;
+  if (!files.length) return '<div class="preview-empty">' + escapeHtml(emptyText) + '</div>';
+  return '<div class="media-file-grid">' + files.map((file) => renderMediaFileCard(file)).join('') + '</div>';
 }
 
 function renderMediaFileCard(file) {
   const thumb = file.kind === 'image'
-    ? `<img src="${escapeHtml(file.thumbnailUrl)}" alt="">`
+    ? '<img src="' + escapeHtml(file.thumbnailUrl) + '" alt="">'
     : '<div class="pdf-thumb"><i class="fa-regular fa-file-pdf"></i><span>PDF</span></div>';
-  return `
-    <article class="media-file-card">
-      <div class="media-file-thumb">${thumb}</div>
-      <div class="media-file-name" title="${escapeHtml(file.name)}">${escapeHtml(file.name)}</div>
-      <div class="small-note">${formatBytes(file.size || 0)}</div>
-      <div class="media-file-actions">
-        <button class="button subtle" type="button" onclick="onMediaRename('${escapeJs(file.id)}', '${escapeJs(file.name)}')">名前変更</button>
-        <button class="button danger" type="button" onclick="onMediaDelete('${escapeJs(file.id)}', '${escapeJs(file.name)}')">削除</button>
-      </div>
-    </article>
-  `;
+  return [
+    '<article class="media-file-card">',
+    '<div class="media-file-thumb">' + thumb + '</div>',
+    '<div class="media-file-name" title="' + escapeHtml(file.name) + '">' + escapeHtml(file.name) + '</div>',
+    '<div class="small-note">' + formatBytes(file.size || 0) + '</div>',
+    '<div class="media-file-actions">',
+    '<button class="button subtle" type="button" onclick="onMediaRename(\'' + escapeJs(file.id) + '\', \'' + escapeJs(file.name) + '\')">名前変更</button>',
+    '<button class="button danger" type="button" onclick="onMediaDelete(\'' + escapeJs(file.id) + '\', \'' + escapeJs(file.name) + '\')">削除</button>',
+    '</div>',
+    '</article>'
+  ].join('');
 }
 
 function validateMediaSelection(files, role, context) {
@@ -760,21 +784,21 @@ function validateMediaSelection(files, role, context) {
   Array.from(files).forEach((file) => {
     total += file.size || 0;
     if (file.size > FILE_MAX_SIZE) {
-      throw new Error(`${file.name} は20MBを超えています。圧縮または分割してください。`);
+      throw new Error(file.name + ' は20MBを超えています。圧縮または分割してください。');
     }
     if (context.kind !== 'exhibition' && !file.type.startsWith('image/')) {
-      throw new Error(`${file.name} は画像ファイルではありません。`);
+      throw new Error(file.name + ' は画像ファイルではありません。');
     }
     if (context.kind === 'exhibition' && role === 'catalog' && file.type !== 'application/pdf') {
-      throw new Error(`${file.name} はPDFファイルではありません。`);
+      throw new Error(file.name + ' はPDFファイルではありません。');
     }
     if (context.kind === 'exhibition' && role !== 'catalog' && !file.type.startsWith('image/')) {
-      throw new Error(`${file.name} は画像ファイルではありません。`);
+      throw new Error(file.name + ' は画像ファイルではありません。');
     }
-    if (file.size > FILE_STRONG_WARN_SIZE) warnings.push(`${file.name}: ${formatBytes(file.size)}（大きめ）`);
-    else if (file.size > FILE_WARN_SIZE) warnings.push(`${file.name}: ${formatBytes(file.size)}`);
+    if (file.size > FILE_STRONG_WARN_SIZE) warnings.push(file.name + ': ' + formatBytes(file.size) + '（大きめ）');
+    else if (file.size > FILE_WARN_SIZE) warnings.push(file.name + ': ' + formatBytes(file.size));
   });
-  if (total > FILE_TOTAL_WARN_SIZE) warnings.push(`合計: ${formatBytes(total)}`);
+  if (total > FILE_TOTAL_WARN_SIZE) warnings.push('合計: ' + formatBytes(total));
   if (warnings.length) {
     return confirm('大きいファイルが含まれています。\nアップロードに時間がかかる場合があります。\n\n' + warnings.join('\n') + '\n\n続行しますか？');
   }
@@ -849,7 +873,7 @@ async function onMediaRename(fileId, currentName) {
 
 async function onMediaDelete(fileId, name) {
   const context = currentMediaContext();
-  if (!confirm(`${name} を削除しますか？`)) return;
+  if (!confirm(name + ' を削除しますか？')) return;
   try {
     setStatus('ファイルを削除しています…');
     const result = await serverCall('trashManagedFile', appState.sessionToken, {
@@ -911,7 +935,7 @@ async function onRequestOtp() {
   try {
     setAuthStatus('確認コードを送信しています…');
     const result = await serverCall('requestOtp', email);
-    setAuthStatus(`${result.email} に確認コードを送信しました。`, 'success');
+    setAuthStatus(result.email + ' に確認コードを送信しました。', 'success');
     document.getElementById('otpField').classList.remove('hidden');
   } catch (error) {
     setAuthStatus(error.message, 'error');
@@ -1016,12 +1040,12 @@ function renderStorageCard() {
   const storage = maintenance.storage || {};
   const recommendations = maintenance.recommendations || [];
   if (!storage.available) {
-    return `
-      <div class="card storage-card is-unknown">
-        <h3>Drive容量</h3>
-        <div class="small-note">${escapeHtml(storage.message || 'Drive容量を取得できませんでした。')}</div>
-      </div>
-    `;
+    return [
+      '<div class="card storage-card is-unknown">',
+      '<h3>Drive容量</h3>',
+      '<div class="small-note">' + escapeHtml(storage.message || 'Drive容量を取得できませんでした。') + '</div>',
+      '</div>'
+    ].join('');
   }
   const pct = storage.limit ? Math.round((storage.usageRatio || 0) * 1000) / 10 : 0;
   const levelText = {
@@ -1030,37 +1054,40 @@ function renderStorageCard() {
     warning: '警告',
     danger: '強い警告'
   }[storage.level || 'ok'];
-  return `
-    <div class="card storage-card is-${escapeHtml(storage.level || 'ok')}">
-      <div class="storage-head">
-        <div>
-          <h3>Drive容量</h3>
-          <div class="small-note">ホームページ素材以外も含む、実行アカウント全体の容量です。</div>
-        </div>
-        <span class="storage-badge">${escapeHtml(levelText)}</span>
-      </div>
-      <div class="storage-meter"><span style="width:${Math.min(100, Math.max(0, pct))}%"></span></div>
-      <div class="storage-row">
-        <span>使用中 ${formatBytes(storage.used)} / ${formatBytes(storage.limit)}</span>
-        <strong>残り ${formatBytes(storage.remaining)}</strong>
-      </div>
-      ${recommendations.length ? `
-        <div class="recommendation-list">
-          <div class="small-note">退避候補</div>
-          ${recommendations.map((item) => `
-            <div class="recommendation-item">
-              <div>
-                <span class="recommendation-kind">${escapeHtml(item.label || '')}</span>
-                <strong>${escapeHtml(item.title || '')}</strong>
-                <span class="small-note">${escapeHtml(formatDate(item.date) || '日付なし')}${item.published === false ? ' / 非公開' : ''}</span>
-              </div>
-              <a class="button subtle" href="${escapeHtml(item.folderUrl || '#')}" target="_blank" rel="noopener noreferrer">Driveで開く</a>
-            </div>
-          `).join('')}
-        </div>
-      ` : '<div class="small-note">退避候補はまだありません。</div>'}
-    </div>
-  `;
+  const recommendationHtml = recommendations.length
+    ? [
+        '<div class="recommendation-list">',
+        '<div class="small-note">退避候補</div>',
+        recommendations.map((item) => [
+          '<div class="recommendation-item">',
+          '<div>',
+          '<span class="recommendation-kind">' + escapeHtml(item.label || '') + '</span>',
+          '<strong>' + escapeHtml(item.title || '') + '</strong>',
+          '<span class="small-note">' + escapeHtml(formatDate(item.date) || '日付なし') + (item.published === false ? ' / 非公開' : '') + '</span>',
+          '</div>',
+          '<a class="button subtle" href="' + escapeHtml(item.folderUrl || '#') + '" target="_blank" rel="noopener noreferrer">Driveで開く</a>',
+          '</div>'
+        ].join('')).join(''),
+        '</div>'
+      ].join('')
+    : '<div class="small-note">退避候補はまだありません。</div>';
+  return [
+    '<div class="card storage-card is-' + escapeHtml(storage.level || 'ok') + '">',
+    '<div class="storage-head">',
+    '<div>',
+    '<h3>Drive容量</h3>',
+    '<div class="small-note">ホームページ素材以外も含む、実行アカウント全体の容量です。</div>',
+    '</div>',
+    '<span class="storage-badge">' + escapeHtml(levelText) + '</span>',
+    '</div>',
+    '<div class="storage-meter"><span style="width:' + Math.min(100, Math.max(0, pct)) + '%"></span></div>',
+    '<div class="storage-row">',
+    '<span>使用中 ' + formatBytes(storage.used) + ' / ' + formatBytes(storage.limit) + '</span>',
+    '<strong>残り ' + formatBytes(storage.remaining) + '</strong>',
+    '</div>',
+    recommendationHtml,
+    '</div>'
+  ].join('');
 }
 
 function renderDashboard() {
@@ -1554,7 +1581,7 @@ async function renderExhibitionPreview(items) {
           <div class="preview-dm-slot">${buildThumbCarouselHtml(archiveDm, true)}</div>
           <div class="small-note" style="margin-bottom:8px;">${escapeHtml(item.theme || '')}</div>
           ${buildMetaListHtml(item)}
-          ${item.driveFolderId ? `<div class="preview-drive-wrap"><a class="button subtle" href="https://drive.google.com/drive/folders/${escapeHtml(item.driveFolderId || '')}" target="_blank" rel="noopener noreferrer">Google Driveで見る</a></div>` : ''}
+          ${item.driveFolderId ? `<div class="preview-drive-wrap"><a class="button subtle" href="${escapeHtml(driveFolderUrl(item.driveFolderId || ''))}" target="_blank" rel="noopener noreferrer">Google Driveで見る</a></div>` : ''}
         </div>
       </div>`;
   }));
@@ -1634,7 +1661,7 @@ function autofillExhibitionMap(index) {
     alert('会場名または会場住所を入力してください。');
     return;
   }
-  item.querySelector('[data-field="mapEmbedUrl"]').value = `https://www.google.com/maps?q=${encodeURIComponent(query)}&output=embed`;
+  item.querySelector('[data-field="mapEmbedUrl"]').value = googleMapEmbedUrl(query);
   refreshExhibitionPreview();
 }
 
