@@ -1,0 +1,1483 @@
+<script>
+const appState = {
+  sessionToken: '',
+  viewerEmail: '',
+  viewerName: '',
+  previewUrl: '',
+  drafts: [],
+  adminLog: [],
+  options: {
+    roots: {},
+    recruitCalendars: [],
+    activityPhotoFolders: [],
+    exhibitionFolders: [],
+    requestPhotoFolders: []
+  },
+  state: {
+    recruitCalendar: { folderId: '', label: '' },
+    activityArticles: [],
+    exhibitions: [],
+    requestCases: [],
+    changeLog: [],
+    manualChangeNote: ''
+  },
+  imageCache: {}
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+  bindGlobalEvents();
+});
+
+function bindGlobalEvents() {
+  document.getElementById('requestOtpButton').addEventListener('click', onRequestOtp);
+  document.getElementById('verifyOtpButton').addEventListener('click', onVerifyOtp);
+  document.getElementById('refreshDriveButton').addEventListener('click', onRefreshDriveChanges);
+  document.getElementById('saveDraftButton').addEventListener('click', onSaveDraft);
+  document.getElementById('publishButton').addEventListener('click', onPublish);
+  document.querySelectorAll('[data-panel-target]').forEach((button) => {
+    button.addEventListener('click', () => activatePanel(button.getAttribute('data-panel-target')));
+  });
+}
+
+function activatePanel(panelId) {
+  document.querySelectorAll('[data-panel-target]').forEach((button) => {
+    button.classList.toggle('is-active', button.getAttribute('data-panel-target') === panelId);
+  });
+  document.querySelectorAll('[data-panel]').forEach((panel) => {
+    panel.classList.toggle('is-active', panel.getAttribute('data-panel') === panelId);
+  });
+  if (panelId === 'logs') {
+    renderLogs();
+  }
+}
+
+function setStatus(message, kind = 'default') {
+  const status = document.getElementById('statusMessage');
+  status.textContent = message;
+  status.style.color = kind === 'error' ? '#ffd5d5' : (kind === 'success' ? '#0a0a0a' : '');
+  status.style.background = kind === 'error' ? 'rgba(243,108,108,0.18)' : (kind === 'success' ? 'rgba(136,196,132,0.92)' : 'rgba(255,255,255,0.04)');
+}
+
+function setAuthStatus(message, kind = 'default') {
+  const box = document.getElementById('authStatus');
+  box.innerHTML = `<div>${escapeHtml(message)}</div>`;
+  box.style.color = kind === 'error' ? '#ffd5d5' : (kind === 'success' ? '#0a0a0a' : 'rgba(255,255,255,0.82)');
+  box.style.background = kind === 'error' ? 'rgba(243,108,108,0.18)' : (kind === 'success' ? 'rgba(136,196,132,0.92)' : 'rgba(255,255,255,0.04)');
+}
+
+function escapeHtml(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function formatDate(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0')
+  ].join('.');
+}
+
+function optionHtml(options, selectedId, includeBlankLabel) {
+  const rows = [];
+  if (includeBlankLabel) {
+    rows.push(`<option value="">${escapeHtml(includeBlankLabel)}</option>`);
+  }
+  (options || []).forEach((item) => {
+    rows.push(`<option value="${escapeHtml(item.id)}" ${item.id === selectedId ? 'selected' : ''}>${escapeHtml(item.name)}</option>`);
+  });
+  return rows.join('');
+}
+
+function serverCall(functionName, ...args) {
+  if (window.MOCK_BACKEND && typeof window.MOCK_BACKEND[functionName] === 'function') {
+    return Promise.resolve(window.MOCK_BACKEND[functionName](...args));
+  }
+  return new Promise((resolve, reject) => {
+    google.script.run
+      .withSuccessHandler(resolve)
+      .withFailureHandler((error) => reject(new Error(error && error.message ? error.message : String(error))))
+      [functionName](...args);
+  });
+}
+
+async function getFolderImagesCached(folderId, forceRefresh = false) {
+  if (!folderId) return [];
+
+  if (!forceRefresh && appState.imageCache[folderId]) {
+    return appState.imageCache[folderId];
+  }
+
+  const images = await serverCall('getFolderImages', appState.sessionToken, folderId);
+  appState.imageCache[folderId] = images || [];
+  return appState.imageCache[folderId];
+}
+
+async function getFolderImagesFresh(folderId) {
+  return getFolderImagesCached(folderId, true);
+}
+
+let driveRefreshInFlight = false;
+
+function syncCurrentEditorsToState() {
+  try {
+    if (document.getElementById('recruitCalendarFolder')) {
+      appState.state.recruitCalendar = readRecruitFromDom();
+    }
+
+    if (document.querySelector('[data-activity-item]')) {
+      appState.state.activityArticles = readActivitiesFromDom();
+    }
+
+    if (document.querySelector('[data-exhibition-item]')) {
+      appState.state.exhibitions = readExhibitionsFromDom();
+    }
+
+    if (document.querySelector('[data-request-item]')) {
+      appState.state.requestCases = readRequestsFromDom();
+    }
+
+    syncManualChangeNote();
+  } catch (error) {
+    console.warn('編集中データの同期を一部スキップしました', error);
+  }
+}
+
+function collectSelectedDriveFolderIds() {
+  const ids = [];
+
+  const recruit = appState.state.recruitCalendar || {};
+  if (recruit.folderId) ids.push(recruit.folderId);
+
+  (appState.state.activityArticles || []).forEach((item) => {
+    if (item.photoFolderId) ids.push(item.photoFolderId);
+  });
+
+  (appState.state.exhibitions || []).forEach((item) => {
+    if (item.driveFolderId) ids.push(item.driveFolderId);
+  });
+
+  (appState.state.requestCases || []).forEach((item) => {
+    if (item.photoFolderId) ids.push(item.photoFolderId);
+  });
+
+  return Array.from(new Set(ids.filter(Boolean)));
+}
+
+function nonDmImageFiles(files) {
+  return (files || []).filter((file) => !/^dm(?:[0-9０-９]+)?\./i.test(file.name || ''));
+}
+
+function mergeWorksWithDriveImagesForRefresh(existingWorks, driveImages) {
+  const previousByFileName = {};
+  (existingWorks || []).forEach((work) => {
+    if (work.imageFileName) {
+      previousByFileName[work.imageFileName] = work;
+    }
+  });
+
+  return nonDmImageFiles(driveImages)
+    .slice(0, EXHIBITION_WORK_LIMIT)
+    .map((file) => {
+      const previous = previousByFileName[file.name] || {};
+      return {
+        imageFileName: file.name,
+        thumbnailUrl: file.thumbnailUrl,
+        workTitle: previous.workTitle || '',
+        artistName: previous.artistName || ''
+      };
+    });
+}
+
+function detectRemovedWorkFileNames(existingWorks, driveImages) {
+  const currentNames = new Set(nonDmImageFiles(driveImages).map((file) => file.name));
+
+  return (existingWorks || [])
+    .map((work) => work.imageFileName)
+    .filter((name) => name && !currentNames.has(name));
+}
+
+async function onRefreshDriveChanges() {
+  if (driveRefreshInFlight) return;
+
+  driveRefreshInFlight = true;
+  const previousImageCache = Object.assign({}, appState.imageCache);
+
+  try {
+    syncCurrentEditorsToState();
+
+    setStatus('Driveの変更を反映しています…');
+
+    const options = await serverCall('listDriveFolders', appState.sessionToken);
+    appState.options = options || appState.options || {};
+
+    const selectedFolderIds = collectSelectedDriveFolderIds();
+
+    await Promise.all(selectedFolderIds.map((folderId) => getFolderImagesFresh(folderId)));
+
+    const removedMessages = [];
+
+    (appState.state.exhibitions || []).forEach((exhibition) => {
+      if (!exhibition.driveFolderId) return;
+
+      const driveImages = appState.imageCache[exhibition.driveFolderId] || [];
+      const removed = detectRemovedWorkFileNames(exhibition.works || [], driveImages);
+
+      if (removed.length) {
+        removedMessages.push(
+          `${exhibition.title || '展示会'}: ${removed.join(', ')}`
+        );
+      }
+    });
+
+    if (removedMessages.length) {
+      const ok = confirm(
+        'Driveから見つからなくなった作品画像があります。\n' +
+        '該当する作品情報は表示対象から外れます。\n\n' +
+        removedMessages.join('\n') +
+        '\n\nDriveの変更を反映しますか？'
+      );
+
+      if (!ok) {
+        appState.imageCache = previousImageCache;
+        setStatus('Driveの変更反映をキャンセルしました。');
+        return;
+      }
+    }
+
+    appState.state.exhibitions = (appState.state.exhibitions || []).map((exhibition) => {
+      if (!exhibition.driveFolderId) return exhibition;
+
+      const driveImages = appState.imageCache[exhibition.driveFolderId] || [];
+
+      return Object.assign({}, exhibition, {
+        works: mergeWorksWithDriveImagesForRefresh(exhibition.works || [], driveImages)
+      });
+    });
+
+    renderAll();
+
+    setStatus('Driveの変更を反映しました。', 'success');
+  } catch (error) {
+    appState.imageCache = previousImageCache;
+    setStatus(error.message, 'error');
+  } finally {
+    driveRefreshInFlight = false;
+  }
+}
+
+
+function sortExhibitions(items) {
+  const weight = { upcoming: 0, archive: 1 };
+  return (items || []).slice().sort((a, b) => {
+    const bucketA = Object.prototype.hasOwnProperty.call(weight, a.displayBucket) ? weight[a.displayBucket] : 99;
+    const bucketB = Object.prototype.hasOwnProperty.call(weight, b.displayBucket) ? weight[b.displayBucket] : 99;
+    if (bucketA !== bucketB) return bucketA - bucketB;
+    const hasDateA = !!String(a.startDate || '').trim();
+    const hasDateB = !!String(b.startDate || '').trim();
+    if (!hasDateA && !hasDateB) return String(b.draftCreatedAt || '').localeCompare(String(a.draftCreatedAt || ''));
+    if (!hasDateA) return -1;
+    if (!hasDateB) return 1;
+    if (a.displayBucket === 'upcoming') return String(a.startDate || '').localeCompare(String(b.startDate || ''));
+    return String(b.startDate || '').localeCompare(String(a.startDate || ''));
+  });
+}
+
+function visibleChipHtml(published) {
+  return `<span class="visibility-chip${published ? '' : ' is-hidden'}">${published ? '公開中' : '非公開'}</span>`;
+}
+
+function activityCategoryLabel(category) {
+  const labels = { record: '活動記録', event: 'イベント告知', other: 'その他' };
+  return labels[String(category || 'record')] || 'その他';
+}
+
+const GENERAL_IMAGE_LIMIT = 10;
+const EXHIBITION_WORK_LIMIT = 200;
+
+function limitFolderImages(images, limit) {
+  const list = Array.isArray(images) ? images : [];
+  return { total: list.length, items: list.slice(0, limit), hidden: Math.max(0, list.length - limit) };
+}
+
+function folderImageWarning(total, limit, label) {
+  if (!(total > limit)) return '';
+  return `<div class="warning-note">${escapeHtml(label)}は${limit}枚まで表示します（${total}枚中${limit}枚を使用）。</div>`;
+}
+
+function looksLegacySummarySegment(segment) {
+  return segment === '新歓イベントカレンダーを更新'
+    || /^(活動記事|活動記録・告知|ご依頼事例|取り組み事例|取り組み)「.+?」(?:を追加|を更新|の情報を公開)?$/.test(segment)
+    || /^展示会「.+?」(?:を追加|を更新|の情報を公開)?$/.test(segment);
+}
+
+function splitSummarySegments(summary) {
+  const normalized = String(summary || '').replace(/\r\n?/g, '\n').trim();
+  if (!normalized) return [];
+  if (normalized.indexOf('\n') !== -1) return normalized.split(/\n+/).map((part) => part.trim()).filter(Boolean);
+  const legacyParts = normalized.split(/\s\/\s/).map((part) => part.trim()).filter(Boolean);
+  if (legacyParts.length > 1 && legacyParts.every(looksLegacySummarySegment)) return legacyParts;
+  return [normalized];
+}
+
+function publicSegmentKey(segment) {
+  if (segment === '新歓イベントカレンダーを更新') return { kind: 'recruit', title: '' };
+  let m = segment.match(/^(活動記事|活動記録・告知)「(.+?)」(?:を追加|を更新|の情報を公開)?$/);
+  if (m) return { kind: 'activity', title: m[2] };
+  m = segment.match(/^(ご依頼事例|取り組み事例|取り組み)「(.+?)」(?:を追加|を更新|の情報を公開)?$/);
+  if (m) return { kind: 'request', title: m[2] };
+  m = segment.match(/^展示会「(.+?)」(?:を追加|を更新|の情報を公開)?$/);
+  if (m) return { kind: 'exhibition', title: m[1] };
+  return { kind: '', title: '' };
+}
+
+function canonicalPublicSummary(kind, title) {
+  if (kind === 'recruit') return '新歓イベントカレンダーを更新';
+  if (kind === 'activity' && title) return `活動記録・告知「${title}」`;
+  if (kind === 'request' && title) return `取り組み「${title}」`;
+  if (kind === 'exhibition' && title) return `展示会「${title}」の情報を公開`;
+  return title || '';
+}
+
+function buildVisibleTitleSets(state) {
+  const out = { activity: new Set(), request: new Set(), exhibition: new Set() };
+  (state.activityArticles || []).filter((item) => item.published !== false).forEach((item) => out.activity.add(String(item.title || '')));
+  (state.requestCases || []).filter((item) => item.published !== false).forEach((item) => out.request.add(String(item.title || '')));
+  (state.exhibitions || []).filter((item) => item.published !== false).forEach((item) => out.exhibition.add(String(item.title || '')));
+  return out;
+}
+
+function summarizePendingPublicChanges(beforeState, afterState, manualNote) {
+  const messages = [];
+  const pushUnique = (value) => {
+    if (value && messages.indexOf(value) === -1) messages.push(value);
+  };
+  const beforeRecruit = beforeState && beforeState.recruitCalendar ? beforeState.recruitCalendar.folderId : '';
+  const afterRecruit = afterState.recruitCalendar ? afterState.recruitCalendar.folderId : '';
+  if (beforeRecruit !== afterRecruit && afterRecruit) pushUnique('新歓イベントカレンダーを更新');
+
+  const beforeActivities = {}; (beforeState.activityArticles || []).forEach((item) => beforeActivities[item.articleId] = item);
+  (afterState.activityArticles || []).forEach((item) => {
+    const before = beforeActivities[item.articleId];
+    if ((!before || before.published === false) && item.published !== false) pushUnique(`活動記録・告知「${item.title}」`);
+  });
+
+  const beforeRequests = {}; (beforeState.requestCases || []).forEach((item) => beforeRequests[item.caseId] = item);
+  (afterState.requestCases || []).forEach((item) => {
+    const before = beforeRequests[item.caseId];
+    if ((!before || before.published === false) && item.published !== false) pushUnique(`取り組み「${item.title}」`);
+  });
+
+  const beforeExhibitions = {}; (beforeState.exhibitions || []).forEach((item) => beforeExhibitions[item.exhibitionId] = item);
+  (afterState.exhibitions || []).forEach((item) => {
+    const before = beforeExhibitions[item.exhibitionId];
+    if ((!before || before.published === false) && item.published !== false) pushUnique(`展示会「${item.title}」の情報を公開`);
+  });
+
+  if (manualNote) pushUnique(manualNote);
+  return messages.join('\n');
+}
+
+function deriveSiteHistoryEntries(baseLog, state, pendingSummary) {
+  const visible = buildVisibleTitleSets(state);
+  const entries = [];
+  if (pendingSummary) entries.push({ timestamp: new Date().toISOString(), summary: pendingSummary });
+  (baseLog || []).forEach((item) => entries.push(item));
+  const groups = new Map();
+  entries.forEach((entry) => {
+    const dateKey = formatDate(entry.timestamp);
+    if (!groups.has(dateKey)) groups.set(dateKey, []);
+    splitSummarySegments(entry.summary).forEach((segment) => {
+      const { kind, title } = publicSegmentKey(segment);
+      let keep = false;
+      let normalized = segment;
+      if (kind === 'recruit') {
+        keep = true;
+        normalized = canonicalPublicSummary('recruit');
+      } else if (kind && title) {
+        keep = visible[kind] && visible[kind].has(title);
+        normalized = canonicalPublicSummary(kind, title);
+      } else if (!kind) {
+        keep = !!segment;
+      }
+      if (keep && groups.get(dateKey).indexOf(normalized) === -1) groups.get(dateKey).push(normalized);
+    });
+  });
+  return Array.from(groups.entries()).filter(([, items]) => items.length).map(([date, items]) => ({ date, items }));
+}
+
+function buildSiteHistoryComparison(currentEntries, nextEntries) {
+  const currentMap = new Map();
+  const nextMap = new Map();
+  const grouped = new Map();
+
+  function ensureDate(date) {
+    if (!grouped.has(date)) grouped.set(date, []);
+    return grouped.get(date);
+  }
+
+  currentEntries.forEach((entry) => {
+    entry.items.forEach((summary, index) => {
+      currentMap.set(`${entry.date}::${summary}`, { date: entry.date, summary, index });
+    });
+  });
+
+  nextEntries.forEach((entry) => {
+    entry.items.forEach((summary, index) => {
+      const key = `${entry.date}::${summary}`;
+      nextMap.set(key, { date: entry.date, summary, index });
+      ensureDate(entry.date).push({ summary, status: currentMap.has(key) ? 'unchanged' : 'added', order: index });
+    });
+  });
+
+  currentEntries.forEach((entry) => {
+    entry.items.forEach((summary, index) => {
+      const key = `${entry.date}::${summary}`;
+      if (nextMap.has(key)) return;
+      ensureDate(entry.date).push({ summary, status: 'removed', order: 1000 + index });
+    });
+  });
+
+  return Array.from(grouped.entries())
+    .sort((a, b) => String(b[0]).localeCompare(String(a[0])))
+    .map(([date, items]) => ({
+      date,
+      items: items.sort((a, b) => a.order - b.order).map(({ summary, status }) => ({ summary, status }))
+    }))
+    .filter((entry) => entry.items.length);
+}
+
+function buildThumbCarouselHtml(images, poster=false) {
+  const source = (images || []).slice(0, 10);
+  if (!source.length) return '';
+  if (poster) {
+    const first = source[0];
+    const firstUrl = escapeHtml(first.thumbnailUrl || first.image || first);
+    const dots = source.length > 1 ? `<div class="preview-poster-dots">${source.slice(0, 2).map((_, index) => `<span class="${index === 0 ? 'is-active' : ''}"></span>`).join('')}</div>` : '';
+    return `
+      <div class="preview-carousel poster is-poster-carousel">
+        <div class="preview-thumb"><img src="${firstUrl}" alt=""></div>
+        ${dots}
+      </div>`;
+  }
+  const visible = source.slice(0, 4);
+  const extra = Math.max(0, source.length - visible.length);
+  const countClass = `count-${Math.min(source.length, 4)}`;
+  return `<div class="preview-carousel ${countClass}">${visible.map((img, index) => {
+    const url = escapeHtml(img.thumbnailUrl || img.image || img);
+    const more = (extra && index === visible.length - 1) ? `<span class="preview-more">+${extra}</span>` : '';
+    return `<div class="preview-thumb"><img src="${url}" alt="">${more}</div>`;
+  }).join('')}</div>`;
+}
+
+
+function buildRecruitPreviewHtml(images) {
+  const source = (images || []).slice(0, 10);
+  if (!source.length) return '';
+  const first = source[0];
+  const url = escapeHtml(first.thumbnailUrl || first.image || first);
+  const dots = source.length > 1 ? `<div class="preview-recruit-dots">${source.map((_, index) => `<span class="${index === 0 ? 'is-active' : ''}"></span>`).join('')}</div>` : '';
+  return `
+    <div class="preview-recruit-carousel">
+      <img src="${url}" alt="新歓イベントカレンダー">
+      ${dots}
+    </div>
+  `;
+}
+
+function buildMetaListHtml(item) {
+  const venueValue = item.venueName
+    ? `${escapeHtml(item.venueName)}${item.venueAddress ? `<span class="address">${escapeHtml(item.venueAddress)}</span>` : ''}`
+    : '';
+  const dateTimeValue = `${item.dateLine ? `<span>${escapeHtml(item.dateLine)}</span>` : ''}${item.timeLine ? `<span class="address">${escapeHtml(item.timeLine)}</span>` : ''}`;
+  return `
+    <div class="preview-meta-list">
+      <div class="preview-meta-row"><div class="preview-meta-label">会期</div><div class="preview-meta-value">${dateTimeValue}</div></div>
+      <div class="preview-meta-row"><div class="preview-meta-label">会場</div><div class="preview-meta-value">${venueValue}</div></div>
+    </div>
+  `;
+}
+
+async function onRequestOtp() {
+  const email = document.getElementById('authEmail').value.trim();
+  try {
+    setAuthStatus('確認コードを送信しています…');
+    const result = await serverCall('requestOtp', email);
+    setAuthStatus(`${result.email} に確認コードを送信しました。`, 'success');
+    document.getElementById('otpField').classList.remove('hidden');
+  } catch (error) {
+    setAuthStatus(error.message, 'error');
+  }
+}
+
+async function onVerifyOtp() {
+  const button = document.getElementById('verifyOtpButton');
+  const email = document.getElementById('authEmail').value.trim();
+  const otp = document.getElementById('authOtp').value.trim();
+
+  if (button.disabled) return;
+
+  button.disabled = true;
+  button.textContent = '認証中…';
+
+  let verified = false;
+
+  try {
+    setAuthStatus('認証を確認しています…');
+    const result = await serverCall('verifyOtp', email, otp);
+
+    verified = true;
+    appState.sessionToken = result.sessionToken;
+    appState.viewerName = result.name || result.email;
+    appState.viewerEmail = result.email;
+
+    document.getElementById('viewerName').textContent = result.name || result.email;
+    document.getElementById('viewerEmail').textContent = result.email;
+
+    setAuthStatus('認証に成功しました。データを読み込んでいます…', 'success');
+
+    await loadBootstrap();
+
+    document.getElementById('authShell').classList.add('hidden');
+    document.getElementById('appShell').classList.remove('hidden');
+  } catch (error) {
+    setAuthStatus(error.message, 'error');
+
+    if (!verified) {
+      button.disabled = false;
+      button.textContent = '認証して続行';
+    }
+  }
+}
+
+async function loadBootstrap() {
+  if (!appState.sessionToken && !window.MOCK_BACKEND) return;
+  try {
+    setStatus('最新データを読み込んでいます…');
+    const data = await serverCall('getBootstrapData', appState.sessionToken);
+    appState.viewerEmail = data.viewerEmail;
+    appState.viewerName = data.viewerName || data.viewerEmail;
+    appState.previewUrl = data.previewUrl || '';
+    appState.options = data.options;
+    appState.state = data.state;
+    appState.loadedState = JSON.parse(JSON.stringify(data.state || {}));
+    appState.drafts = data.drafts || [];
+    appState.adminLog = data.adminLog || [];
+    const nameEl = document.getElementById('viewerName'); if (nameEl) nameEl.textContent = appState.viewerName || '-';
+    const emailEl = document.getElementById('viewerEmail'); if (emailEl) emailEl.textContent = appState.viewerEmail || '-';
+    renderAll();
+    setStatus('読み込み完了');
+  } catch (error) {
+    setStatus(error.message, 'error');
+  }
+}
+
+function renderAll() {
+  renderDashboard();
+  renderRecruitEditor();
+  renderActivitiesEditor();
+  renderExhibitionsEditor();
+  renderRequestsEditor();
+  renderLogs();
+  const link = document.getElementById('openPreviewLink');
+  if (appState.previewUrl) {
+    link.href = appState.previewUrl;
+    link.classList.remove('hidden');
+  }
+}
+
+
+
+function renderDashboard() {
+  const state = appState.state || {};
+  const roots = appState.options.roots || {};
+  const publishedActivities = (state.activityArticles || []).filter((item) => item.published !== false).length;
+  const publishedExhibitions = (state.exhibitions || []).filter((item) => item.published !== false).length;
+  const publishedRequests = (state.requestCases || []).filter((item) => item.published !== false).length;
+  const draftsHtml = (appState.drafts || []).length ? appState.drafts.map((item) => `
+    <div class="log-item draft-item">
+      <div class="log-date">${formatDate(item.savedAt)} / ${escapeHtml(item.savedByName || item.savedByEmail || '')}</div>
+      <div class="draft-actions-row">
+        <div>下書き ${escapeHtml((item.draftId || '').slice(0, 8))}</div>
+        <button class="button subtle" type="button" onclick="loadDraftIntoEditor('${escapeHtml(item.draftId)}')">読み込む</button>
+      </div>
+    </div>`).join('') : '<div class="small-note">保存済みの下書きはありません。</div>';
+  const adminHtml = (appState.adminLog || []).length ? appState.adminLog.map((item) => `
+    <div class="log-item">
+      <div class="log-date">${formatDate(item.timestamp)} / ${escapeHtml(item.actorName || item.actorEmail || '不明')}</div>
+      <div>${escapeHtml(item.detail || item.action || '')}</div>
+    </div>`).join('') : '<div class="small-note">まだ公開履歴がありません。</div>';
+  const html = `
+    <div class="stack">
+      <div class="card">
+        <h2>概要</h2>
+        <p class="lead">日常的に触る項目だけを、この画面から編集できます。</p>
+        <div class="kpi-grid">
+          <div class="kpi"><div class="kpi-label">活動記録・告知</div><div class="kpi-value">${publishedActivities}</div></div>
+          <div class="kpi"><div class="kpi-label">展示会</div><div class="kpi-value">${publishedExhibitions}</div></div>
+          <div class="kpi"><div class="kpi-label">取り組み事例</div><div class="kpi-value">${publishedRequests}</div></div>
+          <div class="kpi"><div class="kpi-label">公開履歴</div><div class="kpi-value">${(state.changeLog || []).length}</div></div>
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <h3>下書き一覧</h3>
+          <div class="log-list">${draftsHtml}</div>
+        </div>
+        <div class="card">
+          <h3>公開履歴</h3>
+          <div class="log-list log-list-scroll">${adminHtml}</div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>素材フォルダ</h3>
+        <div class="stack compact-links">
+          ${renderRootLink((roots.recruit || {}).name || '新歓イベントカレンダー', roots.recruit)}
+          ${renderRootLink((roots.activity || {}).name || '活動記録・告知', roots.activity)}
+          ${renderRootLink((roots.exhibition || {}).name || '展示会', roots.exhibition)}
+          ${renderRootLink((roots.request || {}).name || '取り組み事例', roots.request)}
+        </div>
+      </div>
+    </div>
+  `;
+  document.getElementById('panel-dashboard').innerHTML = html;
+}
+
+function renderRootLink(label, item) {
+  if (!item) return '';
+  return `
+    <a class="root-link-row" href="${escapeHtml(item.url || '#')}" target="_blank" rel="noopener noreferrer">
+      <span>${escapeHtml(label)}</span>
+      <i class="fa-solid fa-up-right-from-square"></i>
+    </a>
+  `;
+}
+
+function renderRecruitEditor() {
+  const recruit = appState.state.recruitCalendar || { folderId: '', label: '' };
+  const panel = document.getElementById('panel-recruit');
+  panel.innerHTML = `
+    <div class="grid-2">
+      <div class="card">
+        <h2>入部希望の方</h2>
+        <p class="lead">公開する新歓イベントカレンダーを選びます。表示ラベルは必要に応じて調整できます。</p>
+        <div class="editor-link-spacer">${renderRootLink(((appState.options.roots || {}).recruit || {}).name || '新歓イベントカレンダー', (appState.options.roots || {}).recruit)}</div>
+        <div class="form-grid">
+          <div class="field full">
+            <label>公開する年度フォルダ</label>
+            <select id="recruitCalendarFolder" onchange="loadRecruitPreview(true)">
+              ${optionHtml(appState.options.recruitCalendars, recruit.folderId, '選択してください')}
+            </select>
+          </div>
+          <div class="field full">
+            <label>表示ラベル</label>
+            <input id="recruitCalendarLabel" value="${escapeHtml(recruit.label || '')}" placeholder="例: 2026年度 新歓イベントカレンダー" oninput="loadRecruitPreview(false)">
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>プレビュー</h3>
+        <div id="recruitPreview" class="preview-pane preview-frame"><div class="preview-empty">フォルダを選ぶとプレビューが表示されます。</div></div>
+      </div>
+    </div>
+  `;
+  if (recruit.folderId) loadRecruitPreview();
+}
+
+async function loadRecruitPreview(forceRefresh = false) {
+  const folderSelect = document.getElementById('recruitCalendarFolder');
+  const labelInput = document.getElementById('recruitCalendarLabel');
+  const preview = document.getElementById('recruitPreview');
+
+  if (!folderSelect || !preview) return;
+
+  const folderId = folderSelect.value;
+
+  if (!folderId) {
+    preview.innerHTML = '<div class="preview-empty">フォルダを選択してください。</div>';
+    return;
+  }
+
+  const label = labelInput && labelInput.value.trim()
+    ? labelInput.value.trim()
+    : '新歓イベントカレンダー';
+
+  preview.innerHTML = '<div class="preview-empty">画像を読み込んでいます…</div>';
+
+  try {
+    const imageResult = limitFolderImages(
+      await getFolderImagesCached(folderId, forceRefresh),
+      GENERAL_IMAGE_LIMIT
+    );
+
+    preview.innerHTML = `
+      <div class="preview-site">
+        <article class="preview-site-card">
+          <span class="preview-site-kicker">WELCOME CALENDAR</span>
+          <h4>${escapeHtml(label)}</h4>
+          ${buildRecruitPreviewHtml(imageResult.items)}
+          ${folderImageWarning(imageResult.total, GENERAL_IMAGE_LIMIT, '画像')}
+        </article>
+      </div>
+    `;
+  } catch (error) {
+    preview.innerHTML = `<div class="preview-empty">${escapeHtml(error.message || String(error))}</div>`;
+  }
+}
+
+function renderActivitiesEditor() {
+  const panel = document.getElementById('panel-activities');
+  const items = appState.state.activityArticles || [];
+  panel.innerHTML = `
+    <div class="grid-2">
+      <div class="card">
+        <div class="editor-item-head">
+          <div>
+            <h2>活動記録・告知</h2>
+            <div class="small-note">公開日が新しい順に表示されます。必要に応じて非公開にできます。</div>
+            <div class="editor-link-spacer">${renderRootLink(((appState.options.roots || {}).activity || {}).name || '活動記録・告知', (appState.options.roots || {}).activity)}</div>
+          </div>
+          <div class="item-actions">
+            <button class="button" type="button" onclick="addActivityArticle()">記事を追加</button>
+          </div>
+        </div>
+        <div id="activityEditorList" class="editor-list">
+          ${items.map((item, index) => renderActivityEditorItem(item, index)).join('')}
+        </div>
+      </div>
+      <div class="card">
+        <h3>プレビュー</h3>
+        <div id="activityPreview" class="preview-pane preview-frame"><div class="preview-empty">読み込み中…</div></div>
+      </div>
+    </div>
+  `;
+  refreshActivityPreview();
+}
+
+function renderActivityEditorItem(item, index) {
+  const published = item.published !== false;
+  return `
+    <article class="editor-item" data-activity-item data-index="${index}" data-id="${escapeHtml(item.articleId)}" data-created-at="${escapeHtml(item.createdAt || '')}" data-published="${published ? 'true' : 'false'}" data-bucket="${escapeHtml(item.displayBucket || 'archive')}">
+      <div class="editor-item-head">
+        <div>
+          <div class="item-title-line">
+            <div style="font-weight:700">${escapeHtml(item.title || '新規記事')}</div>
+            ${visibleChipHtml(published)}
+          </div>
+          <div class="editor-item-meta">初回公開日: ${formatDate(item.createdAt)}</div>
+        </div>
+        <div class="item-actions">
+          <button class="button hidden-toggle ${published ? '' : 'is-hidden'}" type="button" onclick="toggleActivityPublished(${index})">${published ? '非公開' : '公開に戻す'}</button>
+          <button class="button danger" type="button" onclick="removeActivityArticle(${index})">削除</button>
+        </div>
+      </div>
+      <div class="form-grid">
+        <div class="field full">
+          <label>記事タイトル</label>
+          <input data-field="title" value="${escapeHtml(item.title || '')}" oninput="refreshActivityPreview()">
+        </div>
+        <div class="field">
+          <label>カテゴリ</label>
+          <select data-field="category" onchange="refreshActivityPreview()">
+            <option value="record" ${String(item.category || 'record') === 'record' ? 'selected' : ''}>活動記録</option>
+            <option value="event" ${String(item.category || 'record') === 'event' ? 'selected' : ''}>イベント告知</option>
+            <option value="other" ${String(item.category || 'record') === 'other' ? 'selected' : ''}>その他</option>
+          </select>
+        </div>
+        <div class="field full">
+          <label>本文</label>
+          <textarea data-field="body" oninput="refreshActivityPreview()">${escapeHtml(item.body || '')}</textarea>
+        </div>
+        <div class="field full">
+          <label>写真フォルダ</label>
+          <select data-field="photoFolderId" onchange="refreshActivityPreview()">
+            ${optionHtml(appState.options.activityPhotoFolders, item.photoFolderId || '', '写真なし')}
+          </select>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+async function renderActivityPreview(items) {
+  const visible = (items || []).filter((item) => item.published !== false).slice().sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  if (!visible.length) return '<div class="preview-empty">公開中の記事はありません。</div>';
+  return Promise.all(visible.map(async (item) => {
+    const imageResult = item.photoFolderId ? limitFolderImages(await getFolderImagesCached(item.photoFolderId), GENERAL_IMAGE_LIMIT) : { total: 0, items: [] };
+    return `
+      <article class="preview-site-card">
+        <span class="preview-site-kicker">${escapeHtml(activityCategoryLabel(item.category))}</span>
+        <div class="preview-inline-meta"><span>${formatDate(item.createdAt)}</span></div>
+        <h4>${escapeHtml(item.title || 'タイトル未入力')}</h4>
+        <p>${escapeHtml(item.body || '本文未入力')}</p>
+        ${buildThumbCarouselHtml(imageResult.items)}
+        ${folderImageWarning(imageResult.total, GENERAL_IMAGE_LIMIT, '画像')}
+      </article>
+    `;
+  })).then((cards) => `<div class="preview-site">${cards.join('')}</div>`);
+}
+
+function addActivityArticle() {
+  appState.state.activityArticles.unshift({
+    articleId: '',
+    title: '',
+    body: '',
+    category: 'record',
+    photoFolderId: '',
+    published: true,
+    createdAt: new Date(Date.now() + 3600 * 1000).toISOString()
+  });
+  renderActivitiesEditor();
+}
+
+function toggleActivityPublished(index) {
+  const item = appState.state.activityArticles[index];
+  if (!item) return;
+  item.published = item.published === false;
+  renderActivitiesEditor();
+}
+
+function removeActivityArticle(index) {
+  if (!confirm('この記事を削除しますか？\n公開済みのコンテンツは削除ではなく非公開推奨です。')) return;
+  appState.state.activityArticles.splice(index, 1);
+  renderActivitiesEditor();
+}
+
+async function refreshActivityPreview() {
+  const html = await renderActivityPreview(readActivitiesFromDom());
+  document.getElementById('activityPreview').innerHTML = html;
+}
+
+function renderExhibitionsEditor() {
+  const panel = document.getElementById('panel-exhibitions');
+  const items = sortExhibitions(appState.state.exhibitions || []);
+  panel.innerHTML = `
+    <div class="grid-2">
+      <div class="card">
+        <div class="editor-item-head">
+          <div>
+            <h2>展示会</h2>
+            <div class="small-note">開始日をもとに自動で並びます。開催予定は複数設定でき、近い順に表示されます。直近の展示はアーカイブの最新1件から自動で反映されます。</div>
+            <div class="editor-link-spacer">${renderRootLink(((appState.options.roots || {}).exhibition || {}).name || '展示会', (appState.options.roots || {}).exhibition)}</div>
+          </div>
+          <div class="item-actions">
+            <button class="button" type="button" onclick="addExhibition()">展示会を追加</button>
+          </div>
+        </div>
+        <div id="exhibitionEditorList" class="editor-list">
+          ${items.map((item, index) => renderExhibitionEditorItem(item, index)).join('')}
+        </div>
+      </div>
+      <div class="card">
+        <h3>プレビュー</h3>
+        <div id="exhibitionPreview" class="preview-pane preview-frame"><div class="preview-empty">読み込み中…</div></div>
+      </div>
+    </div>
+  `;
+  refreshExhibitionPreview();
+  Array.from(document.querySelectorAll('[data-exhibition-item]')).forEach((node, idx) => {
+    const select = node.querySelector('[data-field="driveFolderId"]');
+    if (select && select.value) loadExhibitionFolderImages(idx);
+  });
+}
+
+function renderExhibitionEditorItem(item, index) {
+  const published = item.published !== false;
+  const bucketLabel = item.displayBucket === 'upcoming' ? '開催予定' : 'アーカイブ';
+  return `
+    <article class="editor-item" data-exhibition-item data-index="${index}" data-id="${escapeHtml(item.exhibitionId || '')}" data-published="${published ? 'true' : 'false'}" data-bucket="${escapeHtml(item.displayBucket || 'archive')}" data-created-order="${escapeHtml(item.draftCreatedAt || '')}">
+      <div class="editor-item-head">
+        <div>
+          ${visibleChipHtml(published)}
+          <div class="editor-item-meta">${bucketLabel}</div>
+        </div>
+        <div class="item-actions">
+          <button class="button subtle" type="button" onclick="toggleExhibitionBucket(${index})">${item.displayBucket === 'upcoming' ? 'アーカイブに移動' : '開催予定に戻す'}</button>
+          <button class="button hidden-toggle ${published ? '' : 'is-hidden'}" type="button" onclick="toggleExhibitionPublished(${index})">${published ? '非公開' : '公開に戻す'}</button>
+          <button class="button danger" type="button" onclick="removeExhibition(${index})">削除</button>
+        </div>
+      </div>
+      <div class="form-grid">
+        <div class="field full">
+          <label>展示会名</label>
+          <input data-field="title" value="${escapeHtml(item.title || '')}" oninput="refreshExhibitionPreview()">
+        </div>
+        <div class="field">
+          <label>開始日（自動並び替え用）</label>
+          <input data-field="startDate" type="date" value="${escapeHtml(item.startDate || '')}" onchange="syncExhibitionsFromDomAndRerender()">
+        </div>
+        <div class="field full">
+          <label>概要</label>
+          <input data-field="theme" value="${escapeHtml(item.theme || '')}" oninput="refreshExhibitionPreview()">
+        </div>
+        <div class="field">
+          <label>会場名</label>
+          <input data-field="venueName" value="${escapeHtml(item.venueName || '')}" oninput="refreshExhibitionPreview()">
+        </div>
+        <div class="field">
+          <label>会場住所</label>
+          <input data-field="venueAddress" value="${escapeHtml(item.venueAddress || '')}" oninput="refreshExhibitionPreview()">
+        </div>
+        <div class="field">
+          <label>会期表示</label>
+          <input data-field="dateLine" value="${escapeHtml(item.dateLine || '')}" placeholder="例: 2026年5月14日(木) - 5月18日(月)" oninput="refreshExhibitionPreview()">
+        </div>
+        <div class="field">
+          <label>時間帯表示</label>
+          <input data-field="timeLine" value="${escapeHtml(item.timeLine || '')}" placeholder="例: 11:00 - 19:00 / 初日 14:00から / 最終日 17:00まで" oninput="refreshExhibitionPreview()">
+        </div>
+        <div class="field full">
+          <label>Google マップ埋め込み URL（任意）</label>
+          <div class="field-icon-wrap">
+            <input data-field="mapEmbedUrl" value="${escapeHtml(item.mapEmbedUrl || '')}" oninput="refreshExhibitionPreview()">
+            <button class="icon-action-button" type="button" onclick="autofillExhibitionMap(${index})" aria-label="住所から埋め込みURLを生成" title="住所から埋め込みURLを生成"><i class="fa-solid fa-location-dot"></i></button>
+          </div>
+        </div>
+        <div class="field full">
+          <label>展示会フォルダ</label>
+          <select data-field="driveFolderId" onchange="loadExhibitionFolderImages(${index})">
+            ${optionHtml(appState.options.exhibitionFolders, item.driveFolderId || '', '選択してください')}
+          </select>
+        </div>
+      </div>
+      <div class="hr"></div>
+      <div class="stack">
+        <div class="confirm-note">DM1/DM2 と PDF 以外の画像を作品画像として扱います。</div>
+        <div id="exhibitionWorks_${index}">
+          ${renderExhibitionWorksEditor(item.works || [], item.driveFolderId || '')}
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+
+function renderExhibitionWorksEditor(works, folderId, totalCount = works.length) {
+  if (!works.length) {
+    return '<div class="small-note">展示会フォルダを選ぶと、作品名と作者名を入力できます。</div>';
+  }
+  const imageMap = {};
+  const cached = appState.imageCache[folderId] || [];
+  cached.forEach((file) => { imageMap[file.name] = file.thumbnailUrl; });
+  const itemsHtml = works.map((work, idx) => {
+    const thumb = imageMap[work.imageFileName] || work.thumbnailUrl || '';
+    const fileLabel = escapeHtml(work.imageFileName || `作品 ${idx + 1}`);
+    return `
+      <div class="work-editor-card" data-exhibition-work>
+        <div class="work-editor-media">
+          <div class="work-file-name" title="${fileLabel}">${fileLabel}</div>
+          <div class="work-editor-thumb">${thumb ? `<img src="${escapeHtml(thumb)}" alt="">` : '<div class="preview-empty">画像なし</div>'}</div>
+        </div>
+        <div class="work-editor-fields">
+          <input data-field="imageFileName" type="hidden" value="${escapeHtml(work.imageFileName || '')}">
+          <div class="field"><label>作品タイトル</label><input data-field="workTitle" value="${escapeHtml(work.workTitle || '')}" oninput="refreshExhibitionPreview()"></div>
+          <div class="field"><label>作者名</label><input data-field="artistName" value="${escapeHtml(work.artistName || '')}" oninput="refreshExhibitionPreview()"></div>
+        </div>
+      </div>`;
+  }).join('');
+  const warning = totalCount > EXHIBITION_WORK_LIMIT ? `<div class="warning-note">作品画像は${EXHIBITION_WORK_LIMIT}枚まで扱います（${totalCount}枚中${EXHIBITION_WORK_LIMIT}枚を使用）。</div>` : '';
+  return `<details class="work-editor-disclosure"><summary>作品情報を編集する (${works.length})</summary>${warning}<div class="work-editor-list">${itemsHtml}</div></details>`;
+}
+
+
+async function loadExhibitionFolderImages(index) {
+  const item = document.querySelector(`[data-exhibition-item][data-index="${index}"]`);
+  const folderId = item.querySelector('[data-field="driveFolderId"]').value;
+  const wrap = item.querySelector(`#exhibitionWorks_${index}`);
+  if (!folderId) {
+    wrap.innerHTML = renderExhibitionWorksEditor([], folderId, 0);
+    refreshExhibitionPreview();
+    return;
+  }
+  const files = await getFolderImagesFresh(folderId);
+  const currentWorks = Array.from(item.querySelectorAll('[data-exhibition-work]')).map((work) => ({
+    imageFileName: work.querySelector('[data-field="imageFileName"]').value,
+    workTitle: work.querySelector('[data-field="workTitle"]').value.trim(),
+    artistName: work.querySelector('[data-field="artistName"]').value.trim()
+  }));
+  const workMap = {};
+  currentWorks.forEach((work) => { workMap[work.imageFileName] = work; });
+  const filtered = files.filter((file) => !/^dm(?:[0-9０-９]+)?\./i.test(file.name || ''));
+  const limited = filtered.slice(0, EXHIBITION_WORK_LIMIT);
+  const works = limited.map((file) => ({
+    imageFileName: file.name,
+    thumbnailUrl: file.thumbnailUrl,
+    workTitle: workMap[file.name] ? workMap[file.name].workTitle : '',
+    artistName: workMap[file.name] ? workMap[file.name].artistName : ''
+  }));
+  wrap.innerHTML = renderExhibitionWorksEditor(works, folderId, filtered.length);
+  refreshExhibitionPreview();
+}
+
+
+
+async function renderExhibitionPreview(items) {
+  const visible = sortExhibitions((items || []).filter((item) => item.published !== false));
+  const upcoming = visible.filter((item) => item.displayBucket === 'upcoming');
+  const archive = visible.filter((item) => item.displayBucket === 'archive');
+  const recent = archive.length ? archive[0] : null;
+  const archiveRest = archive.slice(1);
+  const sections = [];
+
+  if (upcoming.length) {
+    const upcomingCards = await Promise.all(upcoming.map(async (item, idx) => {
+      const images = await getFolderImagesCached(item.driveFolderId);
+      const dm = images.filter((file) => /^dm(?:[0-9０-９]+)?\./i.test(file.name || ''));
+      return `
+        <article class="preview-site-card">
+          <span class="preview-site-kicker">${idx === 0 ? 'NEXT EXHIBITION' : 'UPCOMING'}</span>
+          <h4>${escapeHtml(item.title || '展示会名')}</h4>
+          <div class="preview-exhibition-layout">
+            <div class="preview-exhibition-copy">
+              <p class="preview-exhibition-overview">${escapeHtml(item.theme || '')}</p>
+              <div class="preview-exhibition-meta">${buildMetaListHtml(item)}</div>
+            </div>
+            <div class="preview-dm-slot">${buildThumbCarouselHtml(dm, true)}</div>
+          </div>
+        </article>
+      `;
+    }));
+    sections.push(upcomingCards.join(''));
+  }
+
+  if (recent) {
+    const images = await getFolderImagesCached(recent.driveFolderId);
+    const dm = images.filter((file) => /^dm(?:[0-9０-９]+)?\./i.test(file.name || ''));
+    const workImages = (recent.works || []).map((work) => {
+      const found = images.find((file) => file.name === work.imageFileName);
+      return found ? { thumbnailUrl: found.thumbnailUrl, title: work.workTitle, artist: work.artistName } : null;
+    }).filter(Boolean);
+    sections.push(`
+      <article class="preview-site-card">
+        <span class="preview-site-kicker">RECENT EXHIBITION</span>
+        <h4>${escapeHtml(recent.title || '展示会名')}</h4>
+        <div class="preview-exhibition-layout">
+          <div class="preview-exhibition-copy">
+            <p class="preview-exhibition-overview">${escapeHtml(recent.theme || '')}</p>
+            <div class="preview-exhibition-meta">${buildMetaListHtml(recent)}</div>
+          </div>
+          <div class="preview-dm-slot">${buildThumbCarouselHtml(dm, true)}</div>
+        </div>
+        ${workImages.length ? `<div class="preview-work-grid">${workImages.map((work) => `
+          <div class="preview-work-card">
+            <img src="${escapeHtml(work.thumbnailUrl)}" alt="">
+            <div style="font-weight:700">${escapeHtml(work.title || '')}</div>
+            <div class="small-note">${escapeHtml(work.artist || '')}</div>
+          </div>`).join('')}</div>` : ''}
+      </article>
+    `);
+  }
+
+  const archiveCards = await Promise.all(archiveRest.map(async (item) => {
+    const archiveImages = await getFolderImagesCached(item.driveFolderId);
+    const archiveDm = archiveImages.filter((file) => /^dm(?:[0-9０-９]+)?\./i.test(file.name || ''));
+    return `
+      <div class="preview-archive-item">
+        <div class="preview-archive-body">
+          <div style="font-weight:700; margin-bottom:6px;">${escapeHtml(item.title || '')}</div>
+          <div class="preview-dm-slot">${buildThumbCarouselHtml(archiveDm, true)}</div>
+          <div class="small-note" style="margin-bottom:8px;">${escapeHtml(item.theme || '')}</div>
+          ${buildMetaListHtml(item)}
+          <div class="preview-drive-wrap"><a class="button subtle" href="https://drive.google.com/drive/folders/${escapeHtml(item.driveFolderId || '')}" target="_blank" rel="noopener noreferrer">Google Driveで見る</a></div>
+        </div>
+      </div>`;
+  }));
+
+  sections.push(`
+    <article class="preview-site-card">
+      <span class="preview-site-kicker">ARCHIVE</span>
+      <h4>展示会アーカイブ</h4>
+      ${archiveCards.length ? `<div class="preview-archive-list">${archiveCards.join('')}</div>` : '<div class="preview-empty">公開中のアーカイブはありません。</div>'}
+    </article>
+  `);
+
+  return `<div class="preview-site">${sections.join('')}</div>`;
+}
+
+function syncExhibitionsFromDomAndRerender() {
+  appState.state.exhibitions = readExhibitionsFromDom();
+  renderExhibitionsEditor();
+}
+
+function addExhibition() {
+  appState.state.exhibitions.unshift({
+    exhibitionId: '',
+    displayBucket: 'upcoming',
+    startDate: '',
+    title: '',
+    theme: '',
+    venueName: '',
+    venueAddress: '',
+    dateLine: '',
+    timeLine: '',
+    mapEmbedUrl: '',
+    driveFolderId: '',
+    published: true,
+    draftCreatedAt: new Date(Date.now() + 3600 * 1000).toISOString(),
+    works: []
+  });
+  renderExhibitionsEditor();
+}
+
+function toggleExhibitionPublished(index) {
+  appState.state.exhibitions = readExhibitionsFromDom();
+  const sorted = sortExhibitions(appState.state.exhibitions);
+  const item = sorted[index];
+  if (!item) return;
+  item.published = item.published === false;
+  renderExhibitionsEditor();
+}
+
+function removeExhibition(index) {
+  if (!confirm('この展示会を削除しますか？\n公開済みのコンテンツは削除ではなく非公開推奨です。')) return;
+  appState.state.exhibitions = readExhibitionsFromDom();
+  const sorted = sortExhibitions(appState.state.exhibitions);
+  const target = sorted[index];
+  appState.state.exhibitions = (appState.state.exhibitions || []).filter((item) => item !== target);
+  renderExhibitionsEditor();
+}
+
+
+function toggleExhibitionBucket(index) {
+  appState.state.exhibitions = readExhibitionsFromDom();
+  const sorted = sortExhibitions(appState.state.exhibitions);
+  const target = sorted[index];
+  if (!target) return;
+  target.displayBucket = target.displayBucket === 'upcoming' ? 'archive' : 'upcoming';
+  appState.state.exhibitions = sortExhibitions(appState.state.exhibitions || []);
+  renderExhibitionsEditor();
+}
+
+function autofillExhibitionMap(index) {
+  const item = document.querySelector(`[data-exhibition-item][data-index="${index}"]`);
+  if (!item) return;
+  const venueName = item.querySelector('[data-field="venueName"]').value.trim();
+  const venueAddress = item.querySelector('[data-field="venueAddress"]').value.trim();
+  const query = [venueName, venueAddress].filter(Boolean).join(' ');
+  if (!query) {
+    alert('会場名または会場住所を入力してください。');
+    return;
+  }
+  item.querySelector('[data-field="mapEmbedUrl"]').value = `https://www.google.com/maps?q=${encodeURIComponent(query)}&output=embed`;
+  refreshExhibitionPreview();
+}
+
+async function refreshExhibitionPreview() {
+  const html = await renderExhibitionPreview(readExhibitionsFromDom());
+  document.getElementById('exhibitionPreview').innerHTML = html;
+}
+
+function renderRequestsEditor() {
+  const panel = document.getElementById('panel-requests');
+  const items = appState.state.requestCases || [];
+  panel.innerHTML = `
+    <div class="grid-2">
+      <div class="card">
+        <div class="editor-item-head">
+          <div>
+            <h2>ご依頼の方</h2>
+            <div class="small-note">紹介したい取り組み事例を並べます。新しく追加した事例は先頭に配置されます。</div>
+            <div class="editor-link-spacer">${renderRootLink(((appState.options.roots || {}).request || {}).name || '取り組み事例', (appState.options.roots || {}).request)}</div>
+          </div>
+          <div class="item-actions">
+            <button class="button" type="button" onclick="addRequestCase()">取り組み事例を追加</button>
+          </div>
+        </div>
+        <div id="requestEditorList" class="editor-list">
+          ${items.map((item, index) => renderRequestEditorItem(item, index)).join('')}
+        </div>
+      </div>
+      <div class="card">
+        <h3>プレビュー</h3>
+        <div id="requestPreview" class="preview-pane preview-frame"><div class="preview-empty">読み込み中…</div></div>
+      </div>
+    </div>
+  `;
+  refreshRequestPreview();
+}
+
+function renderRequestEditorItem(item, index) {
+  const published = item.published !== false;
+  return `
+    <article class="editor-item" data-request-item data-index="${index}" data-id="${escapeHtml(item.caseId || '')}" data-published="${published ? 'true' : 'false'}" data-bucket="${escapeHtml(item.displayBucket || 'archive')}">
+      <div class="editor-item-head">
+        <div>
+          <div class="item-title-line">
+            <div style="font-weight:700">${escapeHtml(item.title || '新規事例')}</div>
+            ${visibleChipHtml(published)}
+          </div>
+          <div class="editor-item-meta">表示順 ${index + 1}</div>
+        </div>
+        <div class="item-actions">
+          <button class="button" type="button" onclick="moveRequestCase(${index}, -1)">↑</button>
+          <button class="button" type="button" onclick="moveRequestCase(${index}, 1)">↓</button>
+          <button class="button hidden-toggle ${published ? '' : 'is-hidden'}" type="button" onclick="toggleRequestPublished(${index})">${published ? '非公開' : '公開に戻す'}</button>
+          <button class="button danger" type="button" onclick="removeRequestCase(${index})">削除</button>
+        </div>
+      </div>
+      <div class="form-grid">
+        <div class="field full">
+          <label>取り組みタイトル</label>
+          <input data-field="title" value="${escapeHtml(item.title || '')}" oninput="refreshRequestPreview()">
+        </div>
+        <div class="field full">
+          <label>本文</label>
+          <textarea data-field="body" oninput="refreshRequestPreview()">${escapeHtml(item.body || '')}</textarea>
+        </div>
+        <div class="field full">
+          <label>写真フォルダ</label>
+          <select data-field="photoFolderId" onchange="refreshRequestPreview()">
+            ${optionHtml(appState.options.requestPhotoFolders, item.photoFolderId || '', '写真なし')}
+          </select>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+
+async function renderRequestPreview(items) {
+  const visible = (items || []).filter((item) => item.published !== false);
+  if (!visible.length) return '<div class="preview-empty">公開中の事例はありません。</div>';
+  const cards = await Promise.all(visible.map(async (item, index) => {
+    const imageResult = item.photoFolderId ? limitFolderImages(await getFolderImagesCached(item.photoFolderId), GENERAL_IMAGE_LIMIT) : { total: 0, items: [] };
+    return `
+      <article class="preview-site-card">
+        <span class="preview-site-kicker">REQUESTS</span>
+        <div class="preview-inline-meta"><span>表示順 ${index + 1}</span></div>
+        <h4>${escapeHtml(item.title || 'タイトル未入力')}</h4>
+        <p>${escapeHtml(item.body || '本文未入力')}</p>
+        ${buildThumbCarouselHtml(imageResult.items)}
+        ${folderImageWarning(imageResult.total, GENERAL_IMAGE_LIMIT, '画像')}
+      </article>
+    `;
+  }));
+  return `<div class="preview-site">${cards.join('')}</div>`;
+}
+
+function addRequestCase() {
+  appState.state.requestCases.unshift({
+    caseId: '',
+    title: '',
+    body: '',
+    photoFolderId: '',
+    published: true
+  });
+  renderRequestsEditor();
+}
+
+function moveRequestCase(index, delta) {
+  const target = index + delta;
+  if (target < 0 || target >= appState.state.requestCases.length) return;
+  const items = appState.state.requestCases;
+  const tmp = items[index];
+  items[index] = items[target];
+  items[target] = tmp;
+  renderRequestsEditor();
+}
+
+function toggleRequestPublished(index) {
+  const item = appState.state.requestCases[index];
+  if (!item) return;
+  item.published = item.published === false;
+  renderRequestsEditor();
+}
+
+function removeRequestCase(index) {
+  if (!confirm('この事例を削除しますか？\n公開済みのコンテンツは削除ではなく非公開推奨です。')) return;
+  appState.state.requestCases.splice(index, 1);
+  renderRequestsEditor();
+}
+
+async function refreshRequestPreview() {
+  const html = await renderRequestPreview(readRequestsFromDom());
+  document.getElementById('requestPreview').innerHTML = html;
+}
+
+let logsPreviewTimer = 0;
+
+function scheduleLogsPreviewRefresh() {
+  if (logsPreviewTimer) clearTimeout(logsPreviewTimer);
+  logsPreviewTimer = setTimeout(() => {
+    logsPreviewTimer = 0;
+    renderLogsPreviewContent();
+  }, 120);
+}
+
+function buildLogsPreviewCardHtml() {
+  const currentPayload = buildPayloadFromDom();
+  const pendingSummary = summarizePendingPublicChanges(appState.loadedState || appState.state || {}, currentPayload, currentPayload.manualChangeNote || '');
+  const currentSiteHistory = deriveSiteHistoryEntries(appState.state.changeLog || [], appState.loadedState || appState.state || {}, '');
+  const nextSiteHistory = deriveSiteHistoryEntries(appState.state.changeLog || [], currentPayload, pendingSummary);
+  const compared = buildSiteHistoryComparison(currentSiteHistory, nextSiteHistory);
+  return `
+      <div class="card">
+        <h2>サイトの更新履歴プレビュー</h2>
+        <div class="small-note" style="margin-bottom:12px;">緑は今回の公開で新しく表示される項目、赤は今回の公開でサイト上から非表示になる項目です。</div>
+        <div class="preview-sim-legend">
+          <span class="preview-sim-chip is-added">追加・再表示</span>
+          <span class="preview-sim-chip is-removed">非表示</span>
+          <span class="preview-sim-chip is-unchanged">継続表示</span>
+        </div>
+        <div class="preview-sim-list">
+          ${compared.length ? compared.map((entry) => `
+            <div class="preview-sim-item">
+              <div class="preview-sim-date">${escapeHtml(entry.date)}</div>
+              <ul class="preview-sim-bullets">${entry.items.map((item) => `<li class="is-${escapeHtml(item.status)}"><span class="preview-sim-badge is-${escapeHtml(item.status)}">${item.status === 'added' ? '追加' : (item.status === 'removed' ? '非表示' : '継続')}</span><span class="preview-sim-text">${escapeHtml(item.summary)}</span></li>`).join('')}</ul>
+            </div>`).join('') : '<div class="small-note">まだ履歴がありません。</div>'}
+        </div>
+      </div>
+  `;
+}
+
+function renderLogsPreviewContent() {
+  const wrap = document.getElementById('logsPreviewContent');
+  if (!wrap) return;
+  wrap.innerHTML = buildLogsPreviewCardHtml();
+}
+
+function renderLogs() {
+  const panel = document.getElementById('panel-logs');
+  panel.innerHTML = `
+    <div class="stack">
+      <div class="card">
+        <h2>更新履歴メモ</h2>
+        <div class="small-note">必要なときだけ、自由記述の履歴を追加できます。サイト側の履歴には現在の公開状態に応じて表示されます。</div>
+        <div class="field full" style="margin-top:14px;">
+          <label>フリーテキスト履歴（改行ごとに1項目）</label>
+          <textarea id="manualChangeNote" placeholder="例: 会場のご案内を更新しました。\n次回展示の詳細を追記しました。" oninput="syncManualChangeNote(); scheduleLogsPreviewRefresh();">${escapeHtml(appState.state.manualChangeNote || '')}</textarea>
+        </div>
+      </div>
+      <div id="logsPreviewContent"></div>
+    </div>
+  `;
+  renderLogsPreviewContent();
+}
+
+function readRecruitFromDom() {
+  return {
+    folderId: document.getElementById('recruitCalendarFolder') ? document.getElementById('recruitCalendarFolder').value : '',
+    label: document.getElementById('recruitCalendarLabel') ? document.getElementById('recruitCalendarLabel').value.trim() : ''
+  };
+}
+
+function readActivitiesFromDom() {
+  return Array.from(document.querySelectorAll('[data-activity-item]')).map((item) => ({
+    articleId: item.getAttribute('data-id') || '',
+    title: item.querySelector('[data-field="title"]').value.trim(),
+    body: item.querySelector('[data-field="body"]').value.trim(),
+    category: item.querySelector('[data-field="category"]').value,
+    photoFolderId: item.querySelector('[data-field="photoFolderId"]').value,
+    published: item.getAttribute('data-published') !== 'false',
+    createdAt: item.getAttribute('data-created-at') || new Date().toISOString()
+  }));
+}
+
+function readExhibitionsFromDom() {
+  return sortExhibitions(Array.from(document.querySelectorAll('[data-exhibition-item]')).map((item) => ({
+    exhibitionId: item.getAttribute('data-id') || '',
+    displayBucket: item.getAttribute('data-bucket') || 'archive',
+    startDate: item.querySelector('[data-field="startDate"]').value,
+    title: item.querySelector('[data-field="title"]').value.trim(),
+    theme: item.querySelector('[data-field="theme"]').value.trim(),
+    venueName: item.querySelector('[data-field="venueName"]').value.trim(),
+    venueAddress: item.querySelector('[data-field="venueAddress"]').value.trim(),
+    dateLine: item.querySelector('[data-field="dateLine"]').value.trim(),
+    timeLine: item.querySelector('[data-field="timeLine"]').value.trim(),
+    mapEmbedUrl: item.querySelector('[data-field="mapEmbedUrl"]').value.trim(),
+    driveFolderId: item.querySelector('[data-field="driveFolderId"]').value,
+    published: item.getAttribute('data-published') !== 'false',
+    draftCreatedAt: item.getAttribute('data-created-order') || '',
+    works: Array.from(item.querySelectorAll('[data-exhibition-work]')).map((work) => ({
+      imageFileName: work.querySelector('[data-field="imageFileName"]').value,
+      workTitle: work.querySelector('[data-field="workTitle"]').value.trim(),
+      artistName: work.querySelector('[data-field="artistName"]').value.trim()
+    }))
+  })));
+}
+
+function readRequestsFromDom() {
+  return Array.from(document.querySelectorAll('[data-request-item]')).map((item) => ({
+    caseId: item.getAttribute('data-id') || '',
+    title: item.querySelector('[data-field="title"]').value.trim(),
+    body: item.querySelector('[data-field="body"]').value.trim(),
+    photoFolderId: item.querySelector('[data-field="photoFolderId"]').value,
+    published: item.getAttribute('data-published') !== 'false'
+  }));
+}
+
+function buildPayloadFromDom() {
+  return {
+    recruitCalendar: readRecruitFromDom(),
+    activityArticles: readActivitiesFromDom(),
+    exhibitions: readExhibitionsFromDom(),
+    requestCases: readRequestsFromDom(),
+    manualChangeNote: (document.getElementById('manualChangeNote') ? document.getElementById('manualChangeNote').value.trim() : (appState.state.manualChangeNote || ''))
+  };
+}
+
+
+async function refreshMetaAfterDraftSave(currentPayload) {
+  const data = await serverCall('getBootstrapData', appState.sessionToken);
+  appState.options = data.options;
+  appState.previewUrl = data.previewUrl || '';
+  appState.drafts = data.drafts || [];
+  appState.adminLog = data.adminLog || [];
+  appState.state = {
+    ...(data.state || {}),
+    ...(currentPayload || {}),
+    changeLog: (data.state && data.state.changeLog) || appState.state.changeLog || []
+  };
+  renderAll();
+}
+
+async function loadDraftIntoEditor(draftId) {
+  if (!confirm('現在の編集内容を下書きの内容で置き換えます。読み込みますか？')) return;
+  try {
+    setStatus('下書きを読み込んでいます…');
+    const payload = await serverCall('loadDraft', appState.sessionToken, draftId);
+    appState.state = { ...appState.state, ...payload };
+    renderAll();
+    setStatus('下書きを読み込みました。', 'success');
+  } catch (error) {
+    setStatus(error.message, 'error');
+  }
+}
+
+async function onSaveDraft() {
+  if (!confirm('現在の内容を新しい下書きとして保存しますか？')) return;
+  try {
+    const payload = buildPayloadFromDom();
+    setStatus('下書きを保存しています…');
+    const result = await serverCall('saveDraft', appState.sessionToken, payload);
+    setStatus(result.message, 'success');
+    await refreshMetaAfterDraftSave(payload);
+  } catch (error) {
+    setStatus(error.message, 'error');
+  }
+}
+
+async function onPublish() {
+  if (!confirm('この内容で公開しますか？')) return;
+  try {
+    setStatus('公開処理を開始しています…');
+    const result = await serverCall('publishState', appState.sessionToken, buildPayloadFromDom());
+    setStatus(result.changeSummary || result.message, 'success');
+    await loadBootstrap();
+  } catch (error) {
+    setStatus(error.message, 'error');
+  }
+}
+function syncManualChangeNote() {
+  const field = document.getElementById('manualChangeNote');
+  appState.state.manualChangeNote = field ? field.value.replace(/\r\n?/g, '\n').replace(/^\n+|\n+$/g, '') : '';
+}
+
+</script>

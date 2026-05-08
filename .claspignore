@@ -1,0 +1,6 @@
+.clasp.json
+.git/**
+.gitignore
+.env
+.env.*
+*.log

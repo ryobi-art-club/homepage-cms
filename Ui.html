@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <base target="_top">
+    <meta charset="UTF-8">
+    <title>凌美会 管理画面</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <?!= include('UiStyles'); ?>
+  </head>
+  <body>
+    <div id="authShell" class="auth-shell">
+      <div class="auth-card">
+        <h1>凌美会 管理画面</h1>
+        <p>サイト更新に必要な項目だけをまとめた画面です。最初に確認コードで認証してください。</p>
+        <div class="hr"></div>
+        <div class="stack">
+          <div class="field">
+            <label>メールアドレス</label>
+            <input id="authEmail" type="email" placeholder="example@example.com">
+          </div>
+          <div class="auth-actions">
+            <button id="requestOtpButton" class="button warning" type="button">確認コードを送信</button>
+          </div>
+          <div id="otpField" class="stack hidden">
+            <div class="field">
+              <label>確認コード</label>
+              <input id="authOtp" inputmode="numeric" placeholder="6桁のコード">
+            </div>
+            <div class="auth-actions">
+              <button id="verifyOtpButton" class="button success" type="button">認証して続行</button>
+            </div>
+          </div>
+          <div id="authStatus" class="status-box">
+            <div>未認証</div>
+            <div class="small-note">アクセスを許可されたメールアドレスのみ利用できます。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="appShell" class="app-shell hidden">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-badge"><i class="fa-solid fa-palette" aria-hidden="true"></i></div>
+          <div class="brand-copy">
+            <strong>凌美会 管理画面</strong>
+            <span>日常更新</span>
+          </div>
+        </div>
+        <div class="sidebar-nav">
+          <button class="nav-button is-active" data-panel-target="dashboard" type="button">ダッシュボード</button>
+          <button class="nav-button" data-panel-target="exhibitions" type="button">展示会</button>
+          <button class="nav-button" data-panel-target="activities" type="button">活動記録・告知</button>
+          <button class="nav-button" data-panel-target="recruit" type="button">入部希望の方</button>
+          <button class="nav-button" data-panel-target="requests" type="button">ご依頼の方</button>
+          <button class="nav-button" data-panel-target="logs" type="button">更新履歴</button>
+        </div>
+        <div class="sidebar-meta">
+          <p>認証済みアカウント</p>
+          <div id="viewerName" style="font-weight:700;">-</div><div id="viewerEmail" class="small-note">-</div>
+        </div>
+      </aside>
+
+      <main class="content">
+        <div class="topbar">
+          <div class="topbar-title">
+            <h1>サイト更新</h1>
+            <p>必要な項目だけ入力して、内容を確認しながら更新できます。</p>
+          </div>
+          <div class="topbar-actions">
+            <a id="openPreviewLink" class="button ghost hidden" href="#" target="_blank" rel="noopener noreferrer">サイトを開く</a>
+            <button id="refreshDriveButton" class="button ghost" type="button">ドライブの変更を反映</button>
+            <button id="saveDraftButton" class="button primary" type="button">下書き保存</button>
+            <button id="publishButton" class="button success" type="button">公開する</button>
+          </div>
+        </div>
+
+        <div id="statusMessage" class="status-box">準備完了</div>
+        <div style="height: 18px;"></div>
+
+        <section id="panel-dashboard" class="panel is-active" data-panel="dashboard"></section>
+        <section id="panel-recruit" class="panel" data-panel="recruit"></section>
+        <section id="panel-activities" class="panel" data-panel="activities"></section>
+        <section id="panel-exhibitions" class="panel" data-panel="exhibitions"></section>
+        <section id="panel-requests" class="panel" data-panel="requests"></section>
+        <section id="panel-logs" class="panel" data-panel="logs"></section>
+      </main>
+    </div>
+
+    <?!= include('UiScript'); ?>
+  </body>
+</html>
