@@ -1,13 +1,15 @@
 function getBootstrapData(sessionToken) {
   const session = requireSession_(sessionToken);
+  const state = readContentState_();
   return {
     viewerEmail: session.email,
     viewerName: session.name || session.email,
     previewUrl: getConfig_().SITE_PREVIEW_URL,
     options: listDriveFolders(sessionToken),
-    state: readContentState_(),
+    state: state,
     drafts: readDrafts_(),
-    adminLog: readAdminLog_()
+    adminLog: readAdminLog_(),
+    maintenance: getDriveMaintenanceSummary_(state)
   };
 }
 
@@ -39,6 +41,7 @@ function publishState(sessionToken, payload) {
     const currentPayloadJson = stableStringify_(buildPublicSnapshot_(normalized));
     const currentHash = sha256Hex_(currentPayloadJson);
 
+    finalizeManagedFolders_(normalized);
     writeStateToSheets_(normalized, session.name || session.email, session.email, true);
 
     let changeSummary = '内容を更新しました。';
@@ -53,6 +56,7 @@ function publishState(sessionToken, payload) {
     }
 
     clearDrafts_();
+    cleanupUnreferencedDraftFolders_(normalized);
     appendAdminLog_(session.name || session.email, session.email, 'published', buildAdminDiffSummary_(publishedInfo.payload, publicSnapshot, normalized.manualChangeNote));
     const dispatchInfo = dispatchGithubWorkflow_();
     return {
@@ -105,7 +109,7 @@ function normalizeRecruitCalendar_(value) {
   const folderId = String((value && value.folderId) || '').trim();
   return {
     folderId: folderId,
-    label: folderId ? String(value.label || '').trim() || '新歓イベントカレンダー' : ''
+    label: String(value && value.label || '').trim() || (folderId ? '新歓イベントカレンダー' : '')
   };
 }
 
@@ -133,7 +137,7 @@ function normalizeExhibitions_(items, existingItems) {
   (existingItems || []).forEach((item) => existingById[item.exhibitionId] = item);
   return (items || []).filter(Boolean).map((item) => {
     const exhibitionId = String(item.exhibitionId || '').trim() || 'exhibition-' + Utilities.getUuid().slice(0, 8);
-    const folderId = requireString_(item.driveFolderId, '展示会フォルダ', 200);
+    const folderId = String(item.driveFolderId || '').trim();
     const works = (item.works || []).filter(Boolean).slice(0, 200).map((work, idx) => ({
       imageFileName: requireString_(work.imageFileName, '作品画像ファイル名', 200),
       workTitle: cleanMultiline_(work.workTitle, 140),

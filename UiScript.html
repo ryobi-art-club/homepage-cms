@@ -6,6 +6,7 @@ const appState = {
   previewUrl: '',
   drafts: [],
   adminLog: [],
+  maintenance: { storage: null, recommendations: [] },
   options: {
     roots: {},
     recruitCalendars: [],
@@ -21,7 +22,10 @@ const appState = {
     changeLog: [],
     manualChangeNote: ''
   },
-  imageCache: {}
+  imageCache: {},
+  mediaCache: {},
+  dirty: false,
+  suppressDirty: false
 };
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -36,6 +40,17 @@ function bindGlobalEvents() {
   document.getElementById('publishButton').addEventListener('click', onPublish);
   document.querySelectorAll('[data-panel-target]').forEach((button) => {
     button.addEventListener('click', () => activatePanel(button.getAttribute('data-panel-target')));
+  });
+  document.addEventListener('input', (event) => {
+    if (event.target.closest && event.target.closest('#appShell')) markDirty();
+  });
+  document.addEventListener('change', (event) => {
+    if (event.target.closest && event.target.closest('#appShell')) markDirty();
+  });
+  window.addEventListener('beforeunload', (event) => {
+    if (!appState.dirty) return;
+    event.preventDefault();
+    event.returnValue = '';
   });
 }
 
@@ -122,6 +137,38 @@ async function getFolderImagesCached(folderId, forceRefresh = false) {
 
 async function getFolderImagesFresh(folderId) {
   return getFolderImagesCached(folderId, true);
+}
+
+async function getFolderMediaCached(folderId, forceRefresh = false) {
+  if (!folderId) return [];
+
+  if (!forceRefresh && appState.mediaCache[folderId]) {
+    return appState.mediaCache[folderId];
+  }
+
+  const files = await serverCall('getFolderMedia', appState.sessionToken, folderId);
+  appState.mediaCache[folderId] = files || [];
+  appState.imageCache[folderId] = (files || []).filter((file) => file.kind === 'image');
+  return appState.mediaCache[folderId];
+}
+
+async function getFolderMediaFresh(folderId) {
+  return getFolderMediaCached(folderId, true);
+}
+
+function invalidateFolderCache(folderId) {
+  if (!folderId) return;
+  delete appState.imageCache[folderId];
+  delete appState.mediaCache[folderId];
+}
+
+function markDirty() {
+  if (appState.suppressDirty) return;
+  appState.dirty = true;
+}
+
+function clearDirty() {
+  appState.dirty = false;
 }
 
 let driveRefreshInFlight = false;
@@ -505,6 +552,360 @@ function buildMetaListHtml(item) {
   `;
 }
 
+const FILE_WARN_SIZE = 5 * 1024 * 1024;
+const FILE_STRONG_WARN_SIZE = 10 * 1024 * 1024;
+const FILE_MAX_SIZE = 20 * 1024 * 1024;
+const FILE_TOTAL_WARN_SIZE = 50 * 1024 * 1024;
+
+function escapeJs(value) {
+  return String(value == null ? '' : value)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\r?\n/g, '\\n');
+}
+
+function ensureMediaDialog() {
+  let dialog = document.getElementById('mediaDialog');
+  if (dialog) return dialog;
+  dialog = document.createElement('div');
+  dialog.id = 'mediaDialog';
+  dialog.className = 'media-modal hidden';
+  dialog.innerHTML = `
+    <div class="media-modal-backdrop" onclick="closeMediaDialog()"></div>
+    <div class="media-modal-panel" role="dialog" aria-modal="true" aria-labelledby="mediaDialogTitle">
+      <div class="media-modal-head">
+        <div>
+          <h2 id="mediaDialogTitle">画像の設定</h2>
+          <div id="mediaDialogSubtitle" class="small-note"></div>
+        </div>
+        <button class="icon-action-button" type="button" onclick="closeMediaDialog()" aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="mediaDialogBody" class="media-modal-body"></div>
+    </div>
+  `;
+  document.body.appendChild(dialog);
+  return dialog;
+}
+
+function getContentRef(kind, index) {
+  if (kind === 'recruit') {
+    const item = appState.state.recruitCalendar || { folderId: '', label: '' };
+    appState.state.recruitCalendar = item;
+    return {
+      item,
+      folderKey: 'folderId',
+      title: item.label || '新歓イベントカレンダー',
+      dialogTitle: '画像の設定',
+      subtitle: '新歓イベントカレンダー'
+    };
+  }
+  if (kind === 'activity') {
+    const item = (appState.state.activityArticles || [])[index];
+    return {
+      item,
+      folderKey: 'photoFolderId',
+      title: item && item.title ? item.title : '活動記録・告知',
+      dialogTitle: '画像の設定',
+      subtitle: '活動記録・告知'
+    };
+  }
+  if (kind === 'request') {
+    const item = (appState.state.requestCases || [])[index];
+    return {
+      item,
+      folderKey: 'photoFolderId',
+      title: item && item.title ? item.title : '取り組み事例',
+      dialogTitle: '画像の設定',
+      subtitle: '取り組み事例'
+    };
+  }
+  if (kind === 'exhibition') {
+    const sorted = sortExhibitions(appState.state.exhibitions || []);
+    const item = sorted[index];
+    return {
+      item,
+      folderKey: 'driveFolderId',
+      title: item && item.title ? item.title : '展示会',
+      dialogTitle: '画像・目録の設定',
+      subtitle: '展示会'
+    };
+  }
+  return { item: null, folderKey: '', title: '', dialogTitle: '画像の設定', subtitle: '' };
+}
+
+function currentMediaContext() {
+  const active = appState.activeMedia || {};
+  const ref = getContentRef(active.kind, active.index);
+  return Object.assign({}, active, ref, {
+    folderId: ref.item && ref.folderKey ? String(ref.item[ref.folderKey] || '') : ''
+  });
+}
+
+async function openMediaDialog(kind, index = 0) {
+  syncCurrentEditorsToState();
+  appState.activeMedia = { kind, index };
+  const context = currentMediaContext();
+  if (!context.item) {
+    setStatus('対象コンテンツが見つかりません。', 'error');
+    return;
+  }
+  const dialog = ensureMediaDialog();
+  dialog.classList.remove('hidden');
+  document.getElementById('mediaDialogTitle').textContent = context.dialogTitle;
+  document.getElementById('mediaDialogSubtitle').textContent = context.title;
+  document.getElementById('mediaDialogBody').innerHTML = '<div class="preview-empty">素材を読み込んでいます…</div>';
+
+  try {
+    const files = context.folderId ? await getFolderMediaCached(context.folderId) : [];
+    renderMediaDialog(files);
+  } catch (error) {
+    document.getElementById('mediaDialogBody').innerHTML = `<div class="preview-empty">${escapeHtml(error.message || String(error))}</div>`;
+  }
+}
+
+function closeMediaDialog() {
+  const dialog = document.getElementById('mediaDialog');
+  if (dialog) dialog.classList.add('hidden');
+}
+
+function isDmFile(file) {
+  return /^dm(?:[0-9０-９]+)?\./i.test(file.name || '');
+}
+
+function mediaRoleOptions(context) {
+  if (context.kind !== 'exhibition') return '';
+  return `
+    <div class="field media-role-field">
+      <label>追加する種類</label>
+      <select id="mediaUploadRole">
+        <option value="work">作品画像</option>
+        <option value="dm">DM画像</option>
+        <option value="catalog">PDF目録</option>
+      </select>
+    </div>
+  `;
+}
+
+function renderMediaDialog(files) {
+  const context = currentMediaContext();
+  const imageFiles = (files || []).filter((file) => file.kind === 'image');
+  const pdfFiles = (files || []).filter((file) => file.kind === 'pdf');
+  const dmFiles = imageFiles.filter(isDmFile);
+  const workFiles = imageFiles.filter((file) => !isDmFile(file));
+  const genericImages = context.kind === 'exhibition' ? workFiles : imageFiles;
+  const accept = context.kind === 'exhibition' ? 'image/*,application/pdf' : 'image/*';
+  const folderUrl = context.folderId ? `https://drive.google.com/drive/folders/${encodeURIComponent(context.folderId)}` : '';
+
+  document.getElementById('mediaDialogBody').innerHTML = `
+    <div class="media-upload-box">
+      <div class="media-upload-row">
+        ${mediaRoleOptions(context)}
+        <div class="field media-file-field">
+          <label>ファイルを追加</label>
+          <input id="mediaUploadInput" type="file" multiple accept="${accept}">
+        </div>
+        <button class="button success" type="button" onclick="onMediaUpload()">アップロード</button>
+      </div>
+      <div class="small-note">大きいファイルはアップロード前に警告します。20MBを超えるファイルは分割・圧縮してください。</div>
+      ${folderUrl ? `<a class="root-link-row media-folder-link" href="${escapeHtml(folderUrl)}" target="_blank" rel="noopener noreferrer"><span>Driveで開く</span><i class="fa-solid fa-up-right-from-square"></i></a>` : ''}
+    </div>
+    ${context.kind === 'exhibition' ? `
+      <div class="media-section">
+        <h3>DM画像</h3>
+        ${renderMediaFileList(dmFiles, 'DM画像は未設定です。')}
+      </div>
+      <div class="media-section">
+        <h3>作品画像</h3>
+        ${renderMediaFileList(workFiles, '作品画像は未設定です。')}
+      </div>
+      <div class="media-section">
+        <h3>PDF目録</h3>
+        ${renderMediaFileList(pdfFiles, 'PDF目録は未設定です。')}
+      </div>
+    ` : `
+      <div class="media-section">
+        <h3>画像</h3>
+        ${renderMediaFileList(genericImages, '画像は未設定です。')}
+      </div>
+    `}
+  `;
+}
+
+function renderMediaFileList(files, emptyText) {
+  if (!files.length) return `<div class="preview-empty">${escapeHtml(emptyText)}</div>`;
+  return `<div class="media-file-grid">${files.map((file) => renderMediaFileCard(file)).join('')}</div>`;
+}
+
+function renderMediaFileCard(file) {
+  const thumb = file.kind === 'image'
+    ? `<img src="${escapeHtml(file.thumbnailUrl)}" alt="">`
+    : '<div class="pdf-thumb"><i class="fa-regular fa-file-pdf"></i><span>PDF</span></div>';
+  return `
+    <article class="media-file-card">
+      <div class="media-file-thumb">${thumb}</div>
+      <div class="media-file-name" title="${escapeHtml(file.name)}">${escapeHtml(file.name)}</div>
+      <div class="small-note">${formatBytes(file.size || 0)}</div>
+      <div class="media-file-actions">
+        <button class="button subtle" type="button" onclick="onMediaRename('${escapeJs(file.id)}', '${escapeJs(file.name)}')">名前変更</button>
+        <button class="button danger" type="button" onclick="onMediaDelete('${escapeJs(file.id)}', '${escapeJs(file.name)}')">削除</button>
+      </div>
+    </article>
+  `;
+}
+
+function validateMediaSelection(files, role, context) {
+  if (!files.length) throw new Error('アップロードするファイルを選択してください。');
+  let total = 0;
+  const warnings = [];
+  Array.from(files).forEach((file) => {
+    total += file.size || 0;
+    if (file.size > FILE_MAX_SIZE) {
+      throw new Error(`${file.name} は20MBを超えています。圧縮または分割してください。`);
+    }
+    if (context.kind !== 'exhibition' && !file.type.startsWith('image/')) {
+      throw new Error(`${file.name} は画像ファイルではありません。`);
+    }
+    if (context.kind === 'exhibition' && role === 'catalog' && file.type !== 'application/pdf') {
+      throw new Error(`${file.name} はPDFファイルではありません。`);
+    }
+    if (context.kind === 'exhibition' && role !== 'catalog' && !file.type.startsWith('image/')) {
+      throw new Error(`${file.name} は画像ファイルではありません。`);
+    }
+    if (file.size > FILE_STRONG_WARN_SIZE) warnings.push(`${file.name}: ${formatBytes(file.size)}（大きめ）`);
+    else if (file.size > FILE_WARN_SIZE) warnings.push(`${file.name}: ${formatBytes(file.size)}`);
+  });
+  if (total > FILE_TOTAL_WARN_SIZE) warnings.push(`合計: ${formatBytes(total)}`);
+  if (warnings.length) {
+    return confirm('大きいファイルが含まれています。\nアップロードに時間がかかる場合があります。\n\n' + warnings.join('\n') + '\n\n続行しますか？');
+  }
+  return true;
+}
+
+function readFilePayload(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const value = String(reader.result || '');
+      resolve({
+        name: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        data: value.indexOf(',') >= 0 ? value.split(',').pop() : value
+      });
+    };
+    reader.onerror = () => reject(reader.error || new Error('ファイルの読み込みに失敗しました。'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function onMediaUpload() {
+  const context = currentMediaContext();
+  const input = document.getElementById('mediaUploadInput');
+  const roleField = document.getElementById('mediaUploadRole');
+  const role = roleField ? roleField.value : 'image';
+  const selected = input && input.files ? Array.from(input.files) : [];
+
+  try {
+    if (!validateMediaSelection(selected, role, context)) return;
+    document.getElementById('mediaDialogBody').classList.add('is-loading');
+    setStatus('ファイルをアップロードしています…');
+    const files = await Promise.all(selected.map(readFilePayload));
+    const result = await serverCall('uploadManagedFiles', appState.sessionToken, {
+      kind: context.kind,
+      role,
+      folderId: context.folderId,
+      title: context.title,
+      draft: true,
+      files
+    });
+    applyMediaResult(result);
+    renderMediaDialog(result.files || []);
+    setStatus('アップロードしました。', 'success');
+  } catch (error) {
+    setStatus(error.message, 'error');
+  } finally {
+    const body = document.getElementById('mediaDialogBody');
+    if (body) body.classList.remove('is-loading');
+  }
+}
+
+async function onMediaRename(fileId, currentName) {
+  const context = currentMediaContext();
+  const requested = prompt('新しいファイル名を入力してください。', currentName);
+  if (requested == null) return;
+  try {
+    setStatus('ファイル名を変更しています…');
+    const result = await serverCall('renameManagedFile', appState.sessionToken, {
+      folderId: context.folderId,
+      fileId,
+      name: requested
+    });
+    applyMediaResult(result, { type: 'rename', fileId, oldName: currentName });
+    renderMediaDialog(result.files || []);
+    setStatus('ファイル名を変更しました。', 'success');
+  } catch (error) {
+    setStatus(error.message, 'error');
+  }
+}
+
+async function onMediaDelete(fileId, name) {
+  const context = currentMediaContext();
+  if (!confirm(`${name} を削除しますか？`)) return;
+  try {
+    setStatus('ファイルを削除しています…');
+    const result = await serverCall('trashManagedFile', appState.sessionToken, {
+      folderId: context.folderId,
+      fileId
+    });
+    applyMediaResult(result);
+    renderMediaDialog(result.files || []);
+    setStatus(result.folderTrashed ? '最後のファイルを削除したため、空のフォルダも削除しました。' : 'ファイルを削除しました。', 'success');
+  } catch (error) {
+    setStatus(error.message, 'error');
+  }
+}
+
+function applyMediaResult(result, mutation) {
+  const context = currentMediaContext();
+  if (!context.item || !context.folderKey) return;
+  const folderId = result && result.folderId ? result.folderId : '';
+  const oldFolderId = context.item[context.folderKey] || '';
+  context.item[context.folderKey] = folderId;
+  if (oldFolderId && oldFolderId !== folderId) invalidateFolderCache(oldFolderId);
+  if (folderId) {
+    appState.mediaCache[folderId] = result.files || [];
+    appState.imageCache[folderId] = (result.files || []).filter((file) => file.kind === 'image');
+  }
+
+  if (context.kind === 'exhibition') {
+    const files = result.files || [];
+    if (mutation && mutation.type === 'rename') {
+      const renamed = files.find((file) => file.id === mutation.fileId);
+      if (renamed) {
+        (context.item.works || []).forEach((work) => {
+          if (work.imageFileName === mutation.oldName) work.imageFileName = renamed.name;
+        });
+      }
+    }
+    context.item.works = mergeWorksWithDriveImagesForRefresh(context.item.works || [], files.filter((file) => file.kind === 'image'));
+  }
+
+  markDirty();
+  rerenderAfterMediaChange(context.kind);
+}
+
+function rerenderAfterMediaChange(kind) {
+  appState.suppressDirty = true;
+  try {
+    if (kind === 'recruit') renderRecruitEditor();
+    if (kind === 'activity') renderActivitiesEditor();
+    if (kind === 'exhibition') renderExhibitionsEditor();
+    if (kind === 'request') renderRequestsEditor();
+    renderDashboard();
+  } finally {
+    appState.suppressDirty = false;
+  }
+}
+
 async function onRequestOtp() {
   const email = document.getElementById('authEmail').value.trim();
   try {
@@ -570,9 +971,11 @@ async function loadBootstrap() {
     appState.loadedState = JSON.parse(JSON.stringify(data.state || {}));
     appState.drafts = data.drafts || [];
     appState.adminLog = data.adminLog || [];
+    appState.maintenance = data.maintenance || { storage: null, recommendations: [] };
     const nameEl = document.getElementById('viewerName'); if (nameEl) nameEl.textContent = appState.viewerName || '-';
     const emailEl = document.getElementById('viewerEmail'); if (emailEl) emailEl.textContent = appState.viewerEmail || '-';
     renderAll();
+    clearDirty();
     setStatus('読み込み完了');
   } catch (error) {
     setStatus(error.message, 'error');
@@ -595,6 +998,71 @@ function renderAll() {
 
 
 
+function formatBytes(bytes) {
+  const value = Number(bytes || 0);
+  if (!value) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let size = value;
+  let unit = 0;
+  while (size >= 1024 && unit < units.length - 1) {
+    size /= 1024;
+    unit += 1;
+  }
+  return `${size.toFixed(unit >= 3 ? 1 : 0)} ${units[unit]}`;
+}
+
+function renderStorageCard() {
+  const maintenance = appState.maintenance || {};
+  const storage = maintenance.storage || {};
+  const recommendations = maintenance.recommendations || [];
+  if (!storage.available) {
+    return `
+      <div class="card storage-card is-unknown">
+        <h3>Drive容量</h3>
+        <div class="small-note">${escapeHtml(storage.message || 'Drive容量を取得できませんでした。')}</div>
+      </div>
+    `;
+  }
+  const pct = storage.limit ? Math.round((storage.usageRatio || 0) * 1000) / 10 : 0;
+  const levelText = {
+    ok: '余裕があります',
+    notice: '注意',
+    warning: '警告',
+    danger: '強い警告'
+  }[storage.level || 'ok'];
+  return `
+    <div class="card storage-card is-${escapeHtml(storage.level || 'ok')}">
+      <div class="storage-head">
+        <div>
+          <h3>Drive容量</h3>
+          <div class="small-note">ホームページ素材以外も含む、実行アカウント全体の容量です。</div>
+        </div>
+        <span class="storage-badge">${escapeHtml(levelText)}</span>
+      </div>
+      <div class="storage-meter"><span style="width:${Math.min(100, Math.max(0, pct))}%"></span></div>
+      <div class="storage-row">
+        <span>使用中 ${formatBytes(storage.used)} / ${formatBytes(storage.limit)}</span>
+        <strong>残り ${formatBytes(storage.remaining)}</strong>
+      </div>
+      ${recommendations.length ? `
+        <div class="recommendation-list">
+          <div class="small-note">退避候補</div>
+          ${recommendations.map((item) => `
+            <div class="recommendation-item">
+              <div>
+                <span class="recommendation-kind">${escapeHtml(item.label || '')}</span>
+                <strong>${escapeHtml(item.title || '')}</strong>
+                <span class="small-note">${escapeHtml(formatDate(item.date) || '日付なし')}${item.published === false ? ' / 非公開' : ''}</span>
+              </div>
+              <a class="button subtle" href="${escapeHtml(item.folderUrl || '#')}" target="_blank" rel="noopener noreferrer">Driveで開く</a>
+            </div>
+          `).join('')}
+        </div>
+      ` : '<div class="small-note">退避候補はまだありません。</div>'}
+    </div>
+  `;
+}
+
 function renderDashboard() {
   const state = appState.state || {};
   const roots = appState.options.roots || {};
@@ -616,6 +1084,7 @@ function renderDashboard() {
     </div>`).join('') : '<div class="small-note">まだ公開履歴がありません。</div>';
   const html = `
     <div class="stack">
+      ${renderStorageCard()}
       <div class="card">
         <h2>概要</h2>
         <p class="lead">日常的に触る項目だけを、この画面から編集できます。</p>
@@ -667,24 +1136,24 @@ function renderRecruitEditor() {
     <div class="grid-2">
       <div class="card">
         <h2>入部希望の方</h2>
-        <p class="lead">公開する新歓イベントカレンダーを選びます。表示ラベルは必要に応じて調整できます。</p>
+        <p class="lead">新歓イベントカレンダーの表示ラベルと画像を設定します。画像なしでも保存できます。</p>
         <div class="editor-link-spacer">${renderRootLink(((appState.options.roots || {}).recruit || {}).name || '新歓イベントカレンダー', (appState.options.roots || {}).recruit)}</div>
         <div class="form-grid">
           <div class="field full">
-            <label>公開する年度フォルダ</label>
-            <select id="recruitCalendarFolder" onchange="loadRecruitPreview(true)">
-              ${optionHtml(appState.options.recruitCalendars, recruit.folderId, '選択してください')}
-            </select>
-          </div>
-          <div class="field full">
             <label>表示ラベル</label>
             <input id="recruitCalendarLabel" value="${escapeHtml(recruit.label || '')}" placeholder="例: 2026年度 新歓イベントカレンダー" oninput="loadRecruitPreview(false)">
+          </div>
+          <div class="field full">
+            <label>画像</label>
+            <input id="recruitCalendarFolder" type="hidden" value="${escapeHtml(recruit.folderId || '')}">
+            <button class="button subtle" type="button" onclick="openMediaDialog('recruit')">画像の設定</button>
+            <div class="small-note">${recruit.folderId ? '画像が設定されています。' : '画像は未設定です。'}</div>
           </div>
         </div>
       </div>
       <div class="card">
         <h3>プレビュー</h3>
-        <div id="recruitPreview" class="preview-pane preview-frame"><div class="preview-empty">フォルダを選ぶとプレビューが表示されます。</div></div>
+        <div id="recruitPreview" class="preview-pane preview-frame"><div class="preview-empty">画像なしでも公開できます。</div></div>
       </div>
     </div>
   `;
@@ -701,7 +1170,7 @@ async function loadRecruitPreview(forceRefresh = false) {
   const folderId = folderSelect.value;
 
   if (!folderId) {
-    preview.innerHTML = '<div class="preview-empty">フォルダを選択してください。</div>';
+    preview.innerHTML = '<div class="preview-empty">画像は未設定です。</div>';
     return;
   }
 
@@ -774,6 +1243,7 @@ function renderActivityEditorItem(item, index) {
           <div class="editor-item-meta">初回公開日: ${formatDate(item.createdAt)}</div>
         </div>
         <div class="item-actions">
+          <button class="button subtle" type="button" onclick="openMediaDialog('activity', ${index})">画像の設定</button>
           <button class="button hidden-toggle ${published ? '' : 'is-hidden'}" type="button" onclick="toggleActivityPublished(${index})">${published ? '非公開' : '公開に戻す'}</button>
           <button class="button danger" type="button" onclick="removeActivityArticle(${index})">削除</button>
         </div>
@@ -796,10 +1266,9 @@ function renderActivityEditorItem(item, index) {
           <textarea data-field="body" oninput="refreshActivityPreview()">${escapeHtml(item.body || '')}</textarea>
         </div>
         <div class="field full">
-          <label>写真フォルダ</label>
-          <select data-field="photoFolderId" onchange="refreshActivityPreview()">
-            ${optionHtml(appState.options.activityPhotoFolders, item.photoFolderId || '', '写真なし')}
-          </select>
+          <label>画像</label>
+          <input data-field="photoFolderId" type="hidden" value="${escapeHtml(item.photoFolderId || '')}">
+          <div class="small-note">${item.photoFolderId ? '画像が設定されています。' : '画像は未設定です。'}</div>
         </div>
       </div>
     </article>
@@ -900,6 +1369,7 @@ function renderExhibitionEditorItem(item, index) {
         </div>
         <div class="item-actions">
           <button class="button subtle" type="button" onclick="toggleExhibitionBucket(${index})">${item.displayBucket === 'upcoming' ? 'アーカイブに移動' : '開催予定に戻す'}</button>
+          <button class="button subtle" type="button" onclick="openMediaDialog('exhibition', ${index})">画像・目録の設定</button>
           <button class="button hidden-toggle ${published ? '' : 'is-hidden'}" type="button" onclick="toggleExhibitionPublished(${index})">${published ? '非公開' : '公開に戻す'}</button>
           <button class="button danger" type="button" onclick="removeExhibition(${index})">削除</button>
         </div>
@@ -941,15 +1411,14 @@ function renderExhibitionEditorItem(item, index) {
           </div>
         </div>
         <div class="field full">
-          <label>展示会フォルダ</label>
-          <select data-field="driveFolderId" onchange="loadExhibitionFolderImages(${index})">
-            ${optionHtml(appState.options.exhibitionFolders, item.driveFolderId || '', '選択してください')}
-          </select>
+          <label>画像・目録</label>
+          <input data-field="driveFolderId" type="hidden" value="${escapeHtml(item.driveFolderId || '')}">
+          <div class="small-note">${item.driveFolderId ? '画像・目録が設定されています。' : '画像・目録は未設定です。'}</div>
         </div>
       </div>
       <div class="hr"></div>
       <div class="stack">
-        <div class="confirm-note">DM1/DM2 と PDF 以外の画像を作品画像として扱います。</div>
+        <div class="confirm-note">DM画像、作品画像、PDF目録は「画像・目録の設定」から追加できます。</div>
         <div id="exhibitionWorks_${index}">
           ${renderExhibitionWorksEditor(item.works || [], item.driveFolderId || '')}
         </div>
@@ -961,7 +1430,7 @@ function renderExhibitionEditorItem(item, index) {
 
 function renderExhibitionWorksEditor(works, folderId, totalCount = works.length) {
   if (!works.length) {
-    return '<div class="small-note">展示会フォルダを選ぶと、作品名と作者名を入力できます。</div>';
+    return '<div class="small-note">作品画像を追加すると、作品名と作者名を入力できます。</div>';
   }
   const imageMap = {};
   const cached = appState.imageCache[folderId] || [];
@@ -1085,7 +1554,7 @@ async function renderExhibitionPreview(items) {
           <div class="preview-dm-slot">${buildThumbCarouselHtml(archiveDm, true)}</div>
           <div class="small-note" style="margin-bottom:8px;">${escapeHtml(item.theme || '')}</div>
           ${buildMetaListHtml(item)}
-          <div class="preview-drive-wrap"><a class="button subtle" href="https://drive.google.com/drive/folders/${escapeHtml(item.driveFolderId || '')}" target="_blank" rel="noopener noreferrer">Google Driveで見る</a></div>
+          ${item.driveFolderId ? `<div class="preview-drive-wrap"><a class="button subtle" href="https://drive.google.com/drive/folders/${escapeHtml(item.driveFolderId || '')}" target="_blank" rel="noopener noreferrer">Google Driveで見る</a></div>` : ''}
         </div>
       </div>`;
   }));
@@ -1218,6 +1687,7 @@ function renderRequestEditorItem(item, index) {
         <div class="item-actions">
           <button class="button" type="button" onclick="moveRequestCase(${index}, -1)">↑</button>
           <button class="button" type="button" onclick="moveRequestCase(${index}, 1)">↓</button>
+          <button class="button subtle" type="button" onclick="openMediaDialog('request', ${index})">画像の設定</button>
           <button class="button hidden-toggle ${published ? '' : 'is-hidden'}" type="button" onclick="toggleRequestPublished(${index})">${published ? '非公開' : '公開に戻す'}</button>
           <button class="button danger" type="button" onclick="removeRequestCase(${index})">削除</button>
         </div>
@@ -1232,10 +1702,9 @@ function renderRequestEditorItem(item, index) {
           <textarea data-field="body" oninput="refreshRequestPreview()">${escapeHtml(item.body || '')}</textarea>
         </div>
         <div class="field full">
-          <label>写真フォルダ</label>
-          <select data-field="photoFolderId" onchange="refreshRequestPreview()">
-            ${optionHtml(appState.options.requestPhotoFolders, item.photoFolderId || '', '写真なし')}
-          </select>
+          <label>画像</label>
+          <input data-field="photoFolderId" type="hidden" value="${escapeHtml(item.photoFolderId || '')}">
+          <div class="small-note">${item.photoFolderId ? '画像が設定されています。' : '画像は未設定です。'}</div>
         </div>
       </div>
     </article>
@@ -1430,12 +1899,14 @@ async function refreshMetaAfterDraftSave(currentPayload) {
   appState.previewUrl = data.previewUrl || '';
   appState.drafts = data.drafts || [];
   appState.adminLog = data.adminLog || [];
+  appState.maintenance = data.maintenance || appState.maintenance || { storage: null, recommendations: [] };
   appState.state = {
     ...(data.state || {}),
     ...(currentPayload || {}),
     changeLog: (data.state && data.state.changeLog) || appState.state.changeLog || []
   };
   renderAll();
+  clearDirty();
 }
 
 async function loadDraftIntoEditor(draftId) {
@@ -1445,6 +1916,7 @@ async function loadDraftIntoEditor(draftId) {
     const payload = await serverCall('loadDraft', appState.sessionToken, draftId);
     appState.state = { ...appState.state, ...payload };
     renderAll();
+    markDirty();
     setStatus('下書きを読み込みました。', 'success');
   } catch (error) {
     setStatus(error.message, 'error');
@@ -1459,6 +1931,7 @@ async function onSaveDraft() {
     const result = await serverCall('saveDraft', appState.sessionToken, payload);
     setStatus(result.message, 'success');
     await refreshMetaAfterDraftSave(payload);
+    clearDirty();
   } catch (error) {
     setStatus(error.message, 'error');
   }
@@ -1471,6 +1944,7 @@ async function onPublish() {
     const result = await serverCall('publishState', appState.sessionToken, buildPayloadFromDom());
     setStatus(result.changeSummary || result.message, 'success');
     await loadBootstrap();
+    clearDirty();
   } catch (error) {
     setStatus(error.message, 'error');
   }

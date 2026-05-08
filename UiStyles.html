@@ -2184,4 +2184,197 @@ select {
   .preview-archive-body .preview-carousel.poster.is-poster-carousel { justify-items: center !important; }
 }
 
+.storage-card {
+  display: grid;
+  gap: 14px;
+}
+.storage-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+.storage-badge {
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: .82rem;
+  font-weight: 800;
+  background: rgba(255,255,255,.08);
+}
+.storage-card.is-notice .storage-badge { background: rgba(246,217,38,.25); color: #fff7ad; }
+.storage-card.is-warning .storage-badge { background: rgba(246,217,38,.9); color: #0a0a0a; }
+.storage-card.is-danger .storage-badge { background: rgba(243,108,108,.9); color: #0a0a0a; }
+.storage-meter {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255,255,255,.08);
+}
+.storage-meter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--green), var(--yellow));
+}
+.storage-card.is-danger .storage-meter span { background: var(--danger); }
+.storage-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--soft);
+}
+.recommendation-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 4px;
+}
+.recommendation-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.07);
+}
+.recommendation-item strong,
+.recommendation-item span {
+  display: block;
+}
+.recommendation-kind {
+  color: var(--yellow);
+  font-size: .78rem;
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+
+.media-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+}
+.media-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,.72);
+  backdrop-filter: blur(8px);
+}
+.media-modal-panel {
+  position: relative;
+  width: min(1120px, 100%);
+  max-height: min(86vh, 920px);
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  border-radius: 22px;
+  background: #101010;
+  border: 1px solid rgba(255,255,255,.12);
+  box-shadow: 0 24px 80px rgba(0,0,0,.48);
+}
+.media-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 22px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+.media-modal-head h2 {
+  margin: 0 0 6px;
+}
+.media-modal-body {
+  overflow: auto;
+  display: grid;
+  gap: 18px;
+  padding: 22px;
+}
+.media-modal-body.is-loading {
+  opacity: .62;
+  pointer-events: none;
+}
+.media-upload-box,
+.media-section {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.08);
+}
+.media-upload-row {
+  display: grid;
+  grid-template-columns: minmax(160px, .35fr) minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+.media-file-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 14px;
+}
+.media-file-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 16px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.08);
+  min-width: 0;
+}
+.media-file-thumb {
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border-radius: 12px;
+  background: rgba(255,255,255,.04);
+  display: grid;
+  place-items: center;
+}
+.media-file-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.pdf-thumb {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  color: #ffd5d5;
+  font-weight: 800;
+}
+.pdf-thumb i {
+  font-size: 2rem;
+}
+.media-file-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 800;
+}
+.media-file-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.media-file-actions .button {
+  padding: 9px 12px;
+}
+.media-folder-link {
+  margin-top: 4px;
+}
+
+@media (max-width: 720px) {
+  .media-modal { padding: 10px; }
+  .media-modal-panel { max-height: 92vh; border-radius: 18px; }
+  .media-upload-row,
+  .recommendation-item {
+    grid-template-columns: 1fr;
+  }
+}
+
 </style>
