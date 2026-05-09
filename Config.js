@@ -1,9 +1,8 @@
 const APP_NAME = '凌美会 管理画面';
 const CONTENT_SHEETS = {
-  publishControl: 'PublishControl',
+  recruit: 'Recruit',
   activityArticles: 'ActivityArticles',
   exhibitions: 'Exhibitions',
-  exhibitionWorks: 'ExhibitionWorks',
   requestCases: 'RequestCases',
   changeLog: 'ChangeLog',
   publishedState: '_PublishedState',

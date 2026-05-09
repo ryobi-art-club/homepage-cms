@@ -72,8 +72,10 @@ function publishState(sessionToken, payload) {
 
 function readContentState_() {
   const spreadsheet = SpreadsheetApp.openById(getConfig_().CONTENT_SPREADSHEET_ID);
+  const recruitCalendars = readRecruitCalendars_(spreadsheet);
   return {
-    recruitCalendar: readRecruitCalendar_(spreadsheet),
+    recruitCalendars: recruitCalendars,
+    recruitCalendar: getPublishedRecruitCalendar_(recruitCalendars),
     activityArticles: readActivityArticles_(spreadsheet),
     exhibitions: readExhibitions_(spreadsheet),
     requestCases: readRequestCases_(spreadsheet),
@@ -93,8 +95,13 @@ function loadDraft(sessionToken, draftId) {
 
 function normalizePayload_(payload, existingState) {
   if (!payload || typeof payload !== 'object') throw new Error('入力データが不正です。');
+  const recruitCalendars = normalizeRecruitCalendars_(
+    payload.recruitCalendars || (payload.recruitCalendar ? [payload.recruitCalendar] : []),
+    existingState.recruitCalendars || []
+  );
   const normalized = {
-    recruitCalendar: normalizeRecruitCalendar_(payload.recruitCalendar),
+    recruitCalendars: recruitCalendars,
+    recruitCalendar: getPublishedRecruitCalendar_(recruitCalendars),
     activityArticles: normalizeActivityArticles_(payload.activityArticles, existingState.activityArticles || []),
     exhibitions: normalizeExhibitions_(payload.exhibitions, existingState.exhibitions || []),
     requestCases: normalizeRequestCases_(payload.requestCases),
@@ -105,12 +112,73 @@ function normalizePayload_(payload, existingState) {
   return normalized;
 }
 
-function normalizeRecruitCalendar_(value) {
-  const folderId = String((value && value.folderId) || '').trim();
+function normalizeRecruitCalendars_(items, existingItems) {
+  const rows = (items || []).filter(Boolean).map((item) => {
+    const year = String(item.year || '').replace(/[^\d]/g, '').slice(0, 4);
+    const mediaFolderId = String(item.mediaFolderId || item.folderId || '').trim();
+    const mediaFileIds = normalizeStringList_(item.mediaFileIds || item.fileIds);
+    return {
+      year: year,
+      mediaFolderId: mediaFolderId,
+      folderId: mediaFolderId,
+      mediaFileIds: mediaFileIds,
+      label: year ? year + '年度 新歓イベントカレンダー' : String(item.label || '').trim(),
+      published: item.published === false ? false : parseBool_(item.published, true),
+      updatedAt: isoNow_()
+    };
+  }).filter((item) => item.year || item.mediaFolderId || item.mediaFileIds.length);
+
+  if (!rows.length) {
+    const year = String(new Date().getFullYear());
+    rows.push({
+      year: year,
+      mediaFolderId: '',
+      folderId: '',
+      mediaFileIds: [],
+      label: year + '年度 新歓イベントカレンダー',
+      published: true,
+      updatedAt: isoNow_()
+    });
+  }
+
+  let publishedSeen = false;
+  rows.forEach((item) => {
+    if (item.published && !publishedSeen) {
+      publishedSeen = true;
+    } else {
+      item.published = false;
+    }
+  });
+  if (!publishedSeen) rows[0].published = true;
+
+  return rows.sort((a, b) => String(b.year || '').localeCompare(String(a.year || '')));
+}
+
+function getPublishedRecruitCalendar_(items) {
+  const list = (items || []).slice();
+  const selected = list.find((item) => item.published !== false) || list[0] || {};
+  const year = String(selected.year || '').trim();
+  const mediaFolderId = String(selected.mediaFolderId || selected.folderId || '').trim();
   return {
-    folderId: folderId,
-    label: String(value && value.label || '').trim() || (folderId ? '新歓イベントカレンダー' : '')
+    year: year,
+    mediaFolderId: mediaFolderId,
+    folderId: mediaFolderId,
+    mediaFileIds: normalizeStringList_(selected.mediaFileIds || []),
+    label: year ? year + '年度 新歓イベントカレンダー' : String(selected.label || '新歓イベントカレンダー').trim(),
+    published: selected.published !== false,
+    updatedAt: selected.updatedAt || ''
   };
+}
+
+function normalizeStringList_(value) {
+  if (typeof value === 'string') value = parseJson_(value, []);
+  if (!Array.isArray(value)) return [];
+  const out = [];
+  value.forEach((item) => {
+    const text = String(item || '').trim();
+    if (text && out.indexOf(text) === -1) out.push(text);
+  });
+  return out;
 }
 
 function normalizeActivityArticles_(items, existingItems) {
@@ -124,7 +192,9 @@ function normalizeActivityArticles_(items, existingItems) {
       title: requireString_(item.title, '活動記事タイトル', 120),
       body: cleanMultiline_(item.body, 4000),
       category: requireActivityCategory_(item.category),
-      photoFolderId: String(item.photoFolderId || '').trim(),
+      mediaFolderId: String(item.mediaFolderId || item.photoFolderId || '').trim(),
+      photoFolderId: String(item.mediaFolderId || item.photoFolderId || '').trim(),
+      mediaFileIds: normalizeStringList_(item.mediaFileIds || item.fileIds),
       published: item.published === false ? false : parseBool_(item.published, true),
       createdAt: existing ? existing.createdAt : isoNow_(),
       updatedAt: isoNow_()
@@ -137,13 +207,9 @@ function normalizeExhibitions_(items, existingItems) {
   (existingItems || []).forEach((item) => existingById[item.exhibitionId] = item);
   return (items || []).filter(Boolean).map((item) => {
     const exhibitionId = String(item.exhibitionId || '').trim() || 'exhibition-' + Utilities.getUuid().slice(0, 8);
-    const folderId = String(item.driveFolderId || '').trim();
-    const works = (item.works || []).filter(Boolean).slice(0, 200).map((work, idx) => ({
-      imageFileName: requireString_(work.imageFileName, '作品画像ファイル名', 200),
-      workTitle: cleanMultiline_(work.workTitle, 140),
-      artistName: cleanMultiline_(work.artistName, 120),
-      sortOrder: idx + 1
-    }));
+    const folderId = String(item.mediaFolderId || item.driveFolderId || '').trim();
+    const dmFileIds = normalizeStringList_(item.dmFileIds || item.dm_file_ids).slice(0, 2);
+    const works = normalizeExhibitionWorkFiles_(item.workFiles || item.works);
     return {
       exhibitionId: exhibitionId,
       title: requireString_(item.title, '展示会名', 140),
@@ -154,11 +220,14 @@ function normalizeExhibitions_(items, existingItems) {
       timeLine: requireString_(item.timeLine, '時間帯', 220),
       mapEmbedUrl: String(item.mapEmbedUrl || '').trim(),
       displayBucket: requireDisplayBucket_(item.displayBucket),
+      mediaFolderId: folderId,
       driveFolderId: folderId,
+      dmFileIds: dmFileIds,
       published: item.published === false ? false : parseBool_(item.published, true),
       startDate: String(item.startDate || '').trim(),
       draftCreatedAt: String(item.draftCreatedAt || (existingById[exhibitionId] && existingById[exhibitionId].draftCreatedAt) || isoNow_()),
       updatedAt: isoNow_(),
+      workFiles: works,
       works: works
     };
   }).sort(compareExhibitions_);
@@ -169,11 +238,30 @@ function normalizeRequestCases_(items) {
     caseId: String(item.caseId || '').trim() || 'request-' + Utilities.getUuid().slice(0, 8),
     title: requireString_(item.title, '事例タイトル', 120),
     body: cleanMultiline_(item.body, 4000),
-    photoFolderId: String(item.photoFolderId || '').trim(),
+    mediaFolderId: String(item.mediaFolderId || item.photoFolderId || '').trim(),
+    photoFolderId: String(item.mediaFolderId || item.photoFolderId || '').trim(),
+    mediaFileIds: normalizeStringList_(item.mediaFileIds || item.fileIds),
     sortOrder: index + 1,
     published: item.published === false ? false : parseBool_(item.published, true),
     updatedAt: isoNow_()
   }));
+}
+
+function normalizeExhibitionWorkFiles_(items) {
+  return (items || []).filter(Boolean).slice(0, 200).map((work, idx) => {
+    const fileId = String(work.fileId || work.file_id || '').trim();
+    const title = cleanMultiline_(work.title || work.workTitle, 140);
+    const artist = cleanMultiline_(work.artist || work.artistName, 120);
+    return {
+      fileId: fileId,
+      file_id: fileId,
+      sortOrder: Number(work.sortOrder || work.sort_order || idx + 1),
+      title: title,
+      artist: artist,
+      workTitle: title,
+      artistName: artist
+    };
+  }).filter((work) => work.fileId);
 }
 
 
@@ -222,36 +310,29 @@ function validateBusinessRules_(state) {
 
 function writeStateToSheets_(state, actorName, actorEmail, touchPublishState) {
   const spreadsheet = SpreadsheetApp.openById(getConfig_().CONTENT_SPREADSHEET_ID);
-  writeSheet_(spreadsheet, CONTENT_SHEETS.publishControl, [
-    ['recruit_calendar_folder_id', 'recruit_calendar_label', 'updated_at'],
-    [state.recruitCalendar.folderId, state.recruitCalendar.label, isoNow_()]
-  ]);
+  writeSheet_(spreadsheet, CONTENT_SHEETS.recruit, [
+    ['year', 'media_folder_id', 'media_file_ids', 'published', 'updated_at']
+  ].concat((state.recruitCalendars || []).map((item) => [
+    item.year, item.mediaFolderId, JSON.stringify(item.mediaFileIds || []), item.published ? 'TRUE' : 'FALSE', item.updatedAt || isoNow_()
+  ])));
 
   writeSheet_(spreadsheet, CONTENT_SHEETS.activityArticles, [
-    ['article_id', 'title', 'category', 'body', 'photo_folder_id', 'published', 'created_at', 'updated_at']
+    ['article_id', 'title', 'category', 'body', 'media_folder_id', 'media_file_ids', 'published', 'created_at', 'updated_at']
   ].concat(state.activityArticles.map((item) => [
-    item.articleId, item.title, item.category, item.body, item.photoFolderId, item.published ? 'TRUE' : 'FALSE', item.createdAt, item.updatedAt
+    item.articleId, item.title, item.category, item.body, item.mediaFolderId, JSON.stringify(item.mediaFileIds || []), item.published ? 'TRUE' : 'FALSE', item.createdAt, item.updatedAt
   ])));
 
   writeSheet_(spreadsheet, CONTENT_SHEETS.exhibitions, [
-    ['exhibition_id', 'title', 'theme', 'venue_name', 'venue_address', 'date_line', 'time_line', 'map_embed_url', 'display_bucket', 'drive_folder_id', 'published', 'start_date', 'updated_at']
+    ['exhibition_id', 'title', 'theme', 'venue_name', 'venue_address', 'date_line', 'time_line', 'map_embed_url', 'display_bucket', 'media_folder_id', 'dm_file_ids', 'work_files', 'published', 'start_date', 'updated_at']
   ].concat(state.exhibitions.map((item) => [
     item.exhibitionId, item.title, item.theme, item.venueName, item.venueAddress, item.dateLine, item.timeLine, item.mapEmbedUrl,
-    item.displayBucket, item.driveFolderId, item.published ? 'TRUE' : 'FALSE', item.startDate, item.updatedAt
+    item.displayBucket, item.mediaFolderId, JSON.stringify(item.dmFileIds || []), JSON.stringify(serializeWorkFiles_(item.workFiles || item.works || [])), item.published ? 'TRUE' : 'FALSE', item.startDate, item.updatedAt
   ])));
 
-  const workRows = [['exhibition_id', 'image_file_name', 'work_title', 'artist_name', 'sort_order']];
-  state.exhibitions.forEach((item) => {
-    (item.works || []).forEach((work) => {
-      workRows.push([item.exhibitionId, work.imageFileName, work.workTitle, work.artistName, String(work.sortOrder)]);
-    });
-  });
-  writeSheet_(spreadsheet, CONTENT_SHEETS.exhibitionWorks, workRows);
-
   writeSheet_(spreadsheet, CONTENT_SHEETS.requestCases, [
-    ['case_id', 'title', 'body', 'photo_folder_id', 'sort_order', 'published', 'updated_at']
+    ['case_id', 'title', 'body', 'media_folder_id', 'media_file_ids', 'sort_order', 'published', 'updated_at']
   ].concat(state.requestCases.map((item) => [
-    item.caseId, item.title, item.body, item.photoFolderId, String(item.sortOrder), item.published ? 'TRUE' : 'FALSE', item.updatedAt
+    item.caseId, item.title, item.body, item.mediaFolderId, JSON.stringify(item.mediaFileIds || []), String(item.sortOrder), item.published ? 'TRUE' : 'FALSE', item.updatedAt
   ])));
 
   if (touchPublishState) {
@@ -266,13 +347,22 @@ function writeSheet_(spreadsheet, sheetName, values) {
   sheet.getRange(1, 1, values.length, values[0].length).setValues(values);
 }
 
-function readRecruitCalendar_(spreadsheet) {
-  const rows = readSheetObjects_(spreadsheet, CONTENT_SHEETS.publishControl);
-  const row = rows[0] || {};
-  return {
-    folderId: String(row.recruit_calendar_folder_id || ''),
-    label: String(row.recruit_calendar_label || '')
-  };
+function readRecruitCalendars_(spreadsheet) {
+  const rows = readSheetObjects_(spreadsheet, CONTENT_SHEETS.recruit);
+  if (!rows.length) return normalizeRecruitCalendars_([], []);
+  return rows.map((row) => {
+    const year = String(row.year || '').replace(/[^\d]/g, '').slice(0, 4);
+    const mediaFolderId = String(row.media_folder_id || row.recruit_calendar_folder_id || '');
+    return {
+      year: year,
+      mediaFolderId: mediaFolderId,
+      folderId: mediaFolderId,
+      mediaFileIds: normalizeStringList_(row.media_file_ids),
+      label: year ? year + '年度 新歓イベントカレンダー' : String(row.recruit_calendar_label || '新歓イベントカレンダー'),
+      published: parseBool_(row.published, true),
+      updatedAt: row.updated_at
+    };
+  }).sort((a, b) => String(b.year || '').localeCompare(String(a.year || '')));
 }
 
 function readActivityArticles_(spreadsheet) {
@@ -281,7 +371,9 @@ function readActivityArticles_(spreadsheet) {
     title: row.title,
     category: row.category || 'record',
     body: row.body,
-    photoFolderId: row.photo_folder_id,
+    mediaFolderId: row.media_folder_id || row.photo_folder_id,
+    photoFolderId: row.media_folder_id || row.photo_folder_id,
+    mediaFileIds: normalizeStringList_(row.media_file_ids),
     published: parseBool_(row.published, true),
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -289,34 +381,27 @@ function readActivityArticles_(spreadsheet) {
 }
 
 function readExhibitions_(spreadsheet) {
-  const worksByExhibition = {};
-  readSheetObjects_(spreadsheet, CONTENT_SHEETS.exhibitionWorks).forEach((row) => {
-    const exId = String(row.exhibition_id || '');
-    if (!exId) return;
-    worksByExhibition[exId] = worksByExhibition[exId] || [];
-    worksByExhibition[exId].push({
-      imageFileName: row.image_file_name,
-      workTitle: row.work_title,
-      artistName: row.artist_name,
-      sortOrder: Number(row.sort_order || 9999)
-    });
-  });
-
-  return readSheetObjects_(spreadsheet, CONTENT_SHEETS.exhibitions).map((row) => ({
-    exhibitionId: row.exhibition_id,
-    title: row.title,
-    theme: row.theme,
-    venueName: row.venue_name,
-    venueAddress: row.venue_address,
-    dateLine: row.date_line,
-    timeLine: row.time_line,
-    mapEmbedUrl: row.map_embed_url,
-    displayBucket: row.display_bucket,
-    driveFolderId: row.drive_folder_id,
-    published: parseBool_(row.published, true),
-    startDate: row.start_date,
-    works: (worksByExhibition[row.exhibition_id] || []).sort((a, b) => a.sortOrder - b.sortOrder)
-  })).sort(compareExhibitions_);
+  return readSheetObjects_(spreadsheet, CONTENT_SHEETS.exhibitions).map((row) => {
+    const works = normalizeExhibitionWorkFiles_(parseJson_(row.work_files, [])).sort((a, b) => a.sortOrder - b.sortOrder);
+    return {
+      exhibitionId: row.exhibition_id,
+      title: row.title,
+      theme: row.theme,
+      venueName: row.venue_name,
+      venueAddress: row.venue_address,
+      dateLine: row.date_line,
+      timeLine: row.time_line,
+      mapEmbedUrl: row.map_embed_url,
+      displayBucket: row.display_bucket,
+      mediaFolderId: row.media_folder_id || row.drive_folder_id,
+      driveFolderId: row.media_folder_id || row.drive_folder_id,
+      dmFileIds: normalizeStringList_(row.dm_file_ids),
+      published: parseBool_(row.published, true),
+      startDate: row.start_date,
+      workFiles: works,
+      works: works
+    };
+  }).sort(compareExhibitions_);
 }
 
 function readRequestCases_(spreadsheet) {
@@ -325,7 +410,9 @@ function readRequestCases_(spreadsheet) {
       caseId: row.case_id,
       title: row.title,
       body: row.body,
-      photoFolderId: row.photo_folder_id,
+      mediaFolderId: row.media_folder_id || row.photo_folder_id,
+      photoFolderId: row.media_folder_id || row.photo_folder_id,
+      mediaFileIds: normalizeStringList_(row.media_file_ids),
       sortOrder: Number(row.sort_order || 9999),
       published: parseBool_(row.published, true),
       updatedAt: row.updated_at
@@ -447,15 +534,27 @@ function readSheetObjects_(spreadsheet, sheetName) {
   return rows;
 }
 
+function serializeWorkFiles_(items) {
+  return (items || []).filter(Boolean).map((work, index) => ({
+    file_id: String(work.fileId || work.file_id || '').trim(),
+    sort_order: Number(work.sortOrder || work.sort_order || index + 1),
+    title: String(work.title || work.workTitle || '').trim(),
+    artist: String(work.artist || work.artistName || '').trim()
+  })).filter((work) => work.file_id);
+}
+
 function buildPublicSnapshot_(state) {
   return {
     recruitCalendar: state.recruitCalendar,
+    recruitCalendars: state.recruitCalendars,
     activityArticles: state.activityArticles.map((item) => ({
       articleId: item.articleId,
       title: item.title,
       body: item.body,
       category: item.category,
-      photoFolderId: item.photoFolderId,
+      mediaFolderId: item.mediaFolderId,
+      photoFolderId: item.mediaFolderId,
+      mediaFileIds: item.mediaFileIds || [],
       published: item.published,
       createdAt: item.createdAt
     })),
@@ -469,17 +568,22 @@ function buildPublicSnapshot_(state) {
       timeLine: item.timeLine,
       mapEmbedUrl: item.mapEmbedUrl,
       displayBucket: item.displayBucket,
-      driveFolderId: item.driveFolderId,
+      mediaFolderId: item.mediaFolderId,
+      driveFolderId: item.mediaFolderId,
+      dmFileIds: item.dmFileIds || [],
       published: item.published,
       startDate: item.startDate,
-      works: item.works
+      workFiles: serializeWorkFiles_(item.workFiles || item.works || []),
+      works: serializeWorkFiles_(item.workFiles || item.works || [])
     })),
     requestCases: state.requestCases.map((item) => ({
       caseId: item.caseId,
       title: item.title,
       body: item.body,
       category: item.category,
-      photoFolderId: item.photoFolderId,
+      mediaFolderId: item.mediaFolderId,
+      photoFolderId: item.mediaFolderId,
+      mediaFileIds: item.mediaFileIds || [],
       published: item.published,
       sortOrder: item.sortOrder
     }))
@@ -574,13 +678,13 @@ function buildAdminDiffSummary_(beforeSnapshot, afterSnapshot, manualNote) {
   const afterRecruit = afterSnapshot.recruitCalendar ? afterSnapshot.recruitCalendar.folderId : '';
   if (beforeRecruit !== afterRecruit && afterRecruit) pushIf('新歓イベントカレンダーを更新');
   compareCollections(beforeSnapshot.activityArticles || [], afterSnapshot.activityArticles || [], 'articleId', '活動記録・告知', function(item) {
-    return { title: item.title, body: item.body, category: item.category, photoFolderId: item.photoFolderId, createdAt: item.createdAt, published: item.published };
+    return { title: item.title, body: item.body, category: item.category, mediaFolderId: item.mediaFolderId, mediaFileIds: item.mediaFileIds, createdAt: item.createdAt, published: item.published };
   });
   compareCollections(beforeSnapshot.requestCases || [], afterSnapshot.requestCases || [], 'caseId', '取り組み', function(item) {
-    return { title: item.title, body: item.body, photoFolderId: item.photoFolderId, sortOrder: item.sortOrder, published: item.published };
+    return { title: item.title, body: item.body, mediaFolderId: item.mediaFolderId, mediaFileIds: item.mediaFileIds, sortOrder: item.sortOrder, published: item.published };
   });
   compareCollections(beforeSnapshot.exhibitions || [], afterSnapshot.exhibitions || [], 'exhibitionId', '展示会', function(item) {
-    return { title: item.title, theme: item.theme, venueName: item.venueName, venueAddress: item.venueAddress, dateLine: item.dateLine, timeLine: item.timeLine, mapEmbedUrl: item.mapEmbedUrl, driveFolderId: item.driveFolderId, published: item.published, startDate: item.startDate, works: item.works };
+    return { title: item.title, theme: item.theme, venueName: item.venueName, venueAddress: item.venueAddress, dateLine: item.dateLine, timeLine: item.timeLine, mapEmbedUrl: item.mapEmbedUrl, mediaFolderId: item.mediaFolderId, dmFileIds: item.dmFileIds, published: item.published, startDate: item.startDate, workFiles: item.workFiles };
   }, function(before, after) {
     if (before.displayBucket !== after.displayBucket) {
       return after.displayBucket === 'archive' ? '展示会「' + after.title + '」をアーカイブに移動' : '展示会「' + after.title + '」を開催予定に変更';
@@ -596,6 +700,6 @@ function buildHumanSummary_(state) {
     activityCount: state.activityArticles.length,
     exhibitionCount: state.exhibitions.length,
     requestCaseCount: state.requestCases.length,
-    recruitCalendarSelected: !!state.recruitCalendar.folderId
+    recruitCalendarSelected: !!state.recruitCalendar.mediaFolderId
   };
 }

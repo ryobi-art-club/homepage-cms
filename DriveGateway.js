@@ -85,6 +85,22 @@ function trashManagedFile(sessionToken, request) {
   return buildFolderMediaResponse_(getDriveFolderWithRetry_(folderId, '画像フォルダ取得'));
 }
 
+function saveMediaSettings(sessionToken, request) {
+  requireSession_(sessionToken);
+  if (!request || typeof request !== 'object') throw new Error('画像設定が不正です。');
+
+  const kind = requireManagedKind_(request.kind);
+  const folderId = String(request.folderId || '').trim();
+  if (!folderId) return { folderId: '', files: [] };
+
+  const folder = getDriveFolderWithRetry_(folderId, '画像フォルダ取得');
+  if (kind === 'exhibition') {
+    renameExhibitionMediaFiles_(folder, request.dmFileIds || [], request.workFiles || []);
+  }
+
+  return buildFolderMediaResponse_(folder);
+}
+
 function getDriveMaintenanceSummary_(state) {
   return {
     storage: getDriveStorageSummary_(),
@@ -93,18 +109,20 @@ function getDriveMaintenanceSummary_(state) {
 }
 
 function finalizeManagedFolders_(state) {
-  renameFolderIfPresent_(state.recruitCalendar && state.recruitCalendar.folderId, state.recruitCalendar && state.recruitCalendar.label, false);
+  (state.recruitCalendars || []).forEach((item) => {
+    renameFolderIfPresent_(item.mediaFolderId || item.folderId, item.label, false);
+  });
 
   (state.activityArticles || []).forEach((item) => {
-    renameFolderIfPresent_(item.photoFolderId, item.title, false);
+    renameFolderIfPresent_(item.mediaFolderId || item.photoFolderId, item.title, false);
   });
 
   (state.requestCases || []).forEach((item) => {
-    renameFolderIfPresent_(item.photoFolderId, item.title, false);
+    renameFolderIfPresent_(item.mediaFolderId || item.photoFolderId, item.title, false);
   });
 
   (state.exhibitions || []).forEach((item) => {
-    const folder = renameFolderIfPresent_(item.driveFolderId, item.title, false);
+    const folder = renameFolderIfPresent_(item.mediaFolderId || item.driveFolderId, item.title, false);
     if (folder) applyExhibitionFolderSharing_(folder);
   });
 }
@@ -137,10 +155,11 @@ function buildReferencedFolderIdSet_(state) {
     const value = String(id || '').trim();
     if (value) ids[value] = true;
   }
-  add(state.recruitCalendar && state.recruitCalendar.folderId);
-  (state.activityArticles || []).forEach((item) => add(item.photoFolderId));
-  (state.exhibitions || []).forEach((item) => add(item.driveFolderId));
-  (state.requestCases || []).forEach((item) => add(item.photoFolderId));
+  (state.recruitCalendars || []).forEach((item) => add(item.mediaFolderId || item.folderId));
+  add(state.recruitCalendar && (state.recruitCalendar.mediaFolderId || state.recruitCalendar.folderId));
+  (state.activityArticles || []).forEach((item) => add(item.mediaFolderId || item.photoFolderId));
+  (state.exhibitions || []).forEach((item) => add(item.mediaFolderId || item.driveFolderId));
+  (state.requestCases || []).forEach((item) => add(item.mediaFolderId || item.photoFolderId));
   return ids;
 }
 
@@ -246,37 +265,66 @@ function validateUploadMime_(kind, role, mimeType, name) {
   if (kind !== 'exhibition' && mediaKind !== 'image') {
     throw new Error(name + ' は画像ファイルではありません。');
   }
-  if (kind === 'exhibition' && role === 'catalog' && mediaKind !== 'pdf') {
-    throw new Error(name + ' はPDF目録としてアップロードできません。');
-  }
-  if (kind === 'exhibition' && role !== 'catalog' && mediaKind !== 'image') {
+  if (kind === 'exhibition' && mediaKind !== 'image') {
     throw new Error(name + ' は画像ファイルではありません。');
   }
 }
 
 function buildUploadFileName_(folder, kind, role, originalName, mimeType) {
-  const ext = extensionFromNameOrMime_(originalName, mimeType);
-  if (kind === 'exhibition' && role === 'dm') {
-    return nextDmFileName_(folder, ext);
-  }
   return uniqueFileName_(folder, safeFileName_(originalName));
 }
 
-function nextDmFileName_(folder, ext) {
-  const names = getExistingFileNameSet_(folder);
-  for (let i = 1; i <= 2; i += 1) {
-    const name = 'DM' + i + ext;
-    if (!names[name.toLowerCase()]) return name;
+function renameExhibitionMediaFiles_(folder, dmFileIds, workFiles) {
+  const used = {};
+  const dmIds = (dmFileIds || []).map((id) => String(id || '').trim()).filter(Boolean).slice(0, 2);
+  dmIds.forEach((fileId, index) => {
+    const file = DriveApp.getFileById(fileId);
+    const ext = extensionFromNameOrMime_(file.getName(), file.getMimeType());
+    const label = index === 0 ? '表' : '裏';
+    renameFileUniquely_(folder, file, '0_DM_' + label + ext, used);
+  });
+
+  (workFiles || []).filter(Boolean).sort((a, b) => Number(a.sortOrder || a.sort_order || 9999) - Number(b.sortOrder || b.sort_order || 9999)).forEach((work, index) => {
+    const fileId = String(work.fileId || work.file_id || '').trim();
+    if (!fileId) return;
+    const file = DriveApp.getFileById(fileId);
+    const ext = extensionFromNameOrMime_(file.getName(), file.getMimeType());
+    const order = Number(work.sortOrder || work.sort_order || index + 1) || index + 1;
+    const title = String(work.title || work.workTitle || '作品').trim() || '作品';
+    const artist = String(work.artist || work.artistName || '作者未設定').trim() || '作者未設定';
+    renameFileUniquely_(folder, file, order + '_' + title + '_' + artist + ext, used);
+  });
+}
+
+function renameFileUniquely_(folder, file, requestedName, used) {
+  const fileId = file.getId();
+  let nextName = uniqueFileName_(folder, requestedName, fileId);
+  const lower = nextName.toLowerCase();
+  if (used[lower] && used[lower] !== fileId) {
+    const dot = nextName.lastIndexOf('.');
+    const base = dot > 0 ? nextName.slice(0, dot) : nextName;
+    const ext = dot > 0 ? nextName.slice(dot) : '';
+    for (let i = 2; i < 1000; i += 1) {
+      const candidate = base + '-' + i + ext;
+      const key = candidate.toLowerCase();
+      if (!used[key]) {
+        nextName = candidate;
+        break;
+      }
+    }
   }
-  throw new Error('DM画像は2枚までです。既存のDM画像を削除してから追加してください。');
+  used[nextName.toLowerCase()] = fileId;
+  if (file.getName() !== nextName) file.setName(nextName);
 }
 
 function buildRenameFileName_(folder, file, requestedName) {
   const currentName = retryDriveOperation_(() => file.getName(), 'ファイル名取得');
-  let nextName = safeFileName_(requestedName);
-  if (nextName.indexOf('.') === -1 && currentName.indexOf('.') !== -1) {
-    nextName += currentName.slice(currentName.lastIndexOf('.'));
-  }
+  const currentDot = currentName.lastIndexOf('.');
+  const ext = currentDot > 0 ? currentName.slice(currentDot) : '';
+  let base = safeFileName_(requestedName);
+  const requestedDot = base.lastIndexOf('.');
+  if (requestedDot > 0) base = base.slice(0, requestedDot);
+  const nextName = safeFileName_(base + ext);
   return folder ? uniqueFileName_(folder, nextName, retryDriveOperation_(() => file.getId(), 'ファイルID取得')) : nextName;
 }
 
@@ -421,9 +469,9 @@ function buildStorageRecommendations_(state) {
     });
   }
 
-  (state.exhibitions || []).forEach((item) => push('exhibition', '展示会', item.title, item.startDate, item.driveFolderId, item.published));
-  (state.activityArticles || []).forEach((item) => push('activity', '活動記録・告知', item.title, item.createdAt, item.photoFolderId, item.published));
-  (state.requestCases || []).forEach((item) => push('request', '取り組み事例', item.title, item.updatedAt, item.photoFolderId, item.published));
+  (state.exhibitions || []).forEach((item) => push('exhibition', '展示会', item.title, item.startDate, item.mediaFolderId || item.driveFolderId, item.published));
+  (state.activityArticles || []).forEach((item) => push('activity', '活動記録・告知', item.title, item.createdAt, item.mediaFolderId || item.photoFolderId, item.published));
+  (state.requestCases || []).forEach((item) => push('request', '取り組み事例', item.title, item.updatedAt, item.mediaFolderId || item.photoFolderId, item.published));
 
   items.sort((a, b) => {
     return String(a.date || '9999').localeCompare(String(b.date || '9999'));
