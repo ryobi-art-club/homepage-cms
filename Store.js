@@ -19,6 +19,7 @@ function saveDraft(sessionToken, payload) {
   lock.waitLock(10000);
   try {
     const normalized = normalizePayload_(payload, readContentState_());
+    finalizeManagedMedia_(normalized);
     saveDraftRecord_(normalized, session.name || session.email, session.email);
     return {
       ok: true,
@@ -210,14 +211,15 @@ function normalizeExhibitions_(items, existingItems) {
     const folderId = String(item.mediaFolderId || item.driveFolderId || '').trim();
     const dmFileIds = normalizeStringList_(item.dmFileIds || item.dm_file_ids).slice(0, 2);
     const works = normalizeExhibitionWorkFiles_(item.workFiles || item.works);
+    const exhibitionLabel = String(item.title || '').trim() || '新規展示会';
     return {
       exhibitionId: exhibitionId,
       title: requireString_(item.title, '展示会名', 140),
       theme: cleanMultiline_(item.theme, 180),
-      venueName: requireString_(item.venueName, '会場名', 180),
+      venueName: requireString_(item.venueName, '展示会「' + exhibitionLabel + '」の会場名（未定の場合は「未定」と入力してください）', 180),
       venueAddress: cleanMultiline_(item.venueAddress, 240),
-      dateLine: requireString_(item.dateLine, '会期', 180),
-      timeLine: requireString_(item.timeLine, '時間帯', 220),
+      dateLine: requireString_(item.dateLine, '展示会「' + exhibitionLabel + '」の会期（未定の場合は「未定」と入力してください）', 180),
+      timeLine: requireString_(item.timeLine, '展示会「' + exhibitionLabel + '」の時間帯（未定の場合は「未定」と入力してください）', 220),
       mapEmbedUrl: String(item.mapEmbedUrl || '').trim(),
       displayBucket: requireDisplayBucket_(item.displayBucket),
       mediaFolderId: folderId,

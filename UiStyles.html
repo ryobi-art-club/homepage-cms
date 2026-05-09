@@ -33,6 +33,7 @@ button, input, textarea, select {
 select { color-scheme: dark; }
 select option { background: #101010; color: #ffffff; }
 a { color: inherit; }
+body.media-modal-open { overflow: hidden; }
 .hidden { display: none !important; }
 .app-shell {
   min-height: 100vh;
@@ -148,6 +149,18 @@ a { color: inherit; }
   transition: 0.2s ease;
 }
 .button:hover { transform: translateY(-1px); }
+.media-modal .button:hover,
+.media-modal .icon-action-button:hover {
+  transform: none;
+}
+.button:disabled {
+  opacity: .38;
+  cursor: not-allowed;
+  transform: none;
+}
+.button:disabled:hover {
+  transform: none;
+}
 .button.primary { background: var(--blue); }
 .button.success { background: var(--green); color: #0a0a0a; }
 .button.warning { background: var(--yellow); color: #0a0a0a; }
@@ -234,6 +247,17 @@ a { color: inherit; }
   resize: vertical;
 }
 .field.full { grid-column: 1 / -1; }
+.readonly-field {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 14px;
+  background: rgba(255,255,255,0.04);
+  color: var(--text);
+  padding: 12px 14px;
+  font-weight: 700;
+}
 .stack {
   display: grid;
   gap: 16px;
@@ -303,6 +327,13 @@ a { color: inherit; }
   border-radius: 16px;
   background: rgba(255,255,255,0.04);
   border: 1px solid rgba(255,255,255,0.08);
+  white-space: pre-line;
+}
+#statusMessage {
+  position: sticky;
+  top: 14px;
+  z-index: 60;
+  align-items: flex-start;
 }
 .log-list {
   display: grid;
@@ -331,8 +362,6 @@ a { color: inherit; }
   font-size: 0.94rem;
 }
 .root-link-row:last-child { border-bottom:0; }
-.editor-link-spacer { margin-top: 26px; margin-bottom: 18px; }
-.compact-links { gap: 8px; }
 .draft-actions-row {
   display:flex;
   align-items:center;
@@ -637,7 +666,6 @@ a { color: inherit; }
   background:rgba(255,255,255,0.12);
   transform: translateY(-1px);
 }
-.editor-link-spacer { margin-top: 14px; }
 .field input[type="date"]::-webkit-calendar-picker-indicator { filter: brightness(0) invert(1) saturate(0) contrast(200%); opacity: 1; }
 .work-editor-disclosure summary { cursor:pointer; font-weight:700; margin-bottom:12px; }
 .work-file-name { font-size:0.82rem; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -2289,13 +2317,14 @@ select {
 }
 .media-modal-body {
   overflow: auto;
+  overflow-anchor: none;
   display: grid;
   gap: 18px;
   padding: 22px;
 }
 .media-modal-body.is-loading {
   opacity: .62;
-  pointer-events: none;
+  cursor: wait;
 }
 .media-upload-box,
 .media-section {
@@ -2312,10 +2341,44 @@ select {
   gap: 12px;
   align-items: end;
 }
+.media-upload-row .button {
+  width: fit-content;
+  white-space: nowrap;
+}
+.media-file-field {
+  min-width: 0;
+}
+.media-file-field input[type="file"] {
+  min-width: 0;
+}
+.media-dialog-status {
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.05);
+  color: var(--text);
+  font-weight: 700;
+}
+.media-dialog-status.hidden {
+  display: none;
+}
+.media-dialog-status.is-error {
+  border-color: rgba(243,108,108,.45);
+  background: rgba(243,108,108,.14);
+  color: #ffd5d5;
+}
+.media-dialog-status.is-success {
+  border-color: rgba(77,199,124,.42);
+  background: rgba(77,199,124,.14);
+  color: #d9ffe5;
+}
 .media-file-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
   gap: 14px;
+}
+.media-work-grid {
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
 }
 .media-file-card {
   display: grid;
@@ -2338,6 +2401,17 @@ select {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+.media-file-thumb-dm {
+  aspect-ratio: 100 / 148;
+}
+.media-file-thumb-calendar {
+  aspect-ratio: 16 / 9;
+}
+.media-file-thumb-dm img,
+.media-file-thumb-calendar img,
+.media-file-thumb-work img {
+  object-fit: contain;
 }
 .pdf-thumb {
   display: grid;
@@ -2398,7 +2472,11 @@ select {
   gap: 10px;
 }
 .compact-media-grid {
-  grid-template-columns: minmax(140px, .8fr) minmax(90px, .45fr) minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+.media-work-card .form-grid {
+  gap: 10px;
 }
 
 @media (max-width: 720px) {

@@ -45,10 +45,6 @@ function uploadManagedFiles(sessionToken, request) {
     );
   });
 
-  if (kind === 'exhibition') {
-    applyExhibitionFolderSharing_(folder);
-  }
-
   return buildFolderMediaResponse_(folder);
 }
 
@@ -123,7 +119,23 @@ function finalizeManagedFolders_(state) {
 
   (state.exhibitions || []).forEach((item) => {
     const folder = renameFolderIfPresent_(item.mediaFolderId || item.driveFolderId, item.title, false);
-    if (folder) applyExhibitionFolderSharing_(folder);
+    if (folder) {
+      renameExhibitionMediaFiles_(folder, item.dmFileIds || [], item.workFiles || item.works || []);
+      if (item.published === false) {
+        applyPrivateFolderSharing_(folder);
+      } else {
+        applyExhibitionFolderSharing_(folder);
+      }
+    }
+  });
+}
+
+function finalizeManagedMedia_(state) {
+  (state.exhibitions || []).forEach((item) => {
+    const folderId = item.mediaFolderId || item.driveFolderId;
+    if (!folderId) return;
+    const folder = getDriveFolderWithRetry_(folderId, '展示会素材フォルダ取得');
+    renameExhibitionMediaFiles_(folder, item.dmFileIds || [], item.workFiles || item.works || []);
   });
 }
 
@@ -211,14 +223,12 @@ function ensureManagedFolder_(kind, folderId, title, draft) {
   const existingId = String(folderId || '').trim();
   if (existingId) {
     const folder = getDriveFolderWithRetry_(existingId, '素材フォルダ取得');
-    if (kind === 'exhibition') applyExhibitionFolderSharing_(folder);
     return folder;
   }
 
   const root = getDriveFolderWithRetry_(rootFolderIdForKind_(kind), '素材親フォルダ取得');
   const folderName = buildManagedFolderName_(title, draft !== false);
   const folder = retryDriveOperation_(() => root.createFolder(folderName), '素材フォルダ作成');
-  if (kind === 'exhibition') applyExhibitionFolderSharing_(folder);
   return folder;
 }
 
@@ -407,6 +417,13 @@ function applyExhibitionFolderSharing_(folder) {
   retryDriveOperation_(
     () => folder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW),
     '展示会フォルダ公開設定'
+  );
+}
+
+function applyPrivateFolderSharing_(folder) {
+  retryDriveOperation_(
+    () => folder.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE),
+    '展示会フォルダ非公開設定'
   );
 }
 

@@ -611,6 +611,7 @@ async function openMediaDialog(kind, index = 0) {
   }
   const dialog = ensureMediaDialog();
   dialog.classList.remove('hidden');
+  document.body.classList.add('media-modal-open');
   document.getElementById('mediaDialogTitle').textContent = context.dialogTitle;
   document.getElementById('mediaDialogSubtitle').textContent = context.title;
   document.getElementById('mediaDialogBody').innerHTML = '<div class="preview-empty">素材を読み込んでいます…</div>';
@@ -624,12 +625,23 @@ async function openMediaDialog(kind, index = 0) {
 }
 
 function closeMediaDialog() {
+  syncMediaEditorRowsToState();
+  syncActiveMediaHiddenFields();
   const dialog = document.getElementById('mediaDialog');
   if (dialog) dialog.classList.add('hidden');
+  document.body.classList.remove('media-modal-open');
 }
 
-function isDmFile(file) {
-  return /^dm(?:[0-9０-９]+)?\./i.test(file.name || '');
+function setMediaStatus(message, type) {
+  const status = document.getElementById('mediaDialogStatus');
+  if (!status) return;
+  status.textContent = message || '';
+  status.className = 'media-dialog-status' + (message ? ' is-visible' : ' hidden') + (type ? ' is-' + type : '');
+}
+
+function isMediaDialogOpen() {
+  const dialog = document.getElementById('mediaDialog');
+  return !!(dialog && !dialog.classList.contains('hidden'));
 }
 
 function renderMediaDialog(files) {
@@ -638,26 +650,35 @@ function renderMediaDialog(files) {
   const imageAccept = 'image/' + '*';
   const folderUrl = context.folderId ? driveFolderUrl(context.folderId) : '';
   const folderLinkHtml = folderUrl ? buildMediaFolderLinkHtml(folderUrl) : '';
+  const uploadHtml = context.kind === 'exhibition' ? '' : renderMediaUploadBox('image', '画像を追加', context.kind);
   const sectionsHtml = context.kind === 'exhibition'
     ? renderExhibitionMediaSettings(imageFiles, context)
     : renderGenericMediaSettings(imageFiles, context);
-  const note = context.kind === 'recruit'
-    ? '推奨ファイルサイズは3MB以下です。新歓イベントカレンダー画像は16:9で作成してください。'
-    : '推奨ファイルサイズは3MB以下です。';
 
   document.getElementById('mediaDialogBody').innerHTML = [
+    '<div id="mediaDialogStatus" class="media-dialog-status hidden"></div>',
+    uploadHtml,
+    folderLinkHtml,
+    sectionsHtml
+  ].join('');
+}
+
+function renderMediaUploadBox(role, label, kind) {
+  const imageAccept = 'image/' + '*';
+  const note = kind === 'recruit'
+    ? '推奨ファイルサイズは3MB以下です。新歓イベントカレンダー画像は16:9で作成してください。'
+    : '推奨ファイルサイズは3MB以下です。';
+  return [
     '<div class="media-upload-box">',
     '<div class="media-upload-row">',
     '<div class="field media-file-field">',
-    '<label>画像を追加</label>',
-    '<input id="mediaUploadInput" type="file" multiple accept="' + escapeHtml(imageAccept) + '">',
+    '<label>' + escapeHtml(label) + '</label>',
+    '<input id="mediaUploadInput_' + escapeHtml(role) + '" type="file" multiple accept="' + escapeHtml(imageAccept) + '">',
     '</div>',
-    '<button class="button success" type="button" onclick="onMediaUpload()">アップロード</button>',
+    '<button class="button success" type="button" onclick="onMediaUpload(\'' + escapeJs(role) + '\')">アップロード</button>',
     '</div>',
     '<div class="small-note">' + escapeHtml(note) + '</div>',
-    folderLinkHtml,
-    '</div>',
-    sectionsHtml
+    '</div>'
   ].join('');
 }
 
@@ -668,28 +689,6 @@ function buildMediaFolderLinkHtml(folderUrl) {
     '" target="_blank" rel="noopener noreferrer">',
     '<span>Driveで開く</span>',
     '</a>'
-  ].join('');
-}
-
-function renderMediaFileList(files, emptyText) {
-  if (!files.length) return '<div class="preview-empty">' + escapeHtml(emptyText) + '</div>';
-  return '<div class="media-file-grid">' + files.map((file) => renderMediaFileCard(file)).join('') + '</div>';
-}
-
-function renderMediaFileCard(file) {
-  const thumb = file.kind === 'image'
-    ? '<img src="' + escapeHtml(file.thumbnailUrl) + '" alt="">'
-    : '<div class="pdf-thumb"><i class="fa-regular fa-file-pdf"></i><span>PDF</span></div>';
-  return [
-    '<article class="media-file-card">',
-    '<div class="media-file-thumb">' + thumb + '</div>',
-    '<div class="media-file-name" title="' + escapeHtml(file.name) + '">' + escapeHtml(file.name) + '</div>',
-    '<div class="small-note">' + formatBytes(file.size || 0) + '</div>',
-    '<div class="media-file-actions">',
-    '<button class="button subtle" type="button" onclick="onMediaRename(\'' + escapeJs(file.id) + '\', \'' + escapeJs(file.name) + '\')">名前変更</button>',
-    '<button class="button danger" type="button" onclick="onMediaDelete(\'' + escapeJs(file.id) + '\', \'' + escapeJs(file.name) + '\')">削除</button>',
-    '</div>',
-    '</article>'
   ].join('');
 }
 
@@ -710,15 +709,15 @@ function renderGenericMediaSettings(files, context) {
 }
 
 function renderGenericMediaCard(file, index, count) {
+  const context = currentMediaContext();
+  const thumbClass = context.kind === 'recruit' ? 'media-file-thumb media-file-thumb-calendar' : 'media-file-thumb';
   return [
     '<article class="media-file-card">',
-    '<div class="media-file-thumb"><img src="' + escapeHtml(file.thumbnailUrl) + '" alt=""></div>',
-    '<div class="media-file-name" title="' + escapeHtml(file.name) + '">' + escapeHtml(file.name) + '</div>',
+    '<div class="' + thumbClass + '"><img src="' + escapeHtml(file.thumbnailUrl) + '" alt=""></div>',
     '<div class="small-note">表示順 ' + (index + 1) + ' / ' + formatBytes(file.size || 0) + '</div>',
     '<div class="media-file-actions">',
-    '<button class="button subtle" type="button" onclick="moveMediaFile(\'' + escapeJs(file.id) + '\', -1)" ' + (index === 0 ? 'disabled' : '') + '>上へ</button>',
-    '<button class="button subtle" type="button" onclick="moveMediaFile(\'' + escapeJs(file.id) + '\', 1)" ' + (index === count - 1 ? 'disabled' : '') + '>下へ</button>',
-    '<button class="button subtle" type="button" onclick="onMediaRename(\'' + escapeJs(file.id) + '\', \'' + escapeJs(file.name) + '\')">名前変更</button>',
+    '<button class="button subtle" type="button" onclick="moveMediaFile(\'' + escapeJs(file.id) + '\', -1)" ' + (index === 0 ? 'disabled' : '') + '>前へ</button>',
+    '<button class="button subtle" type="button" onclick="moveMediaFile(\'' + escapeJs(file.id) + '\', 1)" ' + (index === count - 1 ? 'disabled' : '') + '>次へ</button>',
     '<button class="button danger" type="button" onclick="onMediaDelete(\'' + escapeJs(file.id) + '\', \'' + escapeJs(file.name) + '\')">削除</button>',
     '</div>',
     '</article>'
@@ -726,59 +725,86 @@ function renderGenericMediaCard(file, index, count) {
 }
 
 function renderExhibitionMediaSettings(files, context) {
-  if (!files.length) {
-    return '<div class="media-section"><h3>DM・作品画像</h3><div class="preview-empty">画像は未設定です。</div></div>';
-  }
   const item = context.item || {};
   const dmIds = normalizeIdList(item.dmFileIds);
-  const workById = {};
-  (item.workFiles || item.works || []).forEach((work) => {
+  const works = (item.workFiles || item.works || []).map((work, index) => {
     const fileId = work.fileId || work.file_id;
-    if (fileId) workById[fileId] = Object.assign({}, work, { fileId });
-  });
-  const ordered = files.slice().sort((a, b) => {
-    const wa = workById[a.id] ? Number(workById[a.id].sortOrder || 9999) : 9999;
-    const wb = workById[b.id] ? Number(workById[b.id].sortOrder || 9999) : 9999;
-    if (wa !== wb) return wa - wb;
-    return String(a.name || '').localeCompare(String(b.name || ''), 'ja', { numeric: true, sensitivity: 'base' });
-  });
+    return Object.assign({}, work, { fileId, sortOrder: Number(work.sortOrder || work.sort_order || index + 1) });
+  }).filter((work) => work.fileId && fileById(files, work.fileId)).sort((a, b) => a.sortOrder - b.sortOrder);
+  const assigned = new Set(dmIds.concat(works.map((work) => work.fileId)).filter(Boolean));
+  const unassigned = files.filter((file) => !assigned.has(file.id));
   return [
     '<div class="media-section">',
-    '<h3>DM・作品画像</h3>',
-    '<div class="small-note">表示順は、スマートフォン表示と拡大表示時のスライド順に反映されます。PCでは画像の縦横比に合わせて、見やすい配置に自動調整されます。</div>',
-    '<div class="media-editor-list">',
-    ordered.map((file, index) => renderExhibitionMediaRow(file, index, dmIds, workById[file.id] || {})).join(''),
+    '<h3>DM画像</h3>',
+    renderMediaUploadBox('dm', 'DM画像を追加', 'exhibition'),
+    renderExhibitionDmList(files, dmIds),
     '</div>',
-    '<div class="item-actions"><button class="button success" type="button" onclick="saveExhibitionMediaSettingsFromDialog()">設定を反映</button></div>',
+    '<div class="media-section">',
+    '<h3>作品画像</h3>',
+    renderMediaUploadBox('work', '作品画像を追加', 'exhibition'),
+    '<div class="small-note">表示順は、スマートフォン表示と拡大表示時のスライド順に反映されます。PCでは画像の縦横比に合わせて、見やすい配置に自動調整されます。</div>',
+    '<div class="media-file-grid media-work-grid">',
+    works.length ? works.map((work, index) => renderExhibitionWorkRow(fileById(files, work.fileId), work, index, works.length)).join('') : '<div class="preview-empty">作品画像は未設定です。</div>',
+    '</div>',
+    '</div>',
+    unassigned.length ? [
+      '<div class="media-section">',
+      '<h3>未分類の画像</h3>',
+      '<div class="small-note">以前の形式で残っている画像です。DMまたは作品画像に移動できます。</div>',
+      '<div class="media-file-grid">',
+      unassigned.map((file) => renderUnassignedMediaCard(file)).join(''),
+      '</div>',
+      '</div>'
+    ].join('') : ''
+  ].join('');
+}
+
+function renderExhibitionDmList(files, dmIds) {
+  const dmFiles = dmIds.map((id) => fileById(files, id)).filter(Boolean);
+  if (!dmFiles.length) return '<div class="preview-empty">DM画像は未設定です。</div>';
+  return [
+    '<div class="media-file-grid">',
+    dmFiles.map((file, index) => [
+      '<article class="media-file-card" data-exhibition-dm-row data-file-id="' + escapeHtml(file.id) + '">',
+      '<div class="media-file-thumb media-file-thumb-dm"><img src="' + escapeHtml(file.thumbnailUrl) + '" alt=""></div>',
+      '<div class="small-note">DM ' + (index === 0 ? '表' : '裏') + '</div>',
+      '<div class="media-file-actions">',
+      '<button class="button subtle" type="button" onclick="moveExhibitionDm(\'' + escapeJs(file.id) + '\', -1)" ' + (index === 0 ? 'disabled' : '') + '>表へ</button>',
+      '<button class="button subtle" type="button" onclick="moveExhibitionDm(\'' + escapeJs(file.id) + '\', 1)" ' + (index === dmFiles.length - 1 ? 'disabled' : '') + '>裏へ</button>',
+      '<button class="button danger" type="button" onclick="onMediaDelete(\'' + escapeJs(file.id) + '\', \'' + escapeJs(file.name) + '\')">削除</button>',
+      '</div>',
+      '</article>'
+    ].join('')).join(''),
     '</div>'
   ].join('');
 }
 
-function renderExhibitionMediaRow(file, index, dmIds, work) {
-  let role = 'unused';
-  if (dmIds[0] === file.id) role = 'dm-front';
-  else if (dmIds[1] === file.id) role = 'dm-back';
-  else if (work.fileId) role = 'work';
+function renderExhibitionWorkRow(file, work, index, count) {
   return [
-    '<article class="media-editor-row" data-exhibition-media-row data-file-id="' + escapeHtml(file.id) + '">',
-    '<div class="media-editor-thumb"><img src="' + escapeHtml(file.thumbnailUrl) + '" alt=""></div>',
-    '<div class="media-editor-fields">',
-    '<div class="media-file-name" title="' + escapeHtml(file.name) + '">' + escapeHtml(file.name) + '</div>',
+    '<article class="media-file-card media-work-card" data-exhibition-media-row data-file-id="' + escapeHtml(file.id) + '">',
+    '<div class="media-file-thumb media-file-thumb-work"><img src="' + escapeHtml(file.thumbnailUrl) + '" alt=""></div>',
+    '<div class="small-note">表示順 ' + (index + 1) + ' / ' + formatBytes(file.size || 0) + '</div>',
     '<div class="form-grid compact-media-grid">',
-    '<div class="field"><label>種類</label><select data-field="mediaRole">',
-    '<option value="unused" ' + (role === 'unused' ? 'selected' : '') + '>使用しない</option>',
-    '<option value="dm-front" ' + (role === 'dm-front' ? 'selected' : '') + '>DM 表</option>',
-    '<option value="dm-back" ' + (role === 'dm-back' ? 'selected' : '') + '>DM 裏</option>',
-    '<option value="work" ' + (role === 'work' ? 'selected' : '') + '>作品画像</option>',
-    '</select></div>',
-    '<div class="field"><label>表示順</label><input data-field="sortOrder" type="number" min="1" value="' + escapeHtml(work.sortOrder || index + 1) + '"></div>',
     '<div class="field"><label>作品名</label><input data-field="workTitle" value="' + escapeHtml(work.title || work.workTitle || '') + '"></div>',
     '<div class="field"><label>作者名</label><input data-field="artistName" value="' + escapeHtml(work.artist || work.artistName || '') + '"></div>',
     '</div>',
     '<div class="media-file-actions">',
-    '<button class="button subtle" type="button" onclick="onMediaRename(\'' + escapeJs(file.id) + '\', \'' + escapeJs(file.name) + '\')">名前変更</button>',
+    '<button class="button subtle" type="button" onclick="moveExhibitionWork(\'' + escapeJs(file.id) + '\', -1)" ' + (index === 0 ? 'disabled' : '') + '>前へ</button>',
+    '<button class="button subtle" type="button" onclick="moveExhibitionWork(\'' + escapeJs(file.id) + '\', 1)" ' + (index === count - 1 ? 'disabled' : '') + '>次へ</button>',
     '<button class="button danger" type="button" onclick="onMediaDelete(\'' + escapeJs(file.id) + '\', \'' + escapeJs(file.name) + '\')">削除</button>',
     '</div>',
+    '</article>'
+  ].join('');
+}
+
+function renderUnassignedMediaCard(file) {
+  return [
+    '<article class="media-file-card">',
+    '<div class="media-file-thumb"><img src="' + escapeHtml(file.thumbnailUrl) + '" alt=""></div>',
+    '<div class="media-file-actions">',
+    '<button class="button subtle" type="button" onclick="assignExhibitionFile(\'' + escapeJs(file.id) + '\', \'dm\')">DMへ</button>',
+    '<button class="button subtle" type="button" onclick="assignExhibitionFile(\'' + escapeJs(file.id) + '\', \'work\')">作品へ</button>',
+    '<button class="button danger" type="button" onclick="onMediaDelete(\'' + escapeJs(file.id) + '\', \'' + escapeJs(file.name) + '\')">削除</button>',
     '</div>',
     '</article>'
   ].join('');
@@ -786,6 +812,10 @@ function renderExhibitionMediaRow(file, index, dmIds, work) {
 
 function validateMediaSelection(files, role, context) {
   if (!files.length) throw new Error('アップロードするファイルを選択してください。');
+  if (context.kind === 'exhibition' && role === 'dm') {
+    const currentCount = normalizeIdList(context.item && context.item.dmFileIds).length;
+    if (currentCount + files.length > 2) throw new Error('DM画像は表・裏の2枚までです。不要なDM画像を削除してから追加してください。');
+  }
   let total = 0;
   const warnings = [];
   Array.from(files).forEach((file) => {
@@ -822,17 +852,20 @@ function readFilePayload(file) {
   });
 }
 
-async function onMediaUpload() {
+async function onMediaUpload(uploadRole) {
   const context = currentMediaContext();
-  const input = document.getElementById('mediaUploadInput');
-  const role = 'image';
+  const role = uploadRole || 'image';
+  const input = document.getElementById('mediaUploadInput_' + role);
   const selected = input && input.files ? Array.from(input.files) : [];
 
   try {
     if (!validateMediaSelection(selected, role, context)) return;
+    syncMediaEditorRowsToState();
     document.getElementById('mediaDialogBody').classList.add('is-loading');
+    setMediaStatus('ファイルをアップロードしています…');
     setStatus('ファイルをアップロードしています…');
     const files = await Promise.all(selected.map(readFilePayload));
+    const beforeIds = new Set(((context.folderId && appState.mediaCache[context.folderId]) || []).map((file) => file.id));
     const result = await serverCall('uploadManagedFiles', appState.sessionToken, {
       kind: context.kind,
       role,
@@ -841,10 +874,13 @@ async function onMediaUpload() {
       draft: true,
       files
     });
-    applyMediaResult(result);
+    const newIds = (result.files || []).filter((file) => !beforeIds.has(file.id)).map((file) => file.id);
+    applyMediaResult(result, { type: 'upload', role, newIds });
     renderMediaDialog(result.files || []);
+    setMediaStatus('アップロードしました。', 'success');
     setStatus('アップロードしました。', 'success');
   } catch (error) {
+    setMediaStatus(error.message, 'error');
     setStatus(error.message, 'error');
   } finally {
     const body = document.getElementById('mediaDialogBody');
@@ -852,29 +888,11 @@ async function onMediaUpload() {
   }
 }
 
-async function onMediaRename(fileId, currentName) {
-  const context = currentMediaContext();
-  const requested = prompt('新しいファイル名を入力してください。', currentName);
-  if (requested == null) return;
-  try {
-    setStatus('ファイル名を変更しています…');
-    const result = await serverCall('renameManagedFile', appState.sessionToken, {
-      folderId: context.folderId,
-      fileId,
-      name: requested
-    });
-    applyMediaResult(result, { type: 'rename', fileId, oldName: currentName });
-    renderMediaDialog(result.files || []);
-    setStatus('ファイル名を変更しました。', 'success');
-  } catch (error) {
-    setStatus(error.message, 'error');
-  }
-}
-
 async function onMediaDelete(fileId, name) {
   const context = currentMediaContext();
-  if (!confirm(name + ' を削除しますか？')) return;
+  if (!confirm('この画像を削除しますか？')) return;
   try {
+    setMediaStatus('ファイルを削除しています…');
     setStatus('ファイルを削除しています…');
     const result = await serverCall('trashManagedFile', appState.sessionToken, {
       folderId: context.folderId,
@@ -882,8 +900,10 @@ async function onMediaDelete(fileId, name) {
     });
     applyMediaResult(result);
     renderMediaDialog(result.files || []);
+    setMediaStatus(result.folderTrashed ? '最後のファイルを削除したため、空のフォルダも削除しました。' : 'ファイルを削除しました。', 'success');
     setStatus(result.folderTrashed ? '最後のファイルを削除したため、空のフォルダも削除しました。' : 'ファイルを削除しました。', 'success');
   } catch (error) {
+    setMediaStatus(error.message, 'error');
     setStatus(error.message, 'error');
   }
 }
@@ -903,8 +923,27 @@ function applyMediaResult(result, mutation) {
 
   if (context.kind === 'exhibition') {
     const currentIds = new Set((result.files || []).map((file) => file.id));
-    context.item.dmFileIds = normalizeIdList(context.item.dmFileIds).filter((id) => currentIds.has(id));
-    context.item.workFiles = (context.item.workFiles || context.item.works || []).filter((work) => currentIds.has(work.fileId || work.file_id));
+    let dmFileIds = normalizeIdList(context.item.dmFileIds).filter((id) => currentIds.has(id));
+    let workFiles = (context.item.workFiles || context.item.works || []).filter((work) => currentIds.has(work.fileId || work.file_id));
+    if (mutation && mutation.type === 'upload') {
+      const imageIds = (mutation.newIds || []).filter((id) => currentIds.has(id));
+      if (mutation.role === 'dm') {
+        dmFileIds = dmFileIds.concat(imageIds).slice(0, 2);
+      } else if (mutation.role === 'work') {
+        const start = workFiles.length;
+        imageIds.forEach((id, offset) => {
+          if (!workFiles.some((work) => (work.fileId || work.file_id) === id)) {
+            workFiles.push({ fileId: id, sortOrder: start + offset + 1, title: '', artist: '' });
+          }
+        });
+      }
+    }
+    context.item.dmFileIds = dmFileIds;
+    context.item.workFiles = workFiles
+      .map((work) => Object.assign({}, work, { fileId: work.fileId || work.file_id }))
+      .filter((work) => work.fileId)
+      .sort((a, b) => Number(a.sortOrder || a.sort_order || 0) - Number(b.sortOrder || b.sort_order || 0))
+      .map((work, index) => Object.assign({}, work, { sortOrder: index + 1 }));
     context.item.works = context.item.workFiles;
   } else {
     const currentIds = new Set((result.files || []).filter((file) => file.kind === 'image').map((file) => file.id));
@@ -916,7 +955,8 @@ function applyMediaResult(result, mutation) {
   }
 
   markDirty();
-  rerenderAfterMediaChange(context.kind);
+  syncActiveMediaHiddenFields();
+  refreshPreviewForKind(context.kind);
 }
 
 function moveMediaFile(fileId, delta) {
@@ -932,50 +972,122 @@ function moveMediaFile(fileId, delta) {
   orderedIds[next] = tmp;
   context.item.mediaFileIds = orderedIds;
   markDirty();
+  syncActiveMediaHiddenFields();
   renderMediaDialog(files);
-  rerenderAfterMediaChange(context.kind);
+  refreshPreviewForKind(context.kind);
 }
 
-async function saveExhibitionMediaSettingsFromDialog() {
+function syncMediaEditorRowsToState() {
+  if (!isMediaDialogOpen()) return;
   const context = currentMediaContext();
-  if (!context.item || !context.folderId) return;
-  const dmFileIds = [];
+  if (!context.item || context.kind !== 'exhibition') return;
   const workFiles = [];
-  document.querySelectorAll('[data-exhibition-media-row]').forEach((row) => {
+  document.querySelectorAll('[data-exhibition-media-row]').forEach((row, index) => {
     const fileId = row.getAttribute('data-file-id') || '';
-    const role = row.querySelector('[data-field="mediaRole"]').value;
-    if (role === 'dm-front') dmFileIds[0] = fileId;
-    if (role === 'dm-back') dmFileIds[1] = fileId;
-    if (role === 'work') {
-      workFiles.push({
-        fileId,
-        sortOrder: Number(row.querySelector('[data-field="sortOrder"]').value || workFiles.length + 1),
-        title: row.querySelector('[data-field="workTitle"]').value.trim(),
-        artist: row.querySelector('[data-field="artistName"]').value.trim()
-      });
-    }
-  });
-  context.item.dmFileIds = dmFileIds.filter(Boolean).slice(0, 2);
-  context.item.workFiles = workFiles.sort((a, b) => a.sortOrder - b.sortOrder);
-  context.item.works = context.item.workFiles;
-  try {
-    document.getElementById('mediaDialogBody').classList.add('is-loading');
-    setStatus('画像設定を反映しています…');
-    const result = await serverCall('saveMediaSettings', appState.sessionToken, {
-      kind: 'exhibition',
-      folderId: context.folderId,
-      dmFileIds: context.item.dmFileIds,
-      workFiles: context.item.workFiles
+    workFiles.push({
+      fileId,
+      sortOrder: index + 1,
+      title: row.querySelector('[data-field="workTitle"]').value.trim(),
+      artist: row.querySelector('[data-field="artistName"]').value.trim()
     });
-    applyMediaResult(result);
-    renderMediaDialog(result.files || []);
-    setStatus('画像設定を反映しました。', 'success');
-  } catch (error) {
-    setStatus(error.message, 'error');
-  } finally {
-    const body = document.getElementById('mediaDialogBody');
-    if (body) body.classList.remove('is-loading');
+  });
+  context.item.workFiles = workFiles;
+  context.item.works = context.item.workFiles;
+}
+
+function syncActiveMediaHiddenFields() {
+  const context = currentMediaContext();
+  if (!context.item || !context.folderKey) return;
+
+  const selectorMap = {
+    recruit: '[data-recruit-item]',
+    activity: '[data-activity-item]',
+    exhibition: '[data-exhibition-item]',
+    request: '[data-request-item]'
+  };
+  const element = document.querySelectorAll(selectorMap[context.kind] || '')[context.index];
+  if (!element) return;
+
+  const folderInput = element.querySelector('[data-field="mediaFolderId"]');
+  if (folderInput) folderInput.value = context.item[context.folderKey] || '';
+
+  if (context.kind === 'exhibition') {
+    const dmInput = element.querySelector('[data-field="dmFileIds"]');
+    const workInput = element.querySelector('[data-field="workFiles"]');
+    if (dmInput) dmInput.value = JSON.stringify(normalizeIdList(context.item.dmFileIds));
+    if (workInput) workInput.value = JSON.stringify(context.item.workFiles || context.item.works || []);
+    return;
   }
+
+  const mediaInput = element.querySelector('[data-field="mediaFileIds"]');
+  if (mediaInput) mediaInput.value = JSON.stringify(normalizeIdList(context.item.mediaFileIds));
+}
+
+function refreshPreviewForKind(kind) {
+  if (kind === 'recruit') loadRecruitPreview();
+  if (kind === 'activity') refreshActivityPreview();
+  if (kind === 'exhibition') refreshExhibitionPreview();
+  if (kind === 'request') refreshRequestPreview();
+}
+
+function moveExhibitionDm(fileId, delta) {
+  const context = currentMediaContext();
+  if (!context.item) return;
+  syncMediaEditorRowsToState();
+  const ids = normalizeIdList(context.item.dmFileIds);
+  const index = ids.indexOf(fileId);
+  const next = index + delta;
+  if (index < 0 || next < 0 || next >= ids.length) return;
+  const tmp = ids[index];
+  ids[index] = ids[next];
+  ids[next] = tmp;
+  context.item.dmFileIds = ids;
+  markDirty();
+  syncActiveMediaHiddenFields();
+  renderMediaDialog(context.folderId ? (appState.mediaCache[context.folderId] || []) : []);
+  refreshPreviewForKind('exhibition');
+}
+
+function moveExhibitionWork(fileId, delta) {
+  const context = currentMediaContext();
+  if (!context.item) return;
+  syncMediaEditorRowsToState();
+  const works = (context.item.workFiles || []).slice().sort((a, b) => a.sortOrder - b.sortOrder);
+  const index = works.findIndex((work) => work.fileId === fileId);
+  const next = index + delta;
+  if (index < 0 || next < 0 || next >= works.length) return;
+  const tmp = works[index];
+  works[index] = works[next];
+  works[next] = tmp;
+  context.item.workFiles = works.map((work, idx) => Object.assign({}, work, { sortOrder: idx + 1 }));
+  context.item.works = context.item.workFiles;
+  markDirty();
+  syncActiveMediaHiddenFields();
+  renderMediaDialog(context.folderId ? (appState.mediaCache[context.folderId] || []) : []);
+  refreshPreviewForKind('exhibition');
+}
+
+function assignExhibitionFile(fileId, role) {
+  const context = currentMediaContext();
+  if (!context.item) return;
+  syncMediaEditorRowsToState();
+  context.item.dmFileIds = normalizeIdList(context.item.dmFileIds).filter((id) => id !== fileId);
+  context.item.workFiles = (context.item.workFiles || []).filter((work) => work.fileId !== fileId);
+  if (role === 'dm') {
+    if (context.item.dmFileIds.length >= 2) {
+      setMediaStatus('DM画像は表・裏の2枚までです。不要なDM画像を削除してから追加してください。', 'error');
+      return;
+    }
+    context.item.dmFileIds.push(fileId);
+  }
+  if (role === 'work') {
+    context.item.workFiles.push({ fileId, sortOrder: context.item.workFiles.length + 1, title: '', artist: '' });
+  }
+  context.item.works = context.item.workFiles;
+  markDirty();
+  syncActiveMediaHiddenFields();
+  renderMediaDialog(context.folderId ? (appState.mediaCache[context.folderId] || []) : []);
+  refreshPreviewForKind('exhibition');
 }
 
 function rerenderAfterMediaChange(kind) {
@@ -1153,7 +1265,6 @@ function renderStorageCard() {
 
 function renderDashboard() {
   const state = appState.state || {};
-  const roots = appState.options.roots || {};
   const publishedActivities = (state.activityArticles || []).filter((item) => item.published !== false).length;
   const publishedExhibitions = (state.exhibitions || []).filter((item) => item.published !== false).length;
   const publishedRequests = (state.requestCases || []).filter((item) => item.published !== false).length;
@@ -1193,28 +1304,23 @@ function renderDashboard() {
           <div class="log-list log-list-scroll">${adminHtml}</div>
         </div>
       </div>
-      <div class="card">
-        <h3>素材フォルダ</h3>
-        <div class="stack compact-links">
-          ${renderRootLink((roots.recruit || {}).name || '新歓イベントカレンダー', roots.recruit)}
-          ${renderRootLink((roots.activity || {}).name || '活動記録・告知', roots.activity)}
-          ${renderRootLink((roots.exhibition || {}).name || '展示会', roots.exhibition)}
-          ${renderRootLink((roots.request || {}).name || '取り組み事例', roots.request)}
-        </div>
-      </div>
     </div>
   `;
   document.getElementById('panel-dashboard').innerHTML = html;
 }
 
-function renderRootLink(label, item) {
-  if (!item) return '';
-  return `
-    <a class="root-link-row" href="${escapeHtml(item.url || '#')}" target="_blank" rel="noopener noreferrer">
-      <span>${escapeHtml(label)}</span>
-      <i class="fa-solid fa-up-right-from-square"></i>
-    </a>
-  `;
+function updateEditorCardTitle(input, fallback) {
+  const item = input && input.closest ? input.closest('.editor-item') : null;
+  const title = item ? item.querySelector('[data-live-title]') : null;
+  if (title) title.textContent = input.value.trim() || fallback;
+}
+
+function updateRecruitYearTitle(input) {
+  const item = input && input.closest ? input.closest('.editor-item') : null;
+  const title = item ? item.querySelector('[data-live-title]') : null;
+  const year = String(input.value || '').replace(/[^\d]/g, '').slice(0, 4);
+  if (title) title.textContent = year ? year + '年度 新歓イベントカレンダー' : '新歓イベントカレンダー';
+  loadRecruitPreview();
 }
 
 function renderRecruitEditor() {
@@ -1228,7 +1334,6 @@ function renderRecruitEditor() {
           <div>
             <h2>入部希望の方</h2>
             <p class="lead">年度ごとの新歓イベントカレンダー画像を設定します。表示名は年度から自動で作られます。</p>
-            <div class="editor-link-spacer">${renderRootLink(((appState.options.roots || {}).recruit || {}).name || '新歓イベントカレンダー', (appState.options.roots || {}).recruit)}</div>
           </div>
           <div class="item-actions">
             <button class="button" type="button" onclick="addRecruitYear()">年度を追加</button>
@@ -1256,7 +1361,7 @@ function renderRecruitEditorItem(item, index) {
       <div class="editor-item-head">
         <div>
           <div class="item-title-line">
-            <div style="font-weight:700">${escapeHtml(label)}</div>
+            <div data-live-title style="font-weight:700">${escapeHtml(label)}</div>
             ${visibleChipHtml(published)}
           </div>
           <div class="editor-item-meta">画像は16:9推奨です。</div>
@@ -1269,7 +1374,7 @@ function renderRecruitEditorItem(item, index) {
       <div class="form-grid">
         <div class="field">
           <label>年度</label>
-          <input data-field="year" inputmode="numeric" value="${escapeHtml(year)}" placeholder="2026" onchange="syncRecruitFromDomAndRerender()">
+          <input data-field="year" inputmode="numeric" value="${escapeHtml(year)}" placeholder="2026" oninput="updateRecruitYearTitle(this)" onchange="syncRecruitFromDomAndRerender()">
         </div>
         <div class="field full">
           <label>画像</label>
@@ -1317,6 +1422,7 @@ async function loadRecruitPreview(forceRefresh = false) {
 
 function addRecruitYear() {
   ensureRecruitCalendars();
+  appState.state.recruitCalendars = readRecruitFromDom();
   const nextYear = String(new Date().getFullYear());
   appState.state.recruitCalendars.unshift({
     year: nextYear,
@@ -1357,7 +1463,6 @@ function renderActivitiesEditor() {
           <div>
             <h2>活動記録・告知</h2>
             <div class="small-note">公開日が新しい順に表示されます。必要に応じて非公開にできます。</div>
-            <div class="editor-link-spacer">${renderRootLink(((appState.options.roots || {}).activity || {}).name || '活動記録・告知', (appState.options.roots || {}).activity)}</div>
           </div>
           <div class="item-actions">
             <button class="button" type="button" onclick="addActivityArticle()">記事を追加</button>
@@ -1383,7 +1488,7 @@ function renderActivityEditorItem(item, index) {
       <div class="editor-item-head">
         <div>
           <div class="item-title-line">
-            <div style="font-weight:700">${escapeHtml(item.title || '新規記事')}</div>
+            <div data-live-title style="font-weight:700">${escapeHtml(item.title || '新規記事')}</div>
             ${visibleChipHtml(published)}
           </div>
           <div class="editor-item-meta">初回公開日: ${formatDate(item.createdAt)}</div>
@@ -1396,7 +1501,7 @@ function renderActivityEditorItem(item, index) {
       <div class="form-grid">
         <div class="field full">
           <label>記事タイトル</label>
-          <input data-field="title" value="${escapeHtml(item.title || '')}" oninput="refreshActivityPreview()">
+          <input data-field="title" value="${escapeHtml(item.title || '')}" oninput="updateEditorCardTitle(this, '新規記事'); refreshActivityPreview()">
         </div>
         <div class="field">
           <label>カテゴリ</label>
@@ -1442,6 +1547,7 @@ async function renderActivityPreview(items) {
 }
 
 function addActivityArticle() {
+  appState.state.activityArticles = readActivitiesFromDom();
   appState.state.activityArticles.unshift({
     articleId: '',
     title: '',
@@ -1456,6 +1562,7 @@ function addActivityArticle() {
 }
 
 function toggleActivityPublished(index) {
+  appState.state.activityArticles = readActivitiesFromDom();
   const item = appState.state.activityArticles[index];
   if (!item) return;
   item.published = item.published === false;
@@ -1464,6 +1571,7 @@ function toggleActivityPublished(index) {
 
 function removeActivityArticle(index) {
   if (!confirm('この記事を削除しますか？\n公開済みのコンテンツは削除ではなく非公開推奨です。')) return;
+  appState.state.activityArticles = readActivitiesFromDom();
   appState.state.activityArticles.splice(index, 1);
   renderActivitiesEditor();
 }
@@ -1483,7 +1591,6 @@ function renderExhibitionsEditor() {
           <div>
             <h2>展示会</h2>
             <div class="small-note">開始日をもとに自動で並びます。開催予定は複数設定でき、近い順に表示されます。直近の展示はアーカイブの最新1件から自動で反映されます。</div>
-            <div class="editor-link-spacer">${renderRootLink(((appState.options.roots || {}).exhibition || {}).name || '展示会', (appState.options.roots || {}).exhibition)}</div>
           </div>
           <div class="item-actions">
             <button class="button" type="button" onclick="addExhibition()">展示会を追加</button>
@@ -1510,7 +1617,7 @@ function renderExhibitionEditorItem(item, index) {
       <div class="editor-item-head">
         <div>
           <div class="item-title-line">
-            <div style="font-weight:700">${escapeHtml(item.title || '新規展示会')}</div>
+            <div data-live-title style="font-weight:700">${escapeHtml(item.title || '新規展示会')}</div>
             ${visibleChipHtml(published)}
           </div>
           <div class="editor-item-meta">${bucketLabel}</div>
@@ -1524,7 +1631,7 @@ function renderExhibitionEditorItem(item, index) {
       <div class="form-grid">
         <div class="field full">
           <label>展示会名</label>
-          <input data-field="title" value="${escapeHtml(item.title || '')}" oninput="refreshExhibitionPreview()">
+          <input data-field="title" value="${escapeHtml(item.title || '')}" oninput="updateEditorCardTitle(this, '新規展示会'); refreshExhibitionPreview()">
         </div>
         <div class="field">
           <label>開始日（自動並び替え用）</label>
@@ -1661,6 +1768,7 @@ function syncExhibitionsFromDomAndRerender() {
 }
 
 function addExhibition() {
+  appState.state.exhibitions = readExhibitionsFromDom();
   appState.state.exhibitions.unshift({
     exhibitionId: '',
     displayBucket: 'upcoming',
@@ -1740,7 +1848,6 @@ function renderRequestsEditor() {
           <div>
             <h2>ご依頼の方</h2>
             <div class="small-note">紹介したい取り組み事例を並べます。新しく追加した事例は先頭に配置されます。</div>
-            <div class="editor-link-spacer">${renderRootLink(((appState.options.roots || {}).request || {}).name || '取り組み事例', (appState.options.roots || {}).request)}</div>
           </div>
           <div class="item-actions">
             <button class="button" type="button" onclick="addRequestCase()">取り組み事例を追加</button>
@@ -1766,7 +1873,7 @@ function renderRequestEditorItem(item, index) {
       <div class="editor-item-head">
         <div>
           <div class="item-title-line">
-            <div style="font-weight:700">${escapeHtml(item.title || '新規事例')}</div>
+            <div data-live-title style="font-weight:700">${escapeHtml(item.title || '新規事例')}</div>
             ${visibleChipHtml(published)}
           </div>
           <div class="editor-item-meta">表示順 ${index + 1}</div>
@@ -1781,7 +1888,7 @@ function renderRequestEditorItem(item, index) {
       <div class="form-grid">
         <div class="field full">
           <label>取り組みタイトル</label>
-          <input data-field="title" value="${escapeHtml(item.title || '')}" oninput="refreshRequestPreview()">
+          <input data-field="title" value="${escapeHtml(item.title || '')}" oninput="updateEditorCardTitle(this, '新規事例'); refreshRequestPreview()">
         </div>
         <div class="field full">
           <label>本文</label>
@@ -1821,6 +1928,7 @@ async function renderRequestPreview(items) {
 }
 
 function addRequestCase() {
+  appState.state.requestCases = readRequestsFromDom();
   appState.state.requestCases.unshift({
     caseId: '',
     title: '',
@@ -1833,6 +1941,7 @@ function addRequestCase() {
 }
 
 function moveRequestCase(index, delta) {
+  appState.state.requestCases = readRequestsFromDom();
   const target = index + delta;
   if (target < 0 || target >= appState.state.requestCases.length) return;
   const items = appState.state.requestCases;
@@ -1843,6 +1952,7 @@ function moveRequestCase(index, delta) {
 }
 
 function toggleRequestPublished(index) {
+  appState.state.requestCases = readRequestsFromDom();
   const item = appState.state.requestCases[index];
   if (!item) return;
   item.published = item.published === false;
@@ -1851,6 +1961,7 @@ function toggleRequestPublished(index) {
 
 function removeRequestCase(index) {
   if (!confirm('この事例を削除しますか？\n公開済みのコンテンツは削除ではなく非公開推奨です。')) return;
+  appState.state.requestCases = readRequestsFromDom();
   appState.state.requestCases.splice(index, 1);
   renderRequestsEditor();
 }
@@ -1982,7 +2093,41 @@ function readRequestsFromDom() {
   }));
 }
 
+function validatePayloadForSubmit(payload) {
+  const messages = [];
+  function contentTitle(value, fallback, index) {
+    return String(value || '').trim() || fallback + ' ' + (index + 1);
+  }
+  function add(label, field, hint) {
+    messages.push(label + '：' + field + (hint ? '（' + hint + '）' : ''));
+  }
+
+  (payload.activityArticles || []).forEach((item, index) => {
+    if (!String(item.title || '').trim()) add('活動記録・告知「' + contentTitle(item.title, '新規記事', index) + '」', '記事タイトル');
+  });
+
+  (payload.exhibitions || []).forEach((item, index) => {
+    const label = '展示会「' + contentTitle(item.title, '新規展示会', index) + '」';
+    if (!String(item.title || '').trim()) add(label, '展示会名');
+    if (!String(item.venueName || '').trim()) add(label, '会場名', '未定の場合は「未定」と入力してください');
+    if (!String(item.dateLine || '').trim()) add(label, '会期表示', '未定の場合は「未定」と入力してください');
+    if (!String(item.timeLine || '').trim()) add(label, '時間帯表示', '未定の場合は「未定」と入力してください');
+  });
+
+  (payload.requestCases || []).forEach((item, index) => {
+    if (!String(item.title || '').trim()) add('取り組み事例「' + contentTitle(item.title, '新規事例', index) + '」', '取り組みタイトル');
+  });
+
+  if (!messages.length) return true;
+  setStatus('入力が必要な項目があります。\n- ' + messages.join('\n- '), 'error');
+  return false;
+}
+
 function buildPayloadFromDom() {
+  if (isMediaDialogOpen()) {
+    syncMediaEditorRowsToState();
+    syncActiveMediaHiddenFields();
+  }
   const recruitCalendars = readRecruitFromDom();
   return {
     recruitCalendars,
@@ -2026,9 +2171,10 @@ async function loadDraftIntoEditor(draftId) {
 }
 
 async function onSaveDraft() {
-  if (!confirm('現在の内容を新しい下書きとして保存しますか？')) return;
   try {
     const payload = buildPayloadFromDom();
+    if (!validatePayloadForSubmit(payload)) return;
+    if (!confirm('現在の内容を新しい下書きとして保存しますか？')) return;
     setStatus('下書きを保存しています…');
     const result = await serverCall('saveDraft', appState.sessionToken, payload);
     setStatus(result.message, 'success');
@@ -2040,10 +2186,12 @@ async function onSaveDraft() {
 }
 
 async function onPublish() {
-  if (!confirm('この内容で公開しますか？')) return;
   try {
+    const payload = buildPayloadFromDom();
+    if (!validatePayloadForSubmit(payload)) return;
+    if (!confirm('この内容で公開しますか？')) return;
     setStatus('公開処理を開始しています…');
-    const result = await serverCall('publishState', appState.sessionToken, buildPayloadFromDom());
+    const result = await serverCall('publishState', appState.sessionToken, payload);
     setStatus(result.changeSummary || result.message, 'success');
     await loadBootstrap();
     clearDirty();
