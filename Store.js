@@ -1,7 +1,7 @@
 function getBootstrapData(sessionToken) {
   const session = requireSession_(sessionToken);
   const state = readContentState_();
-  return {
+  return sanitizeForClient_({
     viewerEmail: session.email,
     viewerName: session.name || session.email,
     previewUrl: getConfig_().SITE_PREVIEW_URL,
@@ -10,7 +10,7 @@ function getBootstrapData(sessionToken) {
     drafts: readDrafts_(),
     adminLog: readAdminLog_(),
     maintenance: getDriveMaintenanceSummary_(state)
-  };
+  });
 }
 
 function saveDraft(sessionToken, payload) {
@@ -18,7 +18,7 @@ function saveDraft(sessionToken, payload) {
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
-    const normalized = normalizePayload_(payload, readContentState_());
+    const normalized = normalizePayload_(payload, readContentState_(), { allowIncomplete: true });
     finalizeManagedMedia_(normalized);
     saveDraftRecord_(normalized, session.name || session.email, session.email);
     return {
@@ -94,7 +94,8 @@ function loadDraft(sessionToken, draftId) {
 }
 
 
-function normalizePayload_(payload, existingState) {
+function normalizePayload_(payload, existingState, options) {
+  options = options || {};
   if (!payload || typeof payload !== 'object') throw new Error('入力データが不正です。');
   const recruitCalendars = normalizeRecruitCalendars_(
     payload.recruitCalendars || (payload.recruitCalendar ? [payload.recruitCalendar] : []),
@@ -103,9 +104,9 @@ function normalizePayload_(payload, existingState) {
   const normalized = {
     recruitCalendars: recruitCalendars,
     recruitCalendar: getPublishedRecruitCalendar_(recruitCalendars),
-    activityArticles: normalizeActivityArticles_(payload.activityArticles, existingState.activityArticles || []),
-    exhibitions: normalizeExhibitions_(payload.exhibitions, existingState.exhibitions || []),
-    requestCases: normalizeRequestCases_(payload.requestCases),
+    activityArticles: normalizeActivityArticles_(payload.activityArticles, existingState.activityArticles || [], options),
+    exhibitions: normalizeExhibitions_(payload.exhibitions, existingState.exhibitions || [], options),
+    requestCases: normalizeRequestCases_(payload.requestCases, options),
     changeLog: existingState.changeLog || [],
     manualChangeNote: cleanMultiline_(payload.manualChangeNote, 500)
   };
@@ -182,7 +183,16 @@ function normalizeStringList_(value) {
   return out;
 }
 
-function normalizeActivityArticles_(items, existingItems) {
+function optionalSingleLine_(value, maxLength) {
+  return cleanMultiline_(value, maxLength).replace(/\n+/g, ' ').trim();
+}
+
+function requiredOrDraft_(value, label, maxLength, options) {
+  if (options && options.allowIncomplete) return optionalSingleLine_(value, maxLength);
+  return requireString_(value, label, maxLength);
+}
+
+function normalizeActivityArticles_(items, existingItems, options) {
   const existingById = {};
   (existingItems || []).forEach((item) => existingById[item.articleId] = item);
   return (items || []).filter(Boolean).map((item, index) => {
@@ -190,7 +200,7 @@ function normalizeActivityArticles_(items, existingItems) {
     const existing = existingById[articleId];
     return {
       articleId: articleId,
-      title: requireString_(item.title, '活動記事タイトル', 120),
+      title: requiredOrDraft_(item.title, '活動記事タイトル', 120, options),
       body: cleanMultiline_(item.body, 4000),
       category: requireActivityCategory_(item.category),
       mediaFolderId: String(item.mediaFolderId || item.photoFolderId || '').trim(),
@@ -203,7 +213,7 @@ function normalizeActivityArticles_(items, existingItems) {
   }).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
 }
 
-function normalizeExhibitions_(items, existingItems) {
+function normalizeExhibitions_(items, existingItems, options) {
   const existingById = {};
   (existingItems || []).forEach((item) => existingById[item.exhibitionId] = item);
   return (items || []).filter(Boolean).map((item) => {
@@ -214,12 +224,12 @@ function normalizeExhibitions_(items, existingItems) {
     const exhibitionLabel = String(item.title || '').trim() || '新規展示会';
     return {
       exhibitionId: exhibitionId,
-      title: requireString_(item.title, '展示会名', 140),
+      title: requiredOrDraft_(item.title, '展示会名', 140, options),
       theme: cleanMultiline_(item.theme, 180),
-      venueName: requireString_(item.venueName, '展示会「' + exhibitionLabel + '」の会場名（未定の場合は「未定」と入力してください）', 180),
+      venueName: requiredOrDraft_(item.venueName, '展示会「' + exhibitionLabel + '」の会場名（未定の場合は「未定」と入力してください）', 180, options),
       venueAddress: cleanMultiline_(item.venueAddress, 240),
-      dateLine: requireString_(item.dateLine, '展示会「' + exhibitionLabel + '」の会期（未定の場合は「未定」と入力してください）', 180),
-      timeLine: requireString_(item.timeLine, '展示会「' + exhibitionLabel + '」の時間帯（未定の場合は「未定」と入力してください）', 220),
+      dateLine: requiredOrDraft_(item.dateLine, '展示会「' + exhibitionLabel + '」の会期（未定の場合は「未定」と入力してください）', 180, options),
+      timeLine: requiredOrDraft_(item.timeLine, '展示会「' + exhibitionLabel + '」の時間帯（未定の場合は「未定」と入力してください）', 220, options),
       mapEmbedUrl: String(item.mapEmbedUrl || '').trim(),
       displayBucket: requireDisplayBucket_(item.displayBucket),
       mediaFolderId: folderId,
@@ -235,10 +245,10 @@ function normalizeExhibitions_(items, existingItems) {
   }).sort(compareExhibitions_);
 }
 
-function normalizeRequestCases_(items) {
+function normalizeRequestCases_(items, options) {
   return (items || []).filter(Boolean).map((item, index) => ({
     caseId: String(item.caseId || '').trim() || 'request-' + Utilities.getUuid().slice(0, 8),
-    title: requireString_(item.title, '事例タイトル', 120),
+    title: requiredOrDraft_(item.title, '事例タイトル', 120, options),
     body: cleanMultiline_(item.body, 4000),
     mediaFolderId: String(item.mediaFolderId || item.photoFolderId || '').trim(),
     photoFolderId: String(item.mediaFolderId || item.photoFolderId || '').trim(),
@@ -528,12 +538,42 @@ function readSheetObjects_(spreadsheet, sheetName) {
     for (let j = 0; j < header.length; j += 1) {
       const key = String(header[j] || '').trim();
       if (!key) continue;
-      row[key] = values[i][j];
-      if (String(values[i][j] || '') !== '') hasValue = true;
+      row[key] = normalizeSheetCellValue_(values[i][j]);
+      if (String(row[key] || '') !== '') hasValue = true;
     }
     if (hasValue) rows.push(row);
   }
   return rows;
+}
+
+function normalizeSheetCellValue_(value) {
+  if (value === undefined || value === null) return '';
+  if (Object.prototype.toString.call(value) === '[object Date]') {
+    if (isNaN(value.getTime())) return '';
+    return Utilities.formatDate(value, getConfig_().TIMEZONE || 'Asia/Tokyo', 'yyyy-MM-dd');
+  }
+  return value;
+}
+
+function sanitizeForClient_(value) {
+  if (value === undefined) return '';
+  if (value === null) return null;
+  if (Object.prototype.toString.call(value) === '[object Date]') {
+    if (isNaN(value.getTime())) return '';
+    return Utilities.formatDate(value, getConfig_().TIMEZONE || 'Asia/Tokyo', 'yyyy-MM-dd');
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeForClient_(item));
+  }
+  if (typeof value === 'object') {
+    const out = {};
+    Object.keys(value).forEach((key) => {
+      out[key] = sanitizeForClient_(value[key]);
+    });
+    return out;
+  }
+  if (typeof value === 'number' && !isFinite(value)) return '';
+  return value;
 }
 
 function serializeWorkFiles_(items) {

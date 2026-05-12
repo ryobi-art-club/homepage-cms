@@ -125,6 +125,10 @@ body.media-modal-open { overflow: hidden; }
   background: linear-gradient(180deg, rgba(10,10,10,0.94), rgba(10,10,10,0.66), rgba(10,10,10,0));
   backdrop-filter: blur(10px);
 }
+.topbar-title {
+  flex: 1 1 420px;
+  min-width: min(100%, 320px);
+}
 .topbar-title h1 {
   margin: 0 0 6px;
   font-size: clamp(1.8rem, 3vw, 2.6rem);
@@ -330,9 +334,7 @@ body.media-modal-open { overflow: hidden; }
   white-space: pre-line;
 }
 #statusMessage {
-  position: sticky;
-  top: 14px;
-  z-index: 60;
+  width: 100%;
   align-items: flex-start;
 }
 .log-list {
@@ -2358,6 +2360,9 @@ select {
   background: rgba(255,255,255,.05);
   color: var(--text);
   font-weight: 700;
+  flex: 1 1 320px;
+  align-self: center;
+  white-space: pre-line;
 }
 .media-dialog-status.hidden {
   display: none;

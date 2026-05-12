@@ -538,6 +538,7 @@ function ensureMediaDialog() {
     '<h2 id="mediaDialogTitle">画像の設定</h2>',
     '<div id="mediaDialogSubtitle" class="small-note"></div>',
     '</div>',
+    '<div id="mediaDialogStatus" class="media-dialog-status hidden"></div>',
     '<button class="icon-action-button" type="button" onclick="closeMediaDialog()" aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button>',
     '</div>',
     '<div id="mediaDialogBody" class="media-modal-body"></div>',
@@ -656,7 +657,6 @@ function renderMediaDialog(files) {
     : renderGenericMediaSettings(imageFiles, context);
 
   document.getElementById('mediaDialogBody').innerHTML = [
-    '<div id="mediaDialogStatus" class="media-dialog-status hidden"></div>',
     uploadHtml,
     folderLinkHtml,
     sectionsHtml
@@ -1323,9 +1323,14 @@ function updateRecruitYearTitle(input) {
   loadRecruitPreview();
 }
 
+function sortRecruitCalendars(items) {
+  return (items || []).slice().sort((a, b) => String(b.year || '').localeCompare(String(a.year || '')));
+}
+
 function renderRecruitEditor() {
   ensureRecruitCalendars();
-  const items = appState.state.recruitCalendars || [];
+  const items = sortRecruitCalendars(appState.state.recruitCalendars || []);
+  appState.state.recruitCalendars = items;
   const panel = document.getElementById('panel-recruit');
   panel.innerHTML = `
     <div class="grid-2">
@@ -1423,14 +1428,18 @@ async function loadRecruitPreview(forceRefresh = false) {
 function addRecruitYear() {
   ensureRecruitCalendars();
   appState.state.recruitCalendars = readRecruitFromDom();
-  const nextYear = String(new Date().getFullYear());
-  appState.state.recruitCalendars.unshift({
+  const years = (appState.state.recruitCalendars || [])
+    .map((item) => Number(String(item.year || '').replace(/[^\d]/g, '').slice(0, 4)))
+    .filter((year) => year > 0);
+  const nextYear = String(years.length ? Math.max.apply(null, years) + 1 : new Date().getFullYear());
+  appState.state.recruitCalendars.push({
     year: nextYear,
     label: nextYear + '年度 新歓イベントカレンダー',
     mediaFolderId: '',
     mediaFileIds: [],
     published: !(appState.state.recruitCalendars || []).length
   });
+  appState.state.recruitCalendars = sortRecruitCalendars(appState.state.recruitCalendars);
   renderRecruitEditor();
 }
 
@@ -1449,7 +1458,7 @@ function removeRecruitYear(index) {
 }
 
 function syncRecruitFromDomAndRerender() {
-  appState.state.recruitCalendars = readRecruitFromDom();
+  appState.state.recruitCalendars = sortRecruitCalendars(readRecruitFromDom());
   renderRecruitEditor();
 }
 
@@ -2032,7 +2041,7 @@ function renderLogs() {
 }
 
 function readRecruitFromDom() {
-  return Array.from(document.querySelectorAll('[data-recruit-item]')).map((item) => {
+  return sortRecruitCalendars(Array.from(document.querySelectorAll('[data-recruit-item]')).map((item) => {
     const year = item.querySelector('[data-field="year"]').value.replace(/[^\d]/g, '').slice(0, 4);
     return {
       year,
@@ -2042,7 +2051,7 @@ function readRecruitFromDom() {
       mediaFileIds: normalizeIdList(item.querySelector('[data-field="mediaFileIds"]').value),
       published: item.getAttribute('data-published') !== 'false'
     };
-  });
+  }));
 }
 
 function readActivitiesFromDom() {
@@ -2173,7 +2182,6 @@ async function loadDraftIntoEditor(draftId) {
 async function onSaveDraft() {
   try {
     const payload = buildPayloadFromDom();
-    if (!validatePayloadForSubmit(payload)) return;
     if (!confirm('現在の内容を新しい下書きとして保存しますか？')) return;
     setStatus('下書きを保存しています…');
     const result = await serverCall('saveDraft', appState.sessionToken, payload);
