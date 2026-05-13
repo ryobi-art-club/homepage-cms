@@ -37,12 +37,20 @@ function getConfig_() {
 
   config.OTP_TTL_MINUTES = parseInt(props.getProperty('OTP_TTL_MINUTES') || '10', 10);
   config.SESSION_TTL_MINUTES = parseInt(props.getProperty('SESSION_TTL_MINUTES') || '30', 10);
-  config.SITE_PREVIEW_URL = String(props.getProperty('SITE_PREVIEW_URL') || '').trim();
+  const explicitPreviewUrl = String(props.getProperty('SITE_PREVIEW_URL') || '').trim();
+  config.SITE_PREVIEW_URL = explicitPreviewUrl || buildDefaultPreviewUrl_(config);
   config.GH_APP_ID = String(props.getProperty('GH_APP_ID') || '').trim();
   config.GH_INSTALLATION_ID = String(props.getProperty('GH_INSTALLATION_ID') || '').trim();
   config.GH_PRIVATE_KEY = String(props.getProperty('GH_PRIVATE_KEY') || '').replace(/\\n/g, '\n');
   config.GH_FINE_GRAINED_PAT = String(props.getProperty('GH_FINE_GRAINED_PAT') || '').trim();
   return config;
+}
+
+function buildDefaultPreviewUrl_(config) {
+  const owner = String(config.GH_OWNER || '').trim();
+  const repo = String(config.GH_REPO || '').trim();
+  if (!owner || !repo) return '';
+  return 'https://' + owner + '.github.io/' + repo + '/';
 }
 
 function isoNow_() {
