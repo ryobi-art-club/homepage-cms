@@ -48,6 +48,7 @@ function publishState(sessionToken, payload) {
     let changeSummary = '内容を更新しました。';
     const publicSnapshot = buildPublicSnapshot_(normalized);
     if (publishedInfo.sha256 !== currentHash) {
+      syncChangeLogTitles_(publishedInfo.payload, publicSnapshot);
       const summarized = summarizeChange_(publishedInfo.payload, publicSnapshot, normalized.manualChangeNote);
       if (summarized) {
         changeSummary = summarized;
@@ -224,6 +225,7 @@ function normalizeExhibitions_(items, existingItems, options) {
     return {
       exhibitionId: exhibitionId,
       title: requiredOrDraft_(item.title, '展示会名', 140, options),
+      subtitle: optionalSingleLine_(item.subtitle, 140),
       theme: cleanMultiline_(item.theme, 180),
       venueName: optionalSingleLine_(item.venueName, 180),
       venueAddress: cleanMultiline_(item.venueAddress, 240),
@@ -334,9 +336,9 @@ function writeStateToSheets_(state, actorName, actorEmail, touchPublishState) {
   ])));
 
   writeSheet_(spreadsheet, CONTENT_SHEETS.exhibitions, [
-    ['exhibition_id', 'title', 'theme', 'venue_name', 'venue_address', 'date_line', 'time_line', 'map_embed_url', 'display_bucket', 'media_folder_id', 'dm_file_ids', 'work_files', 'published', 'start_date', 'updated_at']
+    ['exhibition_id', 'title', 'subtitle', 'theme', 'venue_name', 'venue_address', 'date_line', 'time_line', 'map_embed_url', 'display_bucket', 'media_folder_id', 'dm_file_ids', 'work_files', 'published', 'start_date', 'updated_at']
   ].concat(state.exhibitions.map((item) => [
-    item.exhibitionId, item.title, item.theme, item.venueName, item.venueAddress, item.dateLine, item.timeLine, item.mapEmbedUrl,
+    item.exhibitionId, item.title, item.subtitle || '', item.theme, item.venueName, item.venueAddress, item.dateLine, item.timeLine, item.mapEmbedUrl,
     item.displayBucket, item.mediaFolderId, JSON.stringify(item.dmFileIds || []), JSON.stringify(serializeWorkFiles_(item.workFiles || item.works || [])), item.published ? 'TRUE' : 'FALSE', item.startDate, item.updatedAt
   ])));
 
@@ -397,6 +399,7 @@ function readExhibitions_(spreadsheet) {
     return {
       exhibitionId: row.exhibition_id,
       title: row.title,
+      subtitle: row.subtitle,
       theme: row.theme,
       venueName: row.venue_name,
       venueAddress: row.venue_address,
@@ -472,6 +475,71 @@ function appendChangeLog_(actorName, actorEmail, summary) {
   }
   const published = readPublishedState_();
   sheet.appendRow([isoNow_(), summary, actorName, actorEmail, String(published.revision + 1)]);
+}
+
+function syncChangeLogTitles_(beforeSnapshot, afterSnapshot) {
+  const replacements = buildTitleReplacements_(beforeSnapshot || {}, afterSnapshot || {});
+  if (!replacements.length) return;
+
+  const spreadsheet = SpreadsheetApp.openById(getConfig_().CONTENT_SPREADSHEET_ID);
+  const sheet = spreadsheet.getSheetByName(CONTENT_SHEETS.changeLog);
+  if (!sheet || sheet.getLastRow() < 2) return;
+
+  const values = sheet.getDataRange().getValues();
+  const headers = values[0].map((header) => String(header || '').trim());
+  const summaryIndex = headers.indexOf('summary');
+  if (summaryIndex < 0) return;
+
+  let changed = false;
+  for (let rowIndex = 1; rowIndex < values.length; rowIndex += 1) {
+    let summary = String(values[rowIndex][summaryIndex] || '');
+    const beforeSummary = summary;
+    replacements.forEach((replacement) => {
+      summary = applyTitleReplacement_(summary, replacement);
+    });
+    if (summary !== beforeSummary) {
+      values[rowIndex][summaryIndex] = summary;
+      changed = true;
+    }
+  }
+  if (changed) {
+    sheet.getRange(1, 1, values.length, values[0].length).setValues(values);
+  }
+}
+
+function buildTitleReplacements_(beforeSnapshot, afterSnapshot) {
+  const replacements = [];
+  collectTitleReplacements_(beforeSnapshot.activityArticles, afterSnapshot.activityArticles, 'articleId', ['活動記録・告知', '活動記事'], replacements);
+  collectTitleReplacements_(beforeSnapshot.requestCases, afterSnapshot.requestCases, 'caseId', ['取り組み', '取り組み事例', 'ご依頼事例'], replacements);
+  collectTitleReplacements_(beforeSnapshot.exhibitions, afterSnapshot.exhibitions, 'exhibitionId', ['展示会'], replacements);
+  return replacements;
+}
+
+function collectTitleReplacements_(beforeItems, afterItems, idKey, labels, out) {
+  const beforeMap = {};
+  (beforeItems || []).forEach((item) => {
+    if (item && item[idKey]) beforeMap[item[idKey]] = item;
+  });
+  (afterItems || []).forEach((item) => {
+    if (!item || !item[idKey]) return;
+    const before = beforeMap[item[idKey]];
+    if (!before) return;
+    const oldTitle = String(before.title || '').trim();
+    const newTitle = String(item.title || '').trim();
+    if (oldTitle && newTitle && oldTitle !== newTitle) {
+      out.push({ labels: labels, oldTitle: oldTitle, newTitle: newTitle });
+    }
+  });
+}
+
+function applyTitleReplacement_(summary, replacement) {
+  let out = summary;
+  (replacement.labels || []).forEach((label) => {
+    const oldNeedle = label + '「' + replacement.oldTitle + '」';
+    const newNeedle = label + '「' + replacement.newTitle + '」';
+    out = out.split(oldNeedle).join(newNeedle);
+  });
+  return out;
 }
 
 function appendAdminLog_(actorName, actorEmail, action, detail) {
@@ -602,6 +670,7 @@ function buildPublicSnapshot_(state) {
     exhibitions: state.exhibitions.map((item) => ({
       exhibitionId: item.exhibitionId,
       title: item.title,
+      subtitle: item.subtitle,
       theme: item.theme,
       venueName: item.venueName,
       venueAddress: item.venueAddress,
@@ -725,7 +794,7 @@ function buildAdminDiffSummary_(beforeSnapshot, afterSnapshot, manualNote) {
     return { title: item.title, body: item.body, mediaFolderId: item.mediaFolderId, mediaFileIds: item.mediaFileIds, sortOrder: item.sortOrder, published: item.published };
   });
   compareCollections(beforeSnapshot.exhibitions || [], afterSnapshot.exhibitions || [], 'exhibitionId', '展示会', function(item) {
-    return { title: item.title, theme: item.theme, venueName: item.venueName, venueAddress: item.venueAddress, dateLine: item.dateLine, timeLine: item.timeLine, mapEmbedUrl: item.mapEmbedUrl, mediaFolderId: item.mediaFolderId, dmFileIds: item.dmFileIds, published: item.published, startDate: item.startDate, workFiles: item.workFiles };
+    return { title: item.title, subtitle: item.subtitle, theme: item.theme, venueName: item.venueName, venueAddress: item.venueAddress, dateLine: item.dateLine, timeLine: item.timeLine, mapEmbedUrl: item.mapEmbedUrl, mediaFolderId: item.mediaFolderId, dmFileIds: item.dmFileIds, published: item.published, startDate: item.startDate, workFiles: item.workFiles };
   }, function(before, after) {
     if (before.displayBucket !== after.displayBucket) {
       return after.displayBucket === 'archive' ? '展示会「' + after.title + '」をアーカイブに移動' : '展示会「' + after.title + '」を開催予定に変更';

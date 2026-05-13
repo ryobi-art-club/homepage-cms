@@ -499,6 +499,10 @@ function buildMetaListHtml(item) {
   return rows.length ? `<div class="preview-meta-list">${rows.join('')}</div>` : '';
 }
 
+function buildExhibitionSubtitleHtml(item) {
+  return item.subtitle ? `<div class="preview-exhibition-subtitle">${escapeHtml(item.subtitle)}</div>` : '';
+}
+
 const FILE_WARN_SIZE = 5 * 1024 * 1024;
 const FILE_STRONG_WARN_SIZE = 10 * 1024 * 1024;
 const FILE_MAX_SIZE = 20 * 1024 * 1024;
@@ -1638,6 +1642,10 @@ function renderExhibitionEditorItem(item, index) {
           <label>展示会名</label>
           <input data-field="title" value="${escapeHtml(item.title || '')}" oninput="updateEditorCardTitle(this, '新規展示会'); refreshExhibitionPreview()">
         </div>
+        <div class="field full">
+          <label>サブタイトル（任意）</label>
+          <input data-field="subtitle" value="${escapeHtml(item.subtitle || '')}" placeholder="例: 第〇回 凌美会展" oninput="refreshExhibitionPreview()">
+        </div>
         <div class="field">
           <label>開始日（自動並び替え用）</label>
           <input data-field="startDate" type="date" value="${escapeHtml(item.startDate || '')}" onchange="syncExhibitionsFromDomAndRerender()">
@@ -1698,6 +1706,7 @@ async function renderExhibitionPreview(items) {
       return `
         <article class="preview-site-card">
           <span class="preview-site-kicker">${idx === 0 ? 'NEXT EXHIBITION' : 'UPCOMING'}</span>
+          ${buildExhibitionSubtitleHtml(item)}
           <h4>${escapeHtml(item.title || '展示会名')}</h4>
           <div class="preview-exhibition-layout">
             <div class="preview-exhibition-copy">
@@ -1722,6 +1731,7 @@ async function renderExhibitionPreview(items) {
     sections.push(`
       <article class="preview-site-card">
         <span class="preview-site-kicker">RECENT EXHIBITION</span>
+        ${buildExhibitionSubtitleHtml(recent)}
         <h4>${escapeHtml(recent.title || '展示会名')}</h4>
         <div class="preview-exhibition-layout">
           <div class="preview-exhibition-copy">
@@ -1747,6 +1757,7 @@ async function renderExhibitionPreview(items) {
     return `
       <div class="preview-archive-item">
         <div class="preview-archive-body">
+          ${buildExhibitionSubtitleHtml(item)}
           <div style="font-weight:700; margin-bottom:6px;">${escapeHtml(item.title || '')}</div>
           <div class="preview-dm-slot">${buildThumbCarouselHtml(archiveDm, true)}</div>
           <div class="small-note" style="margin-bottom:8px;">${escapeHtml(item.theme || '')}</div>
@@ -1779,6 +1790,7 @@ function addExhibition() {
     displayBucket: 'upcoming',
     startDate: '',
     title: '',
+    subtitle: '',
     theme: '',
     venueName: '',
     venueAddress: '',
@@ -2070,6 +2082,7 @@ function readExhibitionsFromDom() {
     displayBucket: item.getAttribute('data-bucket') || 'archive',
     startDate: item.querySelector('[data-field="startDate"]').value,
     title: item.querySelector('[data-field="title"]').value.trim(),
+    subtitle: item.querySelector('[data-field="subtitle"]').value.trim(),
     theme: item.querySelector('[data-field="theme"]').value.trim(),
     venueName: item.querySelector('[data-field="venueName"]').value.trim(),
     venueAddress: item.querySelector('[data-field="venueAddress"]').value.trim(),
