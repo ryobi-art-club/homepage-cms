@@ -491,16 +491,12 @@ function buildRecruitPreviewHtml(images) {
 }
 
 function buildMetaListHtml(item) {
-  const venueValue = item.venueName
-    ? `${escapeHtml(item.venueName)}${item.venueAddress ? `<span class="address">${escapeHtml(item.venueAddress)}</span>` : ''}`
-    : '';
+  const rows = [];
+  const venueValue = `${item.venueName ? escapeHtml(item.venueName) : ''}${item.venueAddress ? `<span class="address">${escapeHtml(item.venueAddress)}</span>` : ''}`;
   const dateTimeValue = `${item.dateLine ? `<span>${escapeHtml(item.dateLine)}</span>` : ''}${item.timeLine ? `<span class="address">${escapeHtml(item.timeLine)}</span>` : ''}`;
-  return `
-    <div class="preview-meta-list">
-      <div class="preview-meta-row"><div class="preview-meta-label">会期</div><div class="preview-meta-value">${dateTimeValue}</div></div>
-      <div class="preview-meta-row"><div class="preview-meta-label">会場</div><div class="preview-meta-value">${venueValue}</div></div>
-    </div>
-  `;
+  if (dateTimeValue) rows.push(`<div class="preview-meta-row"><div class="preview-meta-label">会期</div><div class="preview-meta-value">${dateTimeValue}</div></div>`);
+  if (venueValue) rows.push(`<div class="preview-meta-row"><div class="preview-meta-label">会場</div><div class="preview-meta-value">${venueValue}</div></div>`);
+  return rows.length ? `<div class="preview-meta-list">${rows.join('')}</div>` : '';
 }
 
 const FILE_WARN_SIZE = 5 * 1024 * 1024;
@@ -2118,9 +2114,6 @@ function validatePayloadForSubmit(payload) {
   (payload.exhibitions || []).forEach((item, index) => {
     const label = '展示会「' + contentTitle(item.title, '新規展示会', index) + '」';
     if (!String(item.title || '').trim()) add(label, '展示会名');
-    if (!String(item.venueName || '').trim()) add(label, '会場名', '未定の場合は「未定」と入力してください');
-    if (!String(item.dateLine || '').trim()) add(label, '会期表示', '未定の場合は「未定」と入力してください');
-    if (!String(item.timeLine || '').trim()) add(label, '時間帯表示', '未定の場合は「未定」と入力してください');
   });
 
   (payload.requestCases || []).forEach((item, index) => {

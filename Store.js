@@ -221,15 +221,14 @@ function normalizeExhibitions_(items, existingItems, options) {
     const folderId = String(item.mediaFolderId || item.driveFolderId || '').trim();
     const dmFileIds = normalizeStringList_(item.dmFileIds || item.dm_file_ids).slice(0, 2);
     const works = normalizeExhibitionWorkFiles_(item.workFiles || item.works);
-    const exhibitionLabel = String(item.title || '').trim() || '新規展示会';
     return {
       exhibitionId: exhibitionId,
       title: requiredOrDraft_(item.title, '展示会名', 140, options),
       theme: cleanMultiline_(item.theme, 180),
-      venueName: requiredOrDraft_(item.venueName, '展示会「' + exhibitionLabel + '」の会場名（未定の場合は「未定」と入力してください）', 180, options),
+      venueName: optionalSingleLine_(item.venueName, 180),
       venueAddress: cleanMultiline_(item.venueAddress, 240),
-      dateLine: requiredOrDraft_(item.dateLine, '展示会「' + exhibitionLabel + '」の会期（未定の場合は「未定」と入力してください）', 180, options),
-      timeLine: requiredOrDraft_(item.timeLine, '展示会「' + exhibitionLabel + '」の時間帯（未定の場合は「未定」と入力してください）', 220, options),
+      dateLine: optionalSingleLine_(item.dateLine, 180),
+      timeLine: optionalSingleLine_(item.timeLine, 220),
       mapEmbedUrl: String(item.mapEmbedUrl || '').trim(),
       displayBucket: requireDisplayBucket_(item.displayBucket),
       mediaFolderId: folderId,
