@@ -31,6 +31,23 @@ function saveDraft(sessionToken, payload) {
   }
 }
 
+function previewSiteHistory(sessionToken, payload) {
+  requireSession_(sessionToken);
+  const currentState = readContentState_();
+  const normalized = normalizePayload_(payload, currentState, { allowIncomplete: true });
+  const publishedInfo = readPublishedState_();
+  const publicSnapshot = buildPublicSnapshot_(normalized);
+  const titleReplacements = buildTitleReplacements_(publishedInfo.payload || {}, publicSnapshot);
+  const adjustedLog = applyTitleReplacementsToLog_(currentState.changeLog || [], titleReplacements);
+  const adjustedBeforeSnapshot = applyTitleReplacementsToSnapshot_(publishedInfo.payload || {}, titleReplacements);
+  const pendingSummary = summarizeChange_(publishedInfo.payload || {}, publicSnapshot, normalized.manualChangeNote);
+  const currentEntries = deriveSiteHistoryEntries_(adjustedLog, adjustedBeforeSnapshot, '');
+  const nextEntries = deriveSiteHistoryEntries_(adjustedLog, publicSnapshot, pendingSummary);
+  return sanitizeForClient_({
+    compared: buildSiteHistoryComparison_(currentEntries, nextEntries)
+  });
+}
+
 function publishState(sessionToken, payload) {
   const session = requireSession_(sessionToken);
   const lock = LockService.getScriptLock();
@@ -509,13 +526,13 @@ function syncChangeLogTitles_(beforeSnapshot, afterSnapshot) {
 
 function buildTitleReplacements_(beforeSnapshot, afterSnapshot) {
   const replacements = [];
-  collectTitleReplacements_(beforeSnapshot.activityArticles, afterSnapshot.activityArticles, 'articleId', ['活動記録・告知', '活動記事'], replacements);
-  collectTitleReplacements_(beforeSnapshot.requestCases, afterSnapshot.requestCases, 'caseId', ['取り組み', '取り組み事例', 'ご依頼事例'], replacements);
-  collectTitleReplacements_(beforeSnapshot.exhibitions, afterSnapshot.exhibitions, 'exhibitionId', ['展示会'], replacements);
+  collectTitleReplacements_(beforeSnapshot.activityArticles, afterSnapshot.activityArticles, 'activity', 'articleId', ['活動記録・告知', '活動記事'], replacements);
+  collectTitleReplacements_(beforeSnapshot.requestCases, afterSnapshot.requestCases, 'request', 'caseId', ['取り組み', '取り組み事例', 'ご依頼事例'], replacements);
+  collectTitleReplacements_(beforeSnapshot.exhibitions, afterSnapshot.exhibitions, 'exhibition', 'exhibitionId', ['展示会'], replacements);
   return replacements;
 }
 
-function collectTitleReplacements_(beforeItems, afterItems, idKey, labels, out) {
+function collectTitleReplacements_(beforeItems, afterItems, kind, idKey, labels, out) {
   const beforeMap = {};
   (beforeItems || []).forEach((item) => {
     if (item && item[idKey]) beforeMap[item[idKey]] = item;
@@ -527,7 +544,7 @@ function collectTitleReplacements_(beforeItems, afterItems, idKey, labels, out) 
     const oldTitle = String(before.title || '').trim();
     const newTitle = String(item.title || '').trim();
     if (oldTitle && newTitle && oldTitle !== newTitle) {
-      out.push({ labels: labels, oldTitle: oldTitle, newTitle: newTitle });
+      out.push({ kind: kind, idKey: idKey, id: item[idKey], labels: labels, oldTitle: oldTitle, newTitle: newTitle });
     }
   });
 }
@@ -540,6 +557,159 @@ function applyTitleReplacement_(summary, replacement) {
     out = out.split(oldNeedle).join(newNeedle);
   });
   return out;
+}
+
+function applyTitleReplacementsToLog_(logItems, replacements) {
+  return (logItems || []).map((item) => {
+    let summary = String(item.summary || '');
+    (replacements || []).forEach((replacement) => {
+      summary = applyTitleReplacement_(summary, replacement);
+    });
+    return Object.assign({}, item, { summary: summary });
+  });
+}
+
+function applyTitleReplacementsToSnapshot_(snapshot, replacements) {
+  const copy = JSON.parse(JSON.stringify(snapshot || {}));
+  const collectionMap = {
+    activity: { key: 'activityArticles', idKey: 'articleId' },
+    request: { key: 'requestCases', idKey: 'caseId' },
+    exhibition: { key: 'exhibitions', idKey: 'exhibitionId' }
+  };
+  (replacements || []).forEach((replacement) => {
+    const target = collectionMap[replacement.kind];
+    if (!target || !Array.isArray(copy[target.key])) return;
+    copy[target.key].forEach((item) => {
+      if (item && item[target.idKey] === replacement.id) item.title = replacement.newTitle;
+    });
+  });
+  return copy;
+}
+
+function looksLegacySummarySegment_(segment) {
+  return segment === '新歓イベントカレンダーを更新'
+    || /^(活動記事|活動記録・告知|ご依頼事例|取り組み事例|取り組み)「.+?」(?:を追加|を更新|の情報を公開)?$/.test(segment)
+    || /^展示会「.+?」(?:を追加|を更新|の情報を公開)?$/.test(segment);
+}
+
+function splitSummarySegments_(summary) {
+  const normalized = String(summary || '').replace(/\r\n?/g, '\n').trim();
+  if (!normalized) return [];
+  if (normalized.indexOf('\n') !== -1) return normalized.split(/\n+/).map((part) => part.trim()).filter(Boolean);
+  const legacyParts = normalized.split(/\s\/\s/).map((part) => part.trim()).filter(Boolean);
+  if (legacyParts.length > 1 && legacyParts.every(looksLegacySummarySegment_)) return legacyParts;
+  return [normalized];
+}
+
+function publicSegmentKey_(segment) {
+  if (segment === '新歓イベントカレンダーを更新') return { kind: 'recruit', title: '' };
+  let match = segment.match(/^(活動記事|活動記録・告知)「(.+?)」(?:を追加|を更新|の情報を公開)?$/);
+  if (match) return { kind: 'activity', title: match[2] };
+  match = segment.match(/^(ご依頼事例|取り組み事例|取り組み)「(.+?)」(?:を追加|を更新|の情報を公開)?$/);
+  if (match) return { kind: 'request', title: match[2] };
+  match = segment.match(/^展示会「(.+?)」(?:を追加|を更新|の情報を公開)?$/);
+  if (match) return { kind: 'exhibition', title: match[1] };
+  return { kind: '', title: '' };
+}
+
+function canonicalPublicSummary_(kind, title) {
+  if (kind === 'recruit') return '新歓イベントカレンダーを更新';
+  if (kind === 'activity' && title) return '活動記録・告知「' + title + '」';
+  if (kind === 'request' && title) return '取り組み「' + title + '」';
+  if (kind === 'exhibition' && title) return '展示会「' + title + '」の情報を公開';
+  return title || '';
+}
+
+function buildVisibleTitleSets_(state) {
+  const out = { activity: {}, request: {}, exhibition: {} };
+  (state.activityArticles || []).filter((item) => item.published !== false && item.title).forEach((item) => out.activity[String(item.title)] = true);
+  (state.requestCases || []).filter((item) => item.published !== false && item.title).forEach((item) => out.request[String(item.title)] = true);
+  (state.exhibitions || []).filter((item) => item.published !== false && item.title).forEach((item) => out.exhibition[String(item.title)] = true);
+  return out;
+}
+
+function formatHistoryDate_(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0')
+  ].join('.');
+}
+
+function deriveSiteHistoryEntries_(baseLog, state, pendingSummary) {
+  const visible = buildVisibleTitleSets_(state || {});
+  const entries = [];
+  if (pendingSummary) entries.push({ timestamp: isoNow_(), summary: pendingSummary });
+  (baseLog || []).forEach((item) => entries.push(item));
+
+  const groups = [];
+  const groupIndex = {};
+  entries.sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || ''))).forEach((entry) => {
+    const dateKey = formatHistoryDate_(entry.timestamp);
+    if (!groupIndex[dateKey]) {
+      groupIndex[dateKey] = { date: dateKey, items: [], seen: {} };
+      groups.push(groupIndex[dateKey]);
+    }
+    splitSummarySegments_(entry.summary).forEach((segment) => {
+      const key = publicSegmentKey_(segment);
+      let keep = false;
+      let normalized = segment;
+      if (key.kind === 'recruit') {
+        keep = true;
+        normalized = canonicalPublicSummary_('recruit');
+      } else if (key.kind && key.title) {
+        keep = !!(visible[key.kind] && visible[key.kind][key.title]);
+        normalized = canonicalPublicSummary_(key.kind, key.title);
+      } else if (!key.kind) {
+        keep = !!segment;
+      }
+      if (keep && !groupIndex[dateKey].seen[normalized]) {
+        groupIndex[dateKey].seen[normalized] = true;
+        groupIndex[dateKey].items.push(normalized);
+      }
+    });
+  });
+  return groups.filter((entry) => entry.items.length).map((entry) => ({ date: entry.date, items: entry.items }));
+}
+
+function buildSiteHistoryComparison_(currentEntries, nextEntries) {
+  const currentMap = {};
+  const nextMap = {};
+  const grouped = {};
+  const dates = [];
+  function ensureDate(date) {
+    if (!grouped[date]) {
+      grouped[date] = [];
+      dates.push(date);
+    }
+    return grouped[date];
+  }
+
+  (currentEntries || []).forEach((entry) => {
+    (entry.items || []).forEach((summary, index) => {
+      currentMap[entry.date + '::' + summary] = { index: index };
+    });
+  });
+  (nextEntries || []).forEach((entry) => {
+    (entry.items || []).forEach((summary, index) => {
+      const key = entry.date + '::' + summary;
+      nextMap[key] = { index: index };
+      ensureDate(entry.date).push({ summary: summary, status: currentMap[key] ? 'unchanged' : 'added', order: index });
+    });
+  });
+  (currentEntries || []).forEach((entry) => {
+    (entry.items || []).forEach((summary, index) => {
+      const key = entry.date + '::' + summary;
+      if (!nextMap[key]) ensureDate(entry.date).push({ summary: summary, status: 'removed', order: 1000 + index });
+    });
+  });
+  return dates.sort((a, b) => String(b).localeCompare(String(a))).map((date) => ({
+    date: date,
+    items: grouped[date].sort((a, b) => a.order - b.order).map((item) => ({ summary: item.summary, status: item.status }))
+  })).filter((entry) => entry.items.length);
 }
 
 function appendAdminLog_(actorName, actorEmail, action, detail) {

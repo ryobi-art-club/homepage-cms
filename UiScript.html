@@ -310,148 +310,6 @@ function folderImageWarning(total, limit, label) {
   return `<div class="warning-note">${escapeHtml(label)}は${limit}枚まで表示します（${total}枚中${limit}枚を使用）。</div>`;
 }
 
-function looksLegacySummarySegment(segment) {
-  return segment === '新歓イベントカレンダーを更新'
-    || /^(活動記事|活動記録・告知|ご依頼事例|取り組み事例|取り組み)「.+?」(?:を追加|を更新|の情報を公開)?$/.test(segment)
-    || /^展示会「.+?」(?:を追加|を更新|の情報を公開)?$/.test(segment);
-}
-
-function splitSummarySegments(summary) {
-  const normalized = String(summary || '').replace(/\r\n?/g, '\n').trim();
-  if (!normalized) return [];
-  if (normalized.indexOf('\n') !== -1) return normalized.split(/\n+/).map((part) => part.trim()).filter(Boolean);
-  const legacyParts = normalized.split(/\s\/\s/).map((part) => part.trim()).filter(Boolean);
-  if (legacyParts.length > 1 && legacyParts.every(looksLegacySummarySegment)) return legacyParts;
-  return [normalized];
-}
-
-function publicSegmentKey(segment) {
-  if (segment === '新歓イベントカレンダーを更新') return { kind: 'recruit', title: '' };
-  let m = segment.match(/^(活動記事|活動記録・告知)「(.+?)」(?:を追加|を更新|の情報を公開)?$/);
-  if (m) return { kind: 'activity', title: m[2] };
-  m = segment.match(/^(ご依頼事例|取り組み事例|取り組み)「(.+?)」(?:を追加|を更新|の情報を公開)?$/);
-  if (m) return { kind: 'request', title: m[2] };
-  m = segment.match(/^展示会「(.+?)」(?:を追加|を更新|の情報を公開)?$/);
-  if (m) return { kind: 'exhibition', title: m[1] };
-  return { kind: '', title: '' };
-}
-
-function canonicalPublicSummary(kind, title) {
-  if (kind === 'recruit') return '新歓イベントカレンダーを更新';
-  if (kind === 'activity' && title) return `活動記録・告知「${title}」`;
-  if (kind === 'request' && title) return `取り組み「${title}」`;
-  if (kind === 'exhibition' && title) return `展示会「${title}」の情報を公開`;
-  return title || '';
-}
-
-function buildVisibleTitleSets(state) {
-  const out = { activity: new Set(), request: new Set(), exhibition: new Set() };
-  (state.activityArticles || []).filter((item) => item.published !== false).forEach((item) => out.activity.add(String(item.title || '')));
-  (state.requestCases || []).filter((item) => item.published !== false).forEach((item) => out.request.add(String(item.title || '')));
-  (state.exhibitions || []).filter((item) => item.published !== false).forEach((item) => out.exhibition.add(String(item.title || '')));
-  return out;
-}
-
-function summarizePendingPublicChanges(beforeState, afterState, manualNote) {
-  const messages = [];
-  const pushUnique = (value) => {
-    if (value && messages.indexOf(value) === -1) messages.push(value);
-  };
-  const beforeRecruit = beforeState && beforeState.recruitCalendar ? beforeState.recruitCalendar.folderId : '';
-  const afterRecruit = afterState.recruitCalendar ? afterState.recruitCalendar.folderId : '';
-  if (beforeRecruit !== afterRecruit && afterRecruit) pushUnique('新歓イベントカレンダーを更新');
-
-  const beforeActivities = {}; (beforeState.activityArticles || []).forEach((item) => beforeActivities[item.articleId] = item);
-  (afterState.activityArticles || []).forEach((item) => {
-    const before = beforeActivities[item.articleId];
-    if ((!before || before.published === false) && item.published !== false) pushUnique(`活動記録・告知「${item.title}」`);
-  });
-
-  const beforeRequests = {}; (beforeState.requestCases || []).forEach((item) => beforeRequests[item.caseId] = item);
-  (afterState.requestCases || []).forEach((item) => {
-    const before = beforeRequests[item.caseId];
-    if ((!before || before.published === false) && item.published !== false) pushUnique(`取り組み「${item.title}」`);
-  });
-
-  const beforeExhibitions = {}; (beforeState.exhibitions || []).forEach((item) => beforeExhibitions[item.exhibitionId] = item);
-  (afterState.exhibitions || []).forEach((item) => {
-    const before = beforeExhibitions[item.exhibitionId];
-    if ((!before || before.published === false) && item.published !== false) pushUnique(`展示会「${item.title}」の情報を公開`);
-  });
-
-  if (manualNote) pushUnique(manualNote);
-  return messages.join('\n');
-}
-
-function deriveSiteHistoryEntries(baseLog, state, pendingSummary) {
-  const visible = buildVisibleTitleSets(state);
-  const entries = [];
-  if (pendingSummary) entries.push({ timestamp: new Date().toISOString(), summary: pendingSummary });
-  (baseLog || []).forEach((item) => entries.push(item));
-  const groups = new Map();
-  entries.forEach((entry) => {
-    const dateKey = formatDate(entry.timestamp);
-    if (!groups.has(dateKey)) groups.set(dateKey, []);
-    splitSummarySegments(entry.summary).forEach((segment) => {
-      const { kind, title } = publicSegmentKey(segment);
-      let keep = false;
-      let normalized = segment;
-      if (kind === 'recruit') {
-        keep = true;
-        normalized = canonicalPublicSummary('recruit');
-      } else if (kind && title) {
-        keep = visible[kind] && visible[kind].has(title);
-        normalized = canonicalPublicSummary(kind, title);
-      } else if (!kind) {
-        keep = !!segment;
-      }
-      if (keep && groups.get(dateKey).indexOf(normalized) === -1) groups.get(dateKey).push(normalized);
-    });
-  });
-  return Array.from(groups.entries()).filter(([, items]) => items.length).map(([date, items]) => ({ date, items }));
-}
-
-function buildSiteHistoryComparison(currentEntries, nextEntries) {
-  const currentMap = new Map();
-  const nextMap = new Map();
-  const grouped = new Map();
-
-  function ensureDate(date) {
-    if (!grouped.has(date)) grouped.set(date, []);
-    return grouped.get(date);
-  }
-
-  currentEntries.forEach((entry) => {
-    entry.items.forEach((summary, index) => {
-      currentMap.set(`${entry.date}::${summary}`, { date: entry.date, summary, index });
-    });
-  });
-
-  nextEntries.forEach((entry) => {
-    entry.items.forEach((summary, index) => {
-      const key = `${entry.date}::${summary}`;
-      nextMap.set(key, { date: entry.date, summary, index });
-      ensureDate(entry.date).push({ summary, status: currentMap.has(key) ? 'unchanged' : 'added', order: index });
-    });
-  });
-
-  currentEntries.forEach((entry) => {
-    entry.items.forEach((summary, index) => {
-      const key = `${entry.date}::${summary}`;
-      if (nextMap.has(key)) return;
-      ensureDate(entry.date).push({ summary, status: 'removed', order: 1000 + index });
-    });
-  });
-
-  return Array.from(grouped.entries())
-    .sort((a, b) => String(b[0]).localeCompare(String(a[0])))
-    .map(([date, items]) => ({
-      date,
-      items: items.sort((a, b) => a.order - b.order).map(({ summary, status }) => ({ summary, status }))
-    }))
-    .filter((entry) => entry.items.length);
-}
-
 function buildThumbCarouselHtml(images, poster=false) {
   const source = (images || []).slice(0, 10);
   if (!source.length) return '';
@@ -1989,21 +1847,18 @@ async function refreshRequestPreview() {
 }
 
 let logsPreviewTimer = 0;
+let logsPreviewRequestSeq = 0;
 
 function scheduleLogsPreviewRefresh() {
   if (logsPreviewTimer) clearTimeout(logsPreviewTimer);
   logsPreviewTimer = setTimeout(() => {
     logsPreviewTimer = 0;
     renderLogsPreviewContent();
-  }, 120);
+  }, 350);
 }
 
-function buildLogsPreviewCardHtml() {
-  const currentPayload = buildPayloadFromDom();
-  const pendingSummary = summarizePendingPublicChanges(appState.loadedState || appState.state || {}, currentPayload, currentPayload.manualChangeNote || '');
-  const currentSiteHistory = deriveSiteHistoryEntries(appState.state.changeLog || [], appState.loadedState || appState.state || {}, '');
-  const nextSiteHistory = deriveSiteHistoryEntries(appState.state.changeLog || [], currentPayload, pendingSummary);
-  const compared = buildSiteHistoryComparison(currentSiteHistory, nextSiteHistory);
+function buildLogsPreviewCardHtml(compared, noteHtml, isLoading) {
+  const items = compared || [];
   return `
       <div class="card">
         <h2>サイトの更新履歴プレビュー</h2>
@@ -2013,21 +1868,31 @@ function buildLogsPreviewCardHtml() {
           <span class="preview-sim-chip is-removed">非表示</span>
           <span class="preview-sim-chip is-unchanged">継続表示</span>
         </div>
+        ${noteHtml || ''}
         <div class="preview-sim-list">
-          ${compared.length ? compared.map((entry) => `
+          ${items.length ? items.map((entry) => `
             <div class="preview-sim-item">
               <div class="preview-sim-date">${escapeHtml(entry.date)}</div>
               <ul class="preview-sim-bullets">${entry.items.map((item) => `<li class="is-${escapeHtml(item.status)}"><span class="preview-sim-badge is-${escapeHtml(item.status)}">${item.status === 'added' ? '追加' : (item.status === 'removed' ? '非表示' : '継続')}</span><span class="preview-sim-text">${escapeHtml(item.summary)}</span></li>`).join('')}</ul>
-            </div>`).join('') : '<div class="small-note">まだ履歴がありません。</div>'}
+            </div>`).join('') : (isLoading ? '' : '<div class="small-note">まだ履歴がありません。</div>')}
         </div>
       </div>
   `;
 }
 
-function renderLogsPreviewContent() {
+async function renderLogsPreviewContent() {
   const wrap = document.getElementById('logsPreviewContent');
   if (!wrap) return;
-  wrap.innerHTML = buildLogsPreviewCardHtml();
+  const requestSeq = ++logsPreviewRequestSeq;
+  wrap.innerHTML = buildLogsPreviewCardHtml([], '<div class="small-note" style="margin-bottom:12px;">公開後の履歴を確認しています...</div>', true);
+  try {
+    const data = await serverCall('previewSiteHistory', appState.sessionToken, buildPayloadFromDom());
+    if (requestSeq !== logsPreviewRequestSeq || !document.getElementById('logsPreviewContent')) return;
+    wrap.innerHTML = buildLogsPreviewCardHtml((data && data.compared) || []);
+  } catch (error) {
+    if (requestSeq !== logsPreviewRequestSeq || !document.getElementById('logsPreviewContent')) return;
+    wrap.innerHTML = buildLogsPreviewCardHtml([], '<div class="small-note error-text" style="margin-bottom:12px;">更新履歴プレビューを取得できませんでした: ' + escapeHtml(error.message || error) + '</div>');
+  }
 }
 
 function renderLogs() {
