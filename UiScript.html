@@ -365,6 +365,7 @@ const FILE_WARN_SIZE = 5 * 1024 * 1024;
 const FILE_STRONG_WARN_SIZE = 10 * 1024 * 1024;
 const FILE_MAX_SIZE = 20 * 1024 * 1024;
 const FILE_TOTAL_WARN_SIZE = 50 * 1024 * 1024;
+const TRASH_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:block"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M9 6V4h6v2"></path></svg>';
 const URL_PROTOCOL = 'https:' + String.fromCharCode(47, 47);
 
 function escapeJs(value) {
@@ -507,8 +508,6 @@ function renderMediaDialog(files) {
   const context = currentMediaContext();
   const imageFiles = (files || []).filter((file) => file.kind === 'image');
   const imageAccept = 'image/' + '*';
-  const folderUrl = context.folderId ? driveFolderUrl(context.folderId) : '';
-  const folderLinkHtml = folderUrl ? buildMediaFolderLinkHtml(folderUrl) : '';
   const uploadHtml = context.kind === 'exhibition' ? '' : renderMediaUploadBox('image', '画像を追加', context.kind);
   const sectionsHtml = context.kind === 'exhibition'
     ? renderExhibitionMediaSettings(imageFiles, context)
@@ -516,7 +515,6 @@ function renderMediaDialog(files) {
 
   document.getElementById('mediaDialogBody').innerHTML = [
     uploadHtml,
-    folderLinkHtml,
     sectionsHtml
   ].join('');
 }
@@ -540,15 +538,6 @@ function renderMediaUploadBox(role, label, kind) {
   ].join('');
 }
 
-function buildMediaFolderLinkHtml(folderUrl) {
-  return [
-    '<a class="root-link-row media-folder-link" href="',
-    escapeHtml(folderUrl),
-    '" target="_blank" rel="noopener noreferrer">',
-    '<span>Driveで開く</span>',
-    '</a>'
-  ].join('');
-}
 
 function renderGenericMediaSettings(files, context) {
   const ordered = orderedFilesByIds(files, mediaIdsForItem(context.item));
@@ -576,7 +565,7 @@ function renderGenericMediaCard(file, index, count) {
     '<div class="media-file-actions">',
     '<button class="button subtle" type="button" onclick="moveMediaFile(\'' + escapeJs(file.id) + '\', -1)" ' + (index === 0 ? 'disabled' : '') + '>前へ</button>',
     '<button class="button subtle" type="button" onclick="moveMediaFile(\'' + escapeJs(file.id) + '\', 1)" ' + (index === count - 1 ? 'disabled' : '') + '>次へ</button>',
-    '<button class="button danger" type="button" onclick="onMediaDelete(\'' + escapeJs(file.id) + '\', \'' + escapeJs(file.name) + '\')">削除</button>',
+    '<button class="button danger icon" type="button" aria-label="削除" title="削除" onclick="onMediaDelete(\'' + escapeJs(file.id) + '\', \'' + escapeJs(file.name) + '\')">' + TRASH_ICON + '</button>',
     '</div>',
     '</article>'
   ].join('');
@@ -589,8 +578,6 @@ function renderExhibitionMediaSettings(files, context) {
     const fileId = work.fileId || work.file_id;
     return Object.assign({}, work, { fileId, sortOrder: Number(work.sortOrder || work.sort_order || index + 1) });
   }).filter((work) => work.fileId && fileById(files, work.fileId)).sort((a, b) => a.sortOrder - b.sortOrder);
-  const assigned = new Set(dmIds.concat(works.map((work) => work.fileId)).filter(Boolean));
-  const unassigned = files.filter((file) => !assigned.has(file.id));
   return [
     '<div class="media-section">',
     '<h3>DM画像</h3>',
@@ -604,16 +591,7 @@ function renderExhibitionMediaSettings(files, context) {
     '<div class="media-file-grid media-work-grid">',
     works.length ? works.map((work, index) => renderExhibitionWorkRow(fileById(files, work.fileId), work, index, works.length)).join('') : '<div class="preview-empty">作品画像は未設定です。</div>',
     '</div>',
-    '</div>',
-    unassigned.length ? [
-      '<div class="media-section">',
-      '<h3>未分類の画像</h3>',
-      '<div class="small-note">以前の形式で残っている画像です。DMまたは作品画像に移動できます。</div>',
-      '<div class="media-file-grid">',
-      unassigned.map((file) => renderUnassignedMediaCard(file)).join(''),
-      '</div>',
-      '</div>'
-    ].join('') : ''
+    '</div>'
   ].join('');
 }
 
@@ -629,7 +607,7 @@ function renderExhibitionDmList(files, dmIds) {
       '<div class="media-file-actions">',
       '<button class="button subtle" type="button" onclick="moveExhibitionDm(\'' + escapeJs(file.id) + '\', -1)" ' + (index === 0 ? 'disabled' : '') + '>表へ</button>',
       '<button class="button subtle" type="button" onclick="moveExhibitionDm(\'' + escapeJs(file.id) + '\', 1)" ' + (index === dmFiles.length - 1 ? 'disabled' : '') + '>裏へ</button>',
-      '<button class="button danger" type="button" onclick="onMediaDelete(\'' + escapeJs(file.id) + '\', \'' + escapeJs(file.name) + '\')">削除</button>',
+      '<button class="button danger icon" type="button" aria-label="削除" title="削除" onclick="onMediaDelete(\'' + escapeJs(file.id) + '\', \'' + escapeJs(file.name) + '\')">' + TRASH_ICON + '</button>',
       '</div>',
       '</article>'
     ].join('')).join(''),
@@ -649,24 +627,13 @@ function renderExhibitionWorkRow(file, work, index, count) {
     '<div class="media-file-actions">',
     '<button class="button subtle" type="button" onclick="moveExhibitionWork(\'' + escapeJs(file.id) + '\', -1)" ' + (index === 0 ? 'disabled' : '') + '>前へ</button>',
     '<button class="button subtle" type="button" onclick="moveExhibitionWork(\'' + escapeJs(file.id) + '\', 1)" ' + (index === count - 1 ? 'disabled' : '') + '>次へ</button>',
-    '<button class="button danger" type="button" onclick="onMediaDelete(\'' + escapeJs(file.id) + '\', \'' + escapeJs(file.name) + '\')">削除</button>',
+    '<button class="button danger icon" type="button" aria-label="削除" title="削除" onclick="onMediaDelete(\'' + escapeJs(file.id) + '\', \'' + escapeJs(file.name) + '\')">' + TRASH_ICON + '</button>',
     '</div>',
     '</article>'
   ].join('');
 }
 
-function renderUnassignedMediaCard(file) {
-  return [
-    '<article class="media-file-card">',
-    '<div class="media-file-thumb"><img src="' + escapeHtml(file.thumbnailUrl) + '" alt=""></div>',
-    '<div class="media-file-actions">',
-    '<button class="button subtle" type="button" onclick="assignExhibitionFile(\'' + escapeJs(file.id) + '\', \'dm\')">DMへ</button>',
-    '<button class="button subtle" type="button" onclick="assignExhibitionFile(\'' + escapeJs(file.id) + '\', \'work\')">作品へ</button>',
-    '<button class="button danger" type="button" onclick="onMediaDelete(\'' + escapeJs(file.id) + '\', \'' + escapeJs(file.name) + '\')">削除</button>',
-    '</div>',
-    '</article>'
-  ].join('');
-}
+
 
 function validateMediaSelection(files, role, context) {
   if (!files.length) throw new Error('アップロードするファイルを選択してください。');
@@ -925,28 +892,6 @@ function moveExhibitionWork(fileId, delta) {
   refreshPreviewForKind('exhibition');
 }
 
-function assignExhibitionFile(fileId, role) {
-  const context = currentMediaContext();
-  if (!context.item) return;
-  syncMediaEditorRowsToState();
-  context.item.dmFileIds = normalizeIdList(context.item.dmFileIds).filter((id) => id !== fileId);
-  context.item.workFiles = (context.item.workFiles || []).filter((work) => work.fileId !== fileId);
-  if (role === 'dm') {
-    if (context.item.dmFileIds.length >= 2) {
-      setMediaStatus('DM画像は表・裏の2枚までです。不要なDM画像を削除してから追加してください。', 'error');
-      return;
-    }
-    context.item.dmFileIds.push(fileId);
-  }
-  if (role === 'work') {
-    context.item.workFiles.push({ fileId, sortOrder: context.item.workFiles.length + 1, title: '', artist: '' });
-  }
-  context.item.works = context.item.workFiles;
-  markDirty();
-  syncActiveMediaHiddenFields();
-  renderMediaDialog(context.folderId ? (appState.mediaCache[context.folderId] || []) : []);
-  refreshPreviewForKind('exhibition');
-}
 
 function rerenderAfterMediaChange(kind) {
   appState.suppressDirty = true;
@@ -2071,7 +2016,7 @@ async function onPublish() {
     if (!confirm('この内容で公開しますか？')) return;
     setStatus('公開処理を開始しています…');
     const result = await serverCall('publishState', appState.sessionToken, payload);
-    setStatus(result.changeSummary || result.message, 'success');
+    setStatus((result.changeSummary ? result.changeSummary + '\n' : '') + '公開を開始しました。数分後にサイトに反映されます。', 'success');
     await loadBootstrap();
     clearDirty();
   } catch (error) {

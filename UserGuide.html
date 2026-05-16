@@ -1,0 +1,2235 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>凌美会 管理画面 利用者マニュアル</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+/* ===== CMS 実デザインの変数・リセット ===== */
+:root {
+  --bg: #0a0a0a;
+  --card: rgba(255,255,255,0.06);
+  --border: rgba(255,255,255,0.10);
+  --text: #ffffff;
+  --soft: rgba(255,255,255,0.76);
+  --muted: rgba(255,255,255,0.56);
+  --yellow: #f6d926;
+  --blue: #213694;
+  --green: #88c484;
+  --danger: #f36c6c;
+  --radius-xl: 24px;
+  --radius-lg: 18px;
+  --radius-md: 14px;
+  --shadow: 0 18px 50px rgba(0,0,0,0.28);
+
+  /* マニュアル固有 */
+  --accent-tip: rgba(136,196,132,0.18);
+  --accent-warn: rgba(246,217,38,0.16);
+  --accent-caution: rgba(243,108,108,0.16);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: 'Noto Sans JP', sans-serif;
+  background:
+    radial-gradient(circle at top left, rgba(136,196,132,0.12), transparent 28%),
+    radial-gradient(circle at bottom right, rgba(33,54,148,0.16), transparent 34%),
+    var(--bg);
+  color: var(--text);
+  line-height: 1.7;
+}
+a { color: var(--green); text-decoration: none; }
+a:hover { text-decoration: underline; }
+button, input, select, textarea { font: inherit; }
+select { color-scheme: dark; }
+select option { background: #101010; color: #fff; }
+img { max-width: 100%; display: block; }
+
+/* ===== マニュアルのレイアウト ===== */
+.manual-wrap {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  min-height: 100vh;
+}
+.toc-sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  border-right: 1px solid rgba(255,255,255,0.08);
+  background: rgba(10,10,10,0.92);
+  backdrop-filter: blur(16px);
+  padding: 28px 18px;
+  scrollbar-width: thin;
+}
+.toc-sidebar::-webkit-scrollbar { width: 6px; }
+.toc-sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 999px; }
+.toc-title {
+  font-size: 0.7rem;
+  letter-spacing: 0.18em;
+  font-weight: 800;
+  color: var(--muted);
+  text-transform: uppercase;
+  margin-bottom: 16px;
+}
+.toc-list { list-style: none; display: grid; gap: 4px; }
+.toc-list a {
+  display: block;
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 0.86rem;
+  color: var(--soft);
+  transition: 0.18s;
+}
+.toc-list a:hover {
+  background: rgba(33,54,148,0.22);
+  color: #fff;
+  text-decoration: none;
+}
+.toc-list .toc-sub a {
+  padding-left: 24px;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.toc-badge {
+  display: inline-block;
+  background: rgba(246,217,38,0.22);
+  color: #fff7aa;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  border-radius: 999px;
+  padding: 2px 7px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.manual-content {
+  max-width: 960px;
+  padding: 48px 48px 120px;
+}
+
+/* ===== セクション共通 ===== */
+.section {
+  margin-bottom: 80px;
+  scroll-margin-top: 32px;
+}
+.section-num {
+  font-size: 0.72rem;
+  letter-spacing: 0.22em;
+  font-weight: 900;
+  color: var(--yellow);
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.section-title {
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  font-weight: 900;
+  margin-bottom: 8px;
+  line-height: 1.3;
+}
+.section-lead {
+  color: var(--soft);
+  margin-bottom: 28px;
+  font-size: 1rem;
+}
+.divider {
+  height: 1px;
+  background: rgba(255,255,255,0.07);
+  margin: 36px 0;
+}
+.sub-section {
+  margin-bottom: 40px;
+}
+.sub-section-title {
+  font-size: 1.05rem;
+  font-weight: 800;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.step-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--blue);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 900;
+  flex-shrink: 0;
+}
+
+/* ===== 吹き出しBOX ===== */
+.callout {
+  border-radius: 16px;
+  padding: 16px 18px;
+  margin: 18px 0;
+  border: 1px solid;
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 10px;
+  align-items: start;
+  font-size: 0.9rem;
+}
+.callout i { margin-top: 3px; }
+.callout.tip { background: var(--accent-tip); border-color: rgba(136,196,132,0.3); color: #d9f5d5; }
+.callout.tip i { color: var(--green); }
+.callout.warn { background: var(--accent-warn); border-color: rgba(246,217,38,0.28); color: #fffccc; }
+.callout.warn i { color: var(--yellow); }
+.callout.caution { background: var(--accent-caution); border-color: rgba(243,108,108,0.28); color: #ffd5d5; }
+.callout.caution i { color: var(--danger); }
+.callout strong { color: inherit; font-weight: 800; }
+
+/* ===== アノテーション付きモック ===== */
+.mock-wrapper {
+  position: relative;
+  margin: 20px 0;
+}
+.annotation {
+  position: absolute;
+  background: var(--yellow);
+  color: #0a0a0a;
+  font-size: 0.72rem;
+  font-weight: 900;
+  padding: 4px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+  z-index: 10;
+  pointer-events: none;
+}
+.annotation::before {
+  content: '';
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: var(--yellow);
+  border-radius: 999px;
+}
+.annotation.right::before { left: -12px; top: 50%; transform: translateY(-50%); }
+.annotation.left::before { right: -12px; top: 50%; transform: translateY(-50%); }
+.annotation.bottom::before { top: -10px; left: 50%; transform: translateX(-50%); }
+
+/* ===== モックのCMS UIコンポーネント（実際の管理画面のCSS を軽量版で再現） ===== */
+.mock {
+  border-radius: 20px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: #0f0f0f;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+  pointer-events: none;
+  user-select: none;
+}
+.mock-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  font-weight: 800;
+  color: var(--muted);
+  text-transform: uppercase;
+  text-align: center;
+  margin-bottom: 10px;
+}
+
+/* Auth mock */
+.m-auth-shell {
+  display: grid;
+  place-items: center;
+  padding: 36px 24px;
+  min-height: 360px;
+  background:
+    radial-gradient(circle at top left, rgba(136,196,132,0.10), transparent 40%),
+    radial-gradient(circle at bottom right, rgba(33,54,148,0.14), transparent 40%),
+    #0a0a0a;
+}
+.m-auth-card {
+  width: 100%;
+  max-width: 400px;
+  padding: 24px;
+  border-radius: 24px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.07), rgba(255,255,255,0.03));
+  border: 1px solid rgba(255,255,255,0.10);
+  box-shadow: 0 18px 50px rgba(0,0,0,0.28);
+}
+.m-auth-card h2 { margin: 0 0 6px; font-size: 1.2rem; }
+.m-auth-card p { color: var(--soft); font-size: 0.84rem; margin: 0 0 16px; }
+.m-hr { height: 1px; background: rgba(255,255,255,0.08); margin: 14px 0; }
+.m-field { display: grid; gap: 6px; margin-bottom: 12px; }
+.m-field label { font-size: 0.8rem; color: var(--muted); }
+.m-input {
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 12px;
+  background: rgba(255,255,255,0.05);
+  color: var(--text);
+  padding: 10px 12px;
+  font-size: 0.9rem;
+}
+.m-input.filled { color: var(--soft); }
+.m-input.code { font-size: 1.3rem; font-weight: 800; letter-spacing: 0.18em; text-align: center; }
+.m-btn {
+  border-radius: 999px;
+  padding: 11px 16px;
+  font-weight: 800;
+  font-size: 0.88rem;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.10);
+  color: var(--text);
+  cursor: default;
+}
+.m-btn.warn { background: var(--yellow); color: #0a0a0a; }
+.m-btn.success { background: var(--green); color: #0a0a0a; }
+.m-btn.primary { background: var(--blue); color: #fff; }
+.m-btn.ghost { background: transparent; border: 1px solid rgba(255,255,255,0.12); color: var(--soft); }
+.m-btn.subtle { background: rgba(255,255,255,0.08); color: var(--text); border: 1px solid rgba(255,255,255,0.08); }
+.m-btn.danger { background: rgba(243,108,108,0.16); color: #ffd5d5; border: 1px solid rgba(243,108,108,0.2); }
+.m-status {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  font-size: 0.84rem;
+  color: var(--soft);
+  margin-top: 10px;
+}
+.m-status.success { background: rgba(136,196,132,0.92); color: #0a0a0a; border-color: transparent; font-weight: 800; }
+.m-status.error { background: rgba(243,108,108,0.18); color: #ffd5d5; border-color: rgba(243,108,108,0.2); }
+
+/* App shell mock */
+.m-app { display: grid; grid-template-columns: 200px 1fr; min-height: 420px; }
+.m-sidebar {
+  border-right: 1px solid rgba(255,255,255,0.08);
+  background: rgba(10,10,10,0.9);
+  padding: 16px 12px;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+}
+.m-brand {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 14px;
+}
+.m-brand-badge {
+  width: 38px; height: 38px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(246,217,38,0.25), rgba(33,54,148,0.28));
+  display: grid; place-items: center;
+  font-size: 1rem; color: #fff;
+}
+.m-brand-copy strong { display: block; font-size: 0.84rem; }
+.m-brand-copy span { color: var(--muted); font-size: 0.74rem; }
+.m-nav-btn {
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  background: rgba(255,255,255,0.04);
+  color: var(--soft);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+.m-nav-btn.active {
+  background: rgba(33,54,148,0.24);
+  color: #fff;
+  border-color: rgba(246,217,38,0.26);
+}
+.m-meta {
+  margin-top: 14px;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  font-size: 0.78rem;
+}
+.m-meta p { color: var(--muted); margin-bottom: 4px; }
+.m-meta strong { font-size: 0.9rem; }
+.m-content { padding: 16px 18px; min-width: 0; }
+.m-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.m-topbar-status {
+  flex: 1;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  font-size: 0.82rem;
+  color: var(--soft);
+}
+.m-topbar-status.done { background: rgba(136,196,132,0.18); color: #d9f5d5; border-color: rgba(136,196,132,0.28); }
+.m-topbar-status.publishing { background: rgba(246,217,38,0.16); color: #fffccc; border-color: rgba(246,217,38,0.25); }
+.m-topbar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* Card */
+.m-card {
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.07), rgba(255,255,255,0.03));
+  border: 1px solid rgba(255,255,255,0.10);
+  padding: 16px;
+  margin-bottom: 12px;
+}
+.m-card h3 { font-size: 0.96rem; margin-bottom: 10px; }
+.m-card h4 { font-size: 0.88rem; margin-bottom: 8px; color: var(--soft); }
+
+/* KPI */
+.m-kpi-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px; }
+.m-kpi {
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.06);
+}
+.m-kpi-label { color: var(--muted); font-size: 0.72rem; margin-bottom: 4px; }
+.m-kpi-val { font-size: 1.3rem; font-weight: 900; }
+
+/* Form */
+.m-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.m-field-group { display: grid; gap: 6px; }
+.m-field-group.full { grid-column: 1/-1; }
+.m-field-group label { font-size: 0.76rem; color: var(--muted); }
+.m-input-mock {
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 11px;
+  background: rgba(255,255,255,0.05);
+  padding: 9px 12px;
+  font-size: 0.82rem;
+  color: var(--soft);
+  min-height: 38px;
+}
+.m-input-mock.filled { color: var(--text); }
+.m-textarea-mock {
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 11px;
+  background: rgba(255,255,255,0.05);
+  padding: 9px 12px;
+  font-size: 0.82rem;
+  color: var(--soft);
+  min-height: 70px;
+}
+.m-textarea-mock.filled { color: var(--text); }
+.m-select-mock {
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 11px;
+  background: rgba(255,255,255,0.05);
+  padding: 9px 12px;
+  font-size: 0.82rem;
+  color: var(--soft);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.m-select-mock::after { content: '▾'; font-size: 0.7rem; color: var(--muted); }
+.m-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+.m-chip.pub { background: rgba(136,196,132,0.18); color: #a8edaa; border: 1px solid rgba(136,196,132,0.28); }
+.m-chip.hidden { background: rgba(246,217,38,0.16); color: #fff3aa; border: 1px solid rgba(246,217,38,0.22); }
+.m-chip.archive { background: rgba(255,255,255,0.08); color: var(--soft); border: 1px solid rgba(255,255,255,0.08); }
+
+/* Editor item */
+.m-editor-item {
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.03);
+  border-radius: 14px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+.m-editor-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.m-item-title { font-size: 0.9rem; font-weight: 800; }
+.m-item-meta { font-size: 0.74rem; color: var(--muted); }
+
+/* Thumb strip */
+.m-thumb-strip { display: flex; gap: 8px; overflow: hidden; margin-top: 10px; }
+.m-thumb {
+  width: 80px; height: 60px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.08);
+  overflow: hidden;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  font-size: 1.4rem;
+}
+.m-thumb img { width: 100%; height: 100%; object-fit: cover; }
+
+/* Media modal */
+.m-modal-overlay {
+  background: rgba(0,0,0,0.6);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  border-radius: 20px;
+  overflow: hidden;
+}
+.m-modal-panel {
+  width: 100%;
+  border-radius: 18px;
+  background: #101010;
+  border: 1px solid rgba(255,255,255,0.12);
+  overflow: hidden;
+}
+.m-modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.m-modal-head h3 { font-size: 0.92rem; margin: 0; }
+.m-modal-body { padding: 14px 16px; }
+.m-file-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.m-file-card {
+  border-radius: 12px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  overflow: hidden;
+}
+.m-file-thumb {
+  aspect-ratio: 4/3;
+  background: rgba(255,255,255,0.06);
+  display: grid;
+  place-items: center;
+  font-size: 1.6rem;
+}
+.m-file-name { font-size: 0.72rem; color: var(--soft); padding: 6px 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.m-file-actions { padding: 0 8px 8px; display: flex; gap: 6px; }
+.m-file-actions .m-btn { font-size: 0.7rem; padding: 5px 8px; }
+
+/* Change log preview */
+.m-log-list { display: grid; gap: 8px; }
+.m-log-item {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.06);
+}
+.m-log-date { font-size: 0.72rem; color: var(--muted); margin-bottom: 4px; }
+.m-log-entry { font-size: 0.82rem; display: flex; align-items: center; gap: 8px; }
+.m-sim-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+.m-sim-badge.added { background: rgba(136,196,132,0.16); color: #d9f5d5; border: 1px solid rgba(136,196,132,0.28); }
+.m-sim-badge.removed { background: rgba(243,108,108,0.16); color: #ffd5d5; border: 1px solid rgba(243,108,108,0.28); }
+.m-sim-badge.unchanged { background: rgba(255,255,255,0.06); color: var(--muted); border: 1px solid rgba(255,255,255,0.08); }
+
+/* Publish flow */
+.flow-chart {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex-wrap: wrap;
+  margin: 20px 0;
+}
+.flow-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  flex: 1 1 120px;
+  min-width: 100px;
+}
+.flow-icon {
+  width: 56px; height: 56px;
+  border-radius: 18px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.10);
+  display: grid;
+  place-items: center;
+  font-size: 1.4rem;
+  color: var(--yellow);
+}
+.flow-label { font-size: 0.8rem; color: var(--soft); font-weight: 700; }
+.flow-sub { font-size: 0.72rem; color: var(--muted); }
+.flow-arrow { color: rgba(255,255,255,0.24); font-size: 1.2rem; padding: 0 4px; margin-top: -20px; }
+
+/* Steps list */
+.steps { list-style: none; display: grid; gap: 16px; margin: 16px 0; }
+.steps li {
+  display: grid;
+  grid-template-columns: 30px 1fr;
+  gap: 12px;
+  align-items: start;
+}
+.steps .num {
+  width: 30px; height: 30px;
+  border-radius: 999px;
+  background: var(--blue);
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 900;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.steps .body { padding-top: 5px; }
+.steps strong { display: block; margin-bottom: 3px; font-weight: 800; }
+.steps small { color: var(--soft); font-size: 0.86rem; }
+
+/* Table */
+.m-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+  margin: 14px 0;
+}
+.m-table th {
+  text-align: left;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.10);
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 0.78rem;
+}
+.m-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  vertical-align: top;
+}
+.m-table tr:last-child td { border-bottom: 0; }
+.m-table .required { color: var(--yellow); font-weight: 900; }
+
+/* 画面見出し装飾 */
+.screen-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.screen-icon {
+  width: 40px; height: 40px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(246,217,38,0.2), rgba(33,54,148,0.2));
+  display: grid;
+  place-items: center;
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+/* レスポンシブ */
+@media (max-width: 900px) {
+  .manual-wrap { grid-template-columns: 1fr; }
+  .toc-sidebar { position: static; height: auto; border-right: 0; border-bottom: 1px solid rgba(255,255,255,0.08); }
+  .manual-content { padding: 28px 20px 80px; }
+  .m-app { grid-template-columns: 1fr; }
+  .m-form-grid { grid-template-columns: 1fr; }
+  .m-kpi-row { grid-template-columns: 1fr 1fr; }
+  .m-file-grid { grid-template-columns: 1fr 1fr; }
+}
+
+/* ヒーローバナー */
+.hero {
+  padding: 56px 48px;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(136,196,132,0.12), transparent 40%),
+    radial-gradient(circle at 100% 100%, rgba(33,54,148,0.18), transparent 40%),
+    linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01));
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  margin-bottom: 60px;
+}
+.hero-eyebrow {
+  font-size: 0.72rem;
+  letter-spacing: 0.22em;
+  font-weight: 900;
+  color: var(--yellow);
+  text-transform: uppercase;
+  margin-bottom: 14px;
+}
+.hero-title {
+  font-size: clamp(1.8rem, 4vw, 2.8rem);
+  font-weight: 900;
+  line-height: 1.2;
+  margin-bottom: 12px;
+}
+.hero-sub {
+  color: var(--soft);
+  font-size: 1rem;
+  max-width: 560px;
+  line-height: 1.7;
+}
+.hero-chips { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+.hero-chip {
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.10);
+  font-size: 0.82rem;
+  color: var(--soft);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.hero-chip i { color: var(--green); }
+</style>
+</head>
+<body>
+<div class="manual-wrap">
+
+<!-- ===== 目次サイドバー ===== -->
+<nav class="toc-sidebar">
+  <div class="toc-title">目次</div>
+  <ul class="toc-list">
+    <li><a href="#s1">1. ログイン</a></li>
+    <li class="toc-sub"><ul class="toc-list">
+      <li><a href="#s1-1">メールアドレスの入力</a></li>
+      <li><a href="#s1-2">確認コードの入力</a></li>
+    </ul></li>
+    <li><a href="#s2">2. 画面の見方</a></li>
+    <li class="toc-sub"><ul class="toc-list">
+      <li><a href="#s2-1">全体レイアウト</a></li>
+      <li><a href="#s2-3">トップバーのボタン</a></li>
+    </ul></li>
+    <li><a href="#s3">3. ダッシュボード</a></li>
+    <li><a href="#s4">4. 展示会の管理</a></li>
+    <li class="toc-sub"><ul class="toc-list">
+      <li><a href="#s4-1">展示会を追加する</a></li>
+      <li><a href="#s4-2">開催予定→アーカイブ</a></li>
+      <li><a href="#s4-3">画像・作品情報の設定</a></li>
+    </ul></li>
+    <li><a href="#s5">5. 活動記録・告知</a></li>
+    <li><a href="#s6">6. 新歓カレンダー</a></li>
+    <li><a href="#s7">7. ご依頼事例</a></li>
+    <li><a href="#s8">8. 画像の管理</a></li>
+    <li><a href="#s9">9. 更新履歴の確認</a></li>
+    <li><a href="#s10">10. 下書き保存と公開</a></li>
+    <li class="toc-sub"><ul class="toc-list">
+      <li><a href="#s10-1">下書き保存と公開の違い</a></li>
+      <li><a href="#s10-2">公開前の確認</a></li>
+      <li><a href="#s10-3">公開の流れ</a></li>
+    </ul></li>
+    <li><a href="#s11">11. よくある質問</a></li>
+  </ul>
+</nav>
+
+<!-- ===== 本文エリア ===== -->
+<main class="manual-content">
+
+<!-- ヒーロー -->
+<div class="hero">
+  <div class="hero-eyebrow">User Manual</div>
+  <div class="hero-title">凌美会 管理画面<br>利用者マニュアル</div>
+  <div class="hero-sub">ホームページの展示会・活動記録・新歓情報を更新するための管理画面の使い方をまとめています。画面のモックを確認しながら操作を覚えましょう。</div>
+  <div class="hero-chips">
+    <div class="hero-chip"><i class="fa-solid fa-circle-check"></i> プログラミング不要</div>
+    <div class="hero-chip"><i class="fa-solid fa-lock"></i> メール認証でログイン</div>
+    <div class="hero-chip"><i class="fa-solid fa-clock-rotate-left"></i> 公開は数分で反映</div>
+  </div>
+</div>
+
+<!-- ============================
+     1. ログイン
+============================= -->
+<section class="section" id="s1">
+  <div class="section-num">Section 01</div>
+  <h2 class="section-title">ログイン</h2>
+  <p class="section-lead">管理画面はメールアドレスに届く「確認コード」を使って認証します。パスワードは不要です。</p>
+
+  <div class="callout tip" style="margin-bottom:16px;">
+    <i class="fa-solid fa-link"></i>
+    <div>管理画面 URL：<a href="https://script.google.com/macros/s/AKfycbwsBpjWM_nLAFQZ9vZMmECIkisdSeElK9A89hz7CUuI8O_SQMWVgrdPaG-uf_Hlvcp-/exec" target="_blank" rel="noopener" style="color:var(--green); font-weight:700; word-break:break-all;">https://script.google.com/macros/s/AKfycbwsBpjWM_nLAFQZ9vZMmECIkisdSeElK9A89hz7CUuI8O_SQMWVgrdPaG-uf_Hlvcp-/exec</a><br><span style="font-size:0.84rem; color:var(--soft);">アクセスできない場合は Section 11「よくある質問」を参照してください。</span></div>
+  </div>
+
+  <div class="sub-section" id="s1-1">
+    <div class="sub-section-title">
+      <span class="step-badge">1</span>
+      メールアドレスを入力して確認コードを送信する
+    </div>
+
+    <div class="mock-label">— ログイン画面 —</div>
+    <div class="mock">
+      <div class="m-auth-shell">
+        <div class="m-auth-card">
+          <h2>凌美会 管理画面</h2>
+          <p>サイト更新に必要な項目だけをまとめた画面です。最初に確認コードで認証してください。</p>
+          <div class="m-hr"></div>
+          <div class="m-field">
+            <label>メールアドレス</label>
+            <div class="m-input filled">tanaka@example.com</div>
+          </div>
+          <div style="display:flex; gap:8px; margin-top:10px;">
+            <button class="m-btn warn" style="cursor:default;">確認コードを送信</button>
+          </div>
+          <div class="m-status" style="margin-top:12px;">未認証<br><span style="font-size:0.76rem;color:var(--muted);">アクセスを許可されたメールアドレスのみ利用できます。</span></div>
+        </div>
+      </div>
+    </div>
+
+    <ol class="steps" style="margin-top:20px;">
+      <li><div class="num">1</div><div class="body"><strong>管理画面のURLをブラウザで開く</strong><small>担当者から共有されたURLを使用してください。Google Chrome 推奨です。</small></div></li>
+      <li><div class="num">2</div><div class="body"><strong>「メールアドレス」欄に自分のアドレスを入力</strong><small>許可されたアドレスのみログインできます。</small></div></li>
+      <li><div class="num">3</div><div class="body"><strong>「確認コードを送信」ボタン（黄）をクリック</strong><small>入力したアドレスに6桁のコードが届きます。</small></div></li>
+    </ol>
+
+    <div class="callout caution">
+      <i class="fa-solid fa-triangle-exclamation"></i>
+      <div>「このメールアドレスにはアクセス権がありません」と表示される場合は、管理者にメールアドレスの追加を依頼してください。</div>
+    </div>
+  </div>
+
+  <div class="sub-section" id="s1-2">
+    <div class="sub-section-title">
+      <span class="step-badge">2</span>
+      確認コードを入力してログイン完了
+    </div>
+
+    <!-- 3ステップのモックを並べる -->
+    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; align-items:start;">
+      <div>
+        <div class="mock-label">① コード入力欄が表示される</div>
+        <div class="mock" style="border-radius:16px;">
+          <div class="m-auth-shell" style="padding:20px 16px; min-height:280px;">
+            <div class="m-auth-card" style="padding:16px;">
+              <h2 style="font-size:1rem;">凌美会 管理画面</h2>
+              <div class="m-hr" style="margin:10px 0;"></div>
+              <div class="m-field" style="margin-bottom:8px;">
+                <label>メールアドレス</label>
+                <div class="m-input filled" style="font-size:0.78rem;">ta***@example.com</div>
+              </div>
+              <div class="m-field">
+                <label>確認コード</label>
+                <div class="m-input" style="font-size:0.78rem; color:var(--muted);">6桁のコード</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="mock-label">② コードを入力して認証</div>
+        <div class="mock" style="border-radius:16px;">
+          <div class="m-auth-shell" style="padding:20px 16px; min-height:280px;">
+            <div class="m-auth-card" style="padding:16px;">
+              <h2 style="font-size:1rem;">凌美会 管理画面</h2>
+              <div class="m-hr" style="margin:10px 0;"></div>
+              <div class="m-field" style="margin-bottom:8px;">
+                <label>メールアドレス</label>
+                <div class="m-input filled" style="font-size:0.78rem;">ta***@example.com</div>
+              </div>
+              <div class="m-field">
+                <label>確認コード</label>
+                <div class="m-input code" style="font-size:1.1rem; color:#fff;">4 8 3 2 0 1</div>
+              </div>
+              <div style="margin-top:10px;">
+                <button class="m-btn success" style="width:100%; font-size:0.82rem;">認証して続行</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="mock-label">③ 認証成功 → 管理画面へ</div>
+        <div class="mock" style="border-radius:16px;">
+          <div class="m-auth-shell" style="padding:20px 16px; min-height:280px;">
+            <div class="m-auth-card" style="padding:16px;">
+              <h2 style="font-size:1rem;">凌美会 管理画面</h2>
+              <div class="m-hr" style="margin:10px 0;"></div>
+              <div class="m-status success" style="font-size:0.82rem; text-align:center; padding:14px;">
+                <i class="fa-solid fa-circle-check"></i> 認証成功！<br>管理画面を読み込んでいます...
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout warn" style="margin-top:20px;">
+      <i class="fa-solid fa-clock"></i>
+      <div><strong>確認コードの有効期限は 10 分です。</strong> 期限が切れた場合は「確認コードを送信」からやり直してください。コードを 5 回間違えるとロックされ、再送信が必要になります。</div>
+    </div>
+    <div class="callout tip">
+      <i class="fa-solid fa-circle-info"></i>
+      <div>認証後の<strong>セッションは 30 分で切れます</strong>。長時間操作しない場合は、こまめに「下書き保存」しておきましょう。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================
+     2. 画面の見方
+============================= -->
+<section class="section" id="s2">
+  <div class="section-num">Section 02</div>
+  <h2 class="section-title">画面の見方</h2>
+  <p class="section-lead">ログイン後に表示されるメイン画面の構成を確認しましょう。</p>
+
+  <div class="sub-section" id="s2-1">
+    <div class="sub-section-title">全体レイアウト</div>
+
+    <div class="mock-label">— 管理画面 全体構成 —</div>
+    <div class="mock">
+      <div class="m-app">
+        <!-- Sidebar -->
+        <div class="m-sidebar">
+          <div class="m-brand">
+            <div class="m-brand-badge"><i class="fa-solid fa-palette"></i></div>
+            <div class="m-brand-copy">
+              <strong>凌美会 管理画面</strong>
+              <span>日常更新</span>
+            </div>
+          </div>
+          <button class="m-nav-btn active">ダッシュボード</button>
+          <button class="m-nav-btn">展示会</button>
+          <button class="m-nav-btn">活動記録・告知</button>
+          <button class="m-nav-btn">入部希望の方</button>
+          <button class="m-nav-btn">ご依頼の方</button>
+          <button class="m-nav-btn">更新履歴</button>
+          <div class="m-meta" style="margin-top:12px;">
+            <p>認証済みアカウント</p>
+            <strong>田中 花子</strong>
+            <div style="font-size:0.72rem; color:var(--muted);">tanaka@example.com</div>
+          </div>
+        </div>
+        <!-- Content -->
+        <div class="m-content">
+          <div class="m-topbar">
+            <div class="m-topbar-status">準備完了</div>
+            <div class="m-topbar-actions">
+              <button class="m-btn ghost" style="font-size:0.78rem;">サイトを開く</button>
+              <button class="m-btn primary" style="font-size:0.78rem;">下書き保存</button>
+              <button class="m-btn success" style="font-size:0.78rem;">公開する</button>
+            </div>
+          </div>
+          <div class="m-card" style="margin-bottom:8px;">
+            <h4 style="margin-bottom:8px;">概要</h4>
+            <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:8px;">
+              <div class="m-kpi"><div class="m-kpi-label">活動記録・告知</div><div class="m-kpi-val">12</div></div>
+              <div class="m-kpi"><div class="m-kpi-label">展示会</div><div class="m-kpi-val">5</div></div>
+              <div class="m-kpi"><div class="m-kpi-label">取り組み事例</div><div class="m-kpi-val">3</div></div>
+              <div class="m-kpi"><div class="m-kpi-label">公開履歴</div><div class="m-kpi-val">8</div></div>
+            </div>
+          </div>
+          <div class="m-card">
+            <h4>下書き一覧</h4>
+            <div style="color:var(--muted); font-size:0.8rem;">保存済みの下書きはありません</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <table class="m-table" style="margin-top:24px;">
+      <thead><tr><th>エリア</th><th>説明</th></tr></thead>
+      <tbody>
+        <tr><td><strong>サイドバー</strong>（左）</td><td>ページを切り替えるナビゲーションメニュー。下部にログイン中のアカウント名が表示されます。</td></tr>
+        <tr><td><strong>トップバー</strong>（上）</td><td>現在の状態メッセージ（「準備完了」「保存中...」など）と主要操作ボタン。</td></tr>
+        <tr><td><strong>メインエリア</strong>（右・中央）</td><td>選択したページのコンテンツ編集エリア。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="sub-section" id="s2-3">
+    <div class="sub-section-title">トップバーのボタン</div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; margin:16px 0;">
+      <div class="m-card" style="text-align:center;">
+        <button class="m-btn ghost" style="margin-bottom:10px; pointer-events:none; width:100%;"><i class="fa-solid fa-arrow-up-right-from-square"></i> サイトを開く</button>
+        <p style="font-size:0.82rem; color:var(--soft);">現在のホームページを新しいタブで確認</p>
+      </div>
+      <div class="m-card" style="text-align:center;">
+        <button class="m-btn primary" style="margin-bottom:10px; pointer-events:none; width:100%;"><i class="fa-solid fa-floppy-disk"></i> 下書き保存</button>
+        <p style="font-size:0.82rem; color:var(--soft);">編集中の内容を保存。まだ公開されません</p>
+      </div>
+      <div class="m-card" style="text-align:center;">
+        <button class="m-btn success" style="margin-bottom:10px; pointer-events:none; width:100%;"><i class="fa-solid fa-rocket"></i> 公開する</button>
+        <p style="font-size:0.82rem; color:var(--soft);">ホームページに反映。数分後に実際に反映されます</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================
+     3. ダッシュボード
+============================= -->
+<section class="section" id="s3">
+  <div class="section-num">Section 03</div>
+  <h2 class="section-title">ダッシュボード</h2>
+  <p class="section-lead">ログイン直後に表示されるホーム画面です。コンテンツの概要や下書きを確認できます。</p>
+
+  <div class="mock-label">— ダッシュボード —</div>
+  <div class="mock">
+    <div class="m-app">
+      <div class="m-sidebar">
+        <div class="m-brand">
+          <div class="m-brand-badge"><i class="fa-solid fa-palette"></i></div>
+          <div class="m-brand-copy"><strong>凌美会 管理画面</strong><span>日常更新</span></div>
+        </div>
+        <button class="m-nav-btn active">ダッシュボード</button>
+        <button class="m-nav-btn">展示会</button>
+        <button class="m-nav-btn">活動記録・告知</button>
+        <button class="m-nav-btn">入部希望の方</button>
+        <button class="m-nav-btn">ご依頼の方</button>
+        <button class="m-nav-btn">更新履歴</button>
+      </div>
+      <div class="m-content">
+        <div class="m-topbar">
+          <div class="m-topbar-status">準備完了</div>
+          <div class="m-topbar-actions">
+            <button class="m-btn ghost" style="font-size:0.76rem;">サイトを開く</button>
+            <button class="m-btn primary" style="font-size:0.76rem;">下書き保存</button>
+            <button class="m-btn success" style="font-size:0.76rem;">公開する</button>
+          </div>
+        </div>
+
+        <!-- Drive 容量カード（最上部に独立して表示） -->
+        <div class="m-card" style="margin-bottom:10px; border-color:rgba(136,196,132,0.22);">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <div>
+              <h3 style="margin-bottom:2px;">ストレージ容量</h3>
+              <div style="font-size:0.72rem; color:var(--muted);">画像ファイルなどの Google Drive 保存容量</div>
+            </div>
+            <span style="font-size:0.72rem; padding:3px 8px; border-radius:999px; background:rgba(136,196,132,0.18); color:#d9f5d5; border:1px solid rgba(136,196,132,0.28);">余裕があります</span>
+          </div>
+          <div style="height:8px; border-radius:999px; background:rgba(255,255,255,0.08); overflow:hidden; margin-bottom:8px;">
+            <div style="width:42%; height:100%; background:linear-gradient(90deg,var(--green),var(--yellow)); border-radius:999px;"></div>
+          </div>
+          <div style="font-size:0.78rem; color:var(--soft);">使用中: 6.3 GB / 15 GB &nbsp;|&nbsp; <strong>残り 8.7 GB</strong></div>
+        </div>
+
+        <!-- 概要 KPI（4項目） -->
+        <div class="m-card" style="margin-bottom:10px;">
+          <h3 style="margin-bottom:10px;">概要</h3>
+          <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:8px;">
+            <div class="m-kpi"><div class="m-kpi-label">活動記録・告知</div><div class="m-kpi-val">12</div></div>
+            <div class="m-kpi"><div class="m-kpi-label">展示会</div><div class="m-kpi-val">5</div></div>
+            <div class="m-kpi"><div class="m-kpi-label">取り組み事例</div><div class="m-kpi-val">3</div></div>
+            <div class="m-kpi"><div class="m-kpi-label">公開履歴</div><div class="m-kpi-val">8</div></div>
+          </div>
+        </div>
+
+        <!-- 下書き一覧 ＆ 公開履歴（2カラム） -->
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+          <div class="m-card">
+            <h3>下書き一覧</h3>
+            <div style="padding:10px; border-radius:10px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); font-size:0.78rem;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                <span style="color:var(--soft);">2026.05.15 / 田中 花子</span>
+                <button class="m-btn subtle" style="font-size:0.7rem; padding:4px 8px;">読み込む</button>
+              </div>
+              <div style="color:var(--muted); font-size:0.74rem;">下書き a3f2b1c0</div>
+            </div>
+          </div>
+          <div class="m-card">
+            <h3>公開履歴</h3>
+            <div style="display:grid; gap:6px;">
+              <div style="padding:8px 10px; border-radius:10px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); font-size:0.76rem;">
+                <div style="color:var(--muted); font-size:0.7rem; margin-bottom:2px;">2026.05.15 / 田中 花子</div>
+                <div style="color:var(--soft);">published: 展示会「第XX回凌美会展」を公開</div>
+              </div>
+              <div style="padding:8px 10px; border-radius:10px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); font-size:0.76rem;">
+                <div style="color:var(--muted); font-size:0.7rem; margin-bottom:2px;">2026.05.01 / 鈴木 二郎</div>
+                <div style="color:var(--soft);">published: 活動記録・告知「六甲祭2025の活動報告」を公開</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <table class="m-table" style="margin-top:20px;">
+    <thead><tr><th>項目</th><th>説明</th></tr></thead>
+    <tbody>
+      <tr><td>ストレージ容量（最上部）</td><td>画像ファイルなどの Google Drive 保存容量の使用状況です。残量に応じてバッジ色が変わります。</td></tr>
+      <tr><td>概要 KPI（4項目）</td><td>公開中の活動記録・告知件数 / 展示会件数 / 取り組み事例件数 / 累計公開履歴件数。いずれも公開中（非公開除く）の件数です。</td></tr>
+      <tr><td>下書き一覧</td><td>過去に「下書き保存」した内容。「読み込む」で編集を再開できます。公開が完了すると全員分の下書きが自動クリアされます。</td></tr>
+      <tr><td>公開履歴（右カード）</td><td>誰がいつ「公開する」を実行したかの管理ログ。ダッシュボードのこのカードでのみ確認できます。</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ============================
+     4. 展示会の管理
+============================= -->
+<section class="section" id="s4">
+  <div class="section-num">Section 04</div>
+  <h2 class="section-title">展示会の管理</h2>
+  <p class="section-lead">サイドバーの「展示会」から開きます。開催予定・アーカイブの両方をここで管理します。</p>
+
+  <div class="callout tip">
+    <i class="fa-solid fa-circle-info"></i>
+    <div>展示会は <strong>「開催予定（upcoming）」</strong> と <strong>「アーカイブ（archive）」</strong> の2種類です。開催が終わったら表示区分を「アーカイブ」に変更して公開してください。</div>
+  </div>
+
+  <div class="sub-section" id="s4-1">
+    <div class="sub-section-title">展示会一覧と追加</div>
+
+    <div class="mock-label">— 展示会パネル —</div>
+    <div class="mock">
+      <div class="m-app">
+        <div class="m-sidebar">
+          <div class="m-brand"><div class="m-brand-badge"><i class="fa-solid fa-palette"></i></div><div class="m-brand-copy"><strong>凌美会 管理画面</strong><span>日常更新</span></div></div>
+          <button class="m-nav-btn">ダッシュボード</button>
+          <button class="m-nav-btn active">展示会</button>
+          <button class="m-nav-btn">活動記録・告知</button>
+          <button class="m-nav-btn">入部希望の方</button>
+          <button class="m-nav-btn">ご依頼の方</button>
+          <button class="m-nav-btn">更新履歴</button>
+        </div>
+        <div class="m-content">
+          <div class="m-topbar">
+            <div class="m-topbar-status">準備完了</div>
+            <div class="m-topbar-actions">
+              <button class="m-btn ghost" style="font-size:0.76rem;">サイトを開く</button>
+              <button class="m-btn primary" style="font-size:0.76rem;">下書き保存</button>
+              <button class="m-btn success" style="font-size:0.76rem;">公開する</button>
+            </div>
+          </div>
+
+          <!-- 展示会カード -->
+          <div class="m-card" style="margin-top:12px;">
+            <!-- パネルヘッダー -->
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:14px;">
+              <div>
+                <div style="font-size:1rem; font-weight:800; margin-bottom:4px;">展示会</div>
+                <div style="font-size:0.74rem; color:var(--muted);">開始日をもとに自動で並びます。開催予定は複数設定でき、近い順に表示されます。直近の展示はアーカイブの最新1件から自動で反映されます。</div>
+              </div>
+              <button class="m-btn" style="font-size:0.76rem; flex-shrink:0;">展示会を追加</button>
+            </div>
+
+            <!-- Item 1: upcoming, published -->
+            <div class="m-editor-item">
+              <div class="m-editor-head">
+                <div>
+                  <div class="m-item-title">第XX回凌美会展 <span class="m-chip pub">公開中</span></div>
+                  <div class="m-item-meta">開催予定</div>
+                </div>
+                <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                  <button class="m-btn subtle" style="font-size:0.7rem; padding:5px 9px;">アーカイブに移動</button>
+                  <button class="m-btn subtle" style="font-size:0.7rem; padding:5px 9px;">非公開</button>
+                  <button class="m-btn danger" style="font-size:0.7rem; padding:5px 9px;">削除</button>
+                </div>
+              </div>
+              <div class="m-form-grid" style="gap:8px;">
+                <div class="m-field-group full">
+                  <label>展示会名</label>
+                  <div class="m-input-mock filled">第XX回凌美会展</div>
+                </div>
+                <div class="m-field-group full">
+                  <label>サブタイトル（任意）</label>
+                  <div class="m-input-mock"></div>
+                </div>
+                <div class="m-field-group">
+                  <label>開始日（自動並び替え用）</label>
+                  <div class="m-input-mock filled">2026-08-01</div>
+                </div>
+                <div class="m-field-group full">
+                  <label>概要</label>
+                  <div class="m-input-mock"></div>
+                </div>
+                <div class="m-field-group">
+                  <label>会場名</label>
+                  <div class="m-input-mock filled">ギャラリー〇〇</div>
+                </div>
+                <div class="m-field-group">
+                  <label>会場住所</label>
+                  <div class="m-input-mock filled">神戸市中央区〇〇1-2-3</div>
+                </div>
+                <div class="m-field-group">
+                  <label>会期表示</label>
+                  <div class="m-input-mock filled">2026年8月1日（土）〜8月8日（土）</div>
+                </div>
+                <div class="m-field-group">
+                  <label>時間帯表示</label>
+                  <div class="m-input-mock filled">11:00〜18:00（最終日17:00まで）</div>
+                </div>
+                <div class="m-field-group full">
+                  <label>Google マップ埋め込み URL（任意）</label>
+                  <div style="display:flex; gap:6px; align-items:center;">
+                    <div class="m-input-mock filled" style="flex:1;">https://www.google.com/maps/embed?pb=…</div>
+                    <button class="m-btn subtle" style="width:32px; height:32px; padding:0; border-radius:10px; flex:0 0 auto; display:grid; place-items:center;"><i class="fa-solid fa-location-dot"></i></button>
+                  </div>
+                </div>
+                <div class="m-field-group full">
+                  <label>画像・作品情報</label>
+                  <button class="m-btn subtle" style="font-size:0.76rem; align-self:start;">画像・作品情報の設定</button>
+                </div>
+              </div>
+              <div style="color:var(--muted); font-size:0.78rem; margin-top:8px;">DM画像、作品画像、作品名、作者名、表示順は「画像・作品情報の設定」から編集できます。</div>
+            </div>
+
+            <!-- Item 2: archive, published -->
+            <div class="m-editor-item" style="margin-top:10px;">
+              <div class="m-editor-head">
+                <div>
+                  <div class="m-item-title">夏展2025 <span class="m-chip pub">公開中</span></div>
+                  <div class="m-item-meta">アーカイブ</div>
+                </div>
+                <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                  <button class="m-btn subtle" style="font-size:0.7rem; padding:5px 9px;">開催予定に戻す</button>
+                  <button class="m-btn subtle" style="font-size:0.7rem; padding:5px 9px;">非公開</button>
+                  <button class="m-btn danger" style="font-size:0.7rem; padding:5px 9px;">削除</button>
+                </div>
+              </div>
+              <div class="m-form-grid" style="gap:8px;">
+                <div class="m-field-group full">
+                  <label>展示会名</label>
+                  <div class="m-input-mock filled">夏展2025</div>
+                </div>
+                <div class="m-field-group full">
+                  <label>サブタイトル（任意）</label>
+                  <div class="m-input-mock filled">〜夏の記憶〜</div>
+                </div>
+                <div class="m-field-group">
+                  <label>開始日（自動並び替え用）</label>
+                  <div class="m-input-mock filled">2025-08-10</div>
+                </div>
+                <div class="m-field-group full">
+                  <label>概要</label>
+                  <div class="m-input-mock filled">夏の作品展です。</div>
+                </div>
+                <div class="m-field-group">
+                  <label>会場名</label>
+                  <div class="m-input-mock filled">ギャラリー△△</div>
+                </div>
+                <div class="m-field-group">
+                  <label>会場住所</label>
+                  <div class="m-input-mock filled">神戸市灘区〇〇2-3-4</div>
+                </div>
+                <div class="m-field-group">
+                  <label>会期表示</label>
+                  <div class="m-input-mock filled">2025年8月10日（日）〜8月16日（土）</div>
+                </div>
+                <div class="m-field-group">
+                  <label>時間帯表示</label>
+                  <div class="m-input-mock filled">11:00〜18:00</div>
+                </div>
+                <div class="m-field-group full">
+                  <label>Google マップ埋め込み URL（任意）</label>
+                  <div style="display:flex; gap:6px; align-items:center;">
+                    <div class="m-input-mock filled" style="flex:1;">https://www.google.com/maps/embed?pb=…</div>
+                    <button class="m-btn subtle" style="width:32px; height:32px; padding:0; border-radius:10px; flex:0 0 auto; display:grid; place-items:center;"><i class="fa-solid fa-location-dot"></i></button>
+                  </div>
+                </div>
+                <div class="m-field-group full">
+                  <label>画像・作品情報</label>
+                  <button class="m-btn subtle" style="font-size:0.76rem; align-self:start;">画像・作品情報の設定</button>
+                </div>
+              </div>
+              <div style="color:var(--muted); font-size:0.78rem; margin-top:8px;">DM画像、作品画像、作品名、作者名、表示順は「画像・作品情報の設定」から編集できます。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sub-section">
+    <div class="sub-section-title">展示会の入力項目</div>
+    <table class="m-table">
+      <thead><tr><th>項目</th><th>必須</th><th>説明・入力例</th></tr></thead>
+      <tbody>
+        <tr><td>展示会名</td><td class="required">◎</td><td>例：「第XX回凌美会展」（最大140文字）</td></tr>
+        <tr><td>サブタイトル</td><td></td><td>例：「〜テーマ〜」（任意）</td></tr>
+        <tr><td>概要</td><td></td><td>展示会の説明文。</td></tr>
+        <tr><td>会場名</td><td></td><td>例：「ギャラリーマルコ」</td></tr>
+        <tr><td>会場住所</td><td></td><td>例：「神戸市中央区〇〇1-2-3」</td></tr>
+        <tr><td>会期表示</td><td></td><td>例：「2026年8月1日（土）〜8月8日（土）」</td></tr>
+        <tr><td>時間帯表示</td><td></td><td>例：「11:00〜18:00（最終日17:00まで）」</td></tr>
+        <tr><td>Google マップ 埋め込み URL</td><td></td><td>Google マップで会場を検索 → 「共有」→「地図を埋め込む」→ 表示された <code style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:4px;font-size:0.8em;">&lt;iframe&gt;</code> の <code style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:4px;font-size:0.8em;">src="https://..."</code> の URL 部分をコピーして貼り付ける。右端の<i class="fa-solid fa-location-dot"></i>ボタンで簡易生成もできますが参考程度に。</td></tr>
+        <tr><td>開始日（自動並び替え用）</td><td></td><td>例：2026-08-01。この日付をもとに自動で並び順が決まります</td></tr>
+        <tr><td>画像・作品情報</td><td></td><td>「画像・作品情報の設定」ボタンでDM画像・作品画像を設定します（→ Section 4-3 参照）</td></tr>
+        <tr><td>公開 / 非公開</td><td></td><td>「非公開」ボタンで表示をオフにします。「公開する」を実行したときにホームページへ反映されます</td></tr>
+        <tr><td>開催予定 / アーカイブ</td><td class="required">◎</td><td>「アーカイブに移動」ボタンで切り替え。展示終了後はアーカイブに移してから公開します</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout tip">
+    <i class="fa-solid fa-circle-info"></i>
+    <div>展示会の公開・非公開は「公開する」を実行したときにホームページへ反映されます。「非公開」ボタンを押しただけでは変わりません。<br>
+    <strong style="color:#fff;">「公開中」で「公開する」：</strong>ホームページに作品画像が表示されるようになります<br>
+    <strong style="color:#fff;">「非公開」で「公開する」：</strong>ホームページから作品画像が非表示になります</div>
+  </div>
+
+  <div class="sub-section" id="s4-2">
+    <div class="sub-section-title">展示会が終わったら → アーカイブへ移動</div>
+
+    <p style="color:var(--soft); font-size:0.9rem; margin-bottom:16px;">
+      展示会の表示区分の切り替えは、各アイテムのヘッダーにある<strong style="color:#fff;">「アーカイブに移動」</strong>ボタンで行います。ドロップダウンではありません。
+    </p>
+
+    <div style="display:grid; grid-template-columns:1fr auto 1fr; gap:16px; align-items:center; margin:16px 0;">
+      <div class="m-card">
+        <div style="font-size:0.7rem; color:var(--yellow); font-weight:800; margin-bottom:8px;">変更前（開催予定）</div>
+        <div class="m-editor-item" style="border-color:rgba(246,217,38,0.22); padding:10px;">
+          <div class="m-editor-head" style="margin-bottom:0;">
+            <span style="font-size:0.82rem; font-weight:800;">第XX回凌美会展 <span class="m-chip pub" style="font-size:0.66rem;">公開中</span></span>
+            <div style="display:flex; gap:5px;">
+              <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 8px; background:rgba(246,217,38,0.14); border-color:rgba(246,217,38,0.3); color:#fffccc;">アーカイブに移動</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="text-align:center; color:var(--muted);">
+        <i class="fa-solid fa-arrow-right" style="font-size:1.4rem;"></i><br>
+        <span style="font-size:0.74rem;">ボタンを押す</span>
+      </div>
+      <div class="m-card">
+        <div style="font-size:0.7rem; color:var(--green); font-weight:800; margin-bottom:8px;">変更後（アーカイブ）</div>
+        <div class="m-editor-item" style="padding:10px;">
+          <div class="m-editor-head" style="margin-bottom:0;">
+            <span style="font-size:0.82rem; font-weight:800;">第XX回凌美会展 <span class="m-chip archive" style="font-size:0.66rem;">アーカイブ</span></span>
+            <div style="display:flex; gap:5px;">
+              <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 8px;">開催予定に戻す</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout warn">
+      <i class="fa-solid fa-triangle-exclamation"></i>
+      <div>各展示会の並び順は区分によって異なります。<strong>開催予定</strong>は開始日が近い順（昇順）、<strong>アーカイブ</strong>は開始日が新しい順（降順）で自動ソートされます。開始日を正しく入力しておくと、それぞれ適切な位置に自動表示されます。</div>
+    </div>
+  </div>
+
+  <div class="sub-section" id="s4-3">
+    <div class="sub-section-title">展示会の画像・作品情報の設定</div>
+    <p style="color:var(--soft); font-size:0.9rem; margin-bottom:16px;">
+      展示会の「<strong style="color:#fff;">画像・作品情報の設定</strong>」ボタンを押すと、DM画像と作品画像を設定する専用の画面が開きます。
+    </p>
+
+    <div class="mock-label">— 画像・作品情報の設定（展示会） —</div>
+    <div class="mock">
+      <div style="background:#0a0a0a; padding:16px;">
+        <div class="m-modal-overlay" style="align-items:start; padding-top:12px;">
+          <div class="m-modal-panel" style="max-width:520px;">
+            <div class="m-modal-head">
+              <div>
+                <h3>画像・作品情報の設定</h3>
+                <div style="font-size:0.74rem; color:var(--muted); margin-top:4px;">第XX回凌美会展</div>
+              </div>
+              <button class="m-btn ghost" style="font-size:0.8rem; padding:6px 10px;"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="m-modal-body" style="display:grid; gap:16px;">
+
+              <!-- ① DM画像セクション -->
+              <div>
+                <div style="font-size:0.86rem; font-weight:800; margin-bottom:8px; color:#fff; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:6px;">① DM画像</div>
+                <div style="padding:10px; border-radius:12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); margin-bottom:10px;">
+                  <div style="display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center;">
+                    <div>
+                      <div style="font-size:0.78rem; font-weight:700; margin-bottom:4px;">DM画像を追加</div>
+                      <input type="file" style="font-size:0.72rem; color:var(--muted);" disabled>
+                    </div>
+                    <button class="m-btn success" style="font-size:0.74rem;">アップロード</button>
+                  </div>
+                  <div style="font-size:0.72rem; color:var(--muted); margin-top:6px;">推奨ファイルサイズは3MB以下です。</div>
+                </div>
+                <div class="m-file-grid" style="grid-template-columns:1fr 1fr;">
+                  <div class="m-file-card">
+                    <div class="m-file-thumb" style="aspect-ratio:3/4;">🖼️</div>
+                    <div style="font-size:0.74rem; font-weight:800; padding:4px 8px; color:var(--yellow);">DM 表</div>
+                    <div class="m-file-actions">
+                      <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 7px;" disabled>表へ</button>
+                      <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 7px;">裏へ</button>
+                      <button class="m-btn danger" style="font-size:0.68rem; padding:4px 7px;"><i class="fa-solid fa-trash"></i></button>
+                    </div>
+                  </div>
+                  <div class="m-file-card">
+                    <div class="m-file-thumb" style="aspect-ratio:3/4;">🖼️</div>
+                    <div style="font-size:0.74rem; font-weight:800; padding:4px 8px; color:var(--muted);">DM 裏</div>
+                    <div class="m-file-actions">
+                      <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 7px;">表へ</button>
+                      <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 7px;" disabled>裏へ</button>
+                      <button class="m-btn danger" style="font-size:0.68rem; padding:4px 7px;"><i class="fa-solid fa-trash"></i></button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- ② 作品画像セクション -->
+              <div>
+                <div style="font-size:0.86rem; font-weight:800; margin-bottom:8px; color:#fff; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:6px;">② 作品画像</div>
+                <div style="padding:10px; border-radius:12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); margin-bottom:8px;">
+                  <div style="display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center;">
+                    <div>
+                      <div style="font-size:0.78rem; font-weight:700; margin-bottom:4px;">作品画像を追加</div>
+                      <input type="file" style="font-size:0.72rem; color:var(--muted);" disabled>
+                    </div>
+                    <button class="m-btn success" style="font-size:0.74rem;">アップロード</button>
+                  </div>
+                  <div style="font-size:0.72rem; color:var(--muted); margin-top:6px;">表示順は「前へ」「次へ」で変更できます。PCでは縦横比に合わせて自動配置されます。</div>
+                </div>
+                <div class="m-file-grid">
+                  <div class="m-file-card">
+                    <div class="m-file-thumb">🖼️</div>
+                    <div style="font-size:0.7rem; color:var(--muted); padding:2px 8px;">表示順 1 / 3.1 MB</div>
+                    <div style="padding:6px 8px; display:grid; gap:4px;">
+                      <div>
+                        <div style="font-size:0.68rem; color:var(--muted); margin-bottom:2px;">作品名</div>
+                        <div class="m-input-mock filled" style="font-size:0.72rem; padding:5px 8px; min-height:28px;">秋の情景</div>
+                      </div>
+                      <div>
+                        <div style="font-size:0.68rem; color:var(--muted); margin-bottom:2px;">作者名</div>
+                        <div class="m-input-mock filled" style="font-size:0.72rem; padding:5px 8px; min-height:28px;">田中 花子</div>
+                      </div>
+                    </div>
+                    <div class="m-file-actions">
+                      <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 7px;" disabled>前へ</button>
+                      <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 7px;">次へ</button>
+                      <button class="m-btn danger" style="font-size:0.68rem; padding:4px 7px;"><i class="fa-solid fa-trash"></i></button>
+                    </div>
+                  </div>
+                  <div class="m-file-card">
+                    <div class="m-file-thumb">🖼️</div>
+                    <div style="font-size:0.7rem; color:var(--muted); padding:2px 8px;">表示順 2 / 2.8 MB</div>
+                    <div style="padding:6px 8px; display:grid; gap:4px;">
+                      <div>
+                        <div style="font-size:0.68rem; color:var(--muted); margin-bottom:2px;">作品名</div>
+                        <div class="m-input-mock" style="font-size:0.72rem; padding:5px 8px; min-height:28px; color:var(--muted);">（未入力）</div>
+                      </div>
+                      <div>
+                        <div style="font-size:0.68rem; color:var(--muted); margin-bottom:2px;">作者名</div>
+                        <div class="m-input-mock" style="font-size:0.72rem; padding:5px 8px; min-height:28px; color:var(--muted);">（未入力）</div>
+                      </div>
+                    </div>
+                    <div class="m-file-actions">
+                      <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 7px;">前へ</button>
+                      <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 7px;" disabled>次へ</button>
+                      <button class="m-btn danger" style="font-size:0.68rem; padding:4px 7px;"><i class="fa-solid fa-trash"></i></button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:20px; display:grid; gap:12px;">
+      <div class="m-card">
+        <h3 style="font-size:0.9rem; margin-bottom:10px;">① DM画像（最大2枚：表・裏）</h3>
+        <ul style="color:var(--soft); font-size:0.84rem; padding-left:18px; display:grid; gap:6px;">
+          <li>「DM画像を追加」からアップロード → 自動でDM一覧に追加</li>
+          <li><strong style="color:#fff;">「表へ」「裏へ」</strong>ボタンで表面・裏面を入れ替えられます</li>
+          <li>DM画像は<strong style="color:#fff;">最大2枚まで</strong>。3枚目を追加しようとするとエラーになります</li>
+          <li>「下書き保存」または「公開する」を実行すると、表面・裏面の設定が確定します</li>
+        </ul>
+      </div>
+      <div class="m-card">
+        <h3 style="font-size:0.9rem; margin-bottom:10px;">② 作品画像（最大200枚）</h3>
+        <ul style="color:var(--soft); font-size:0.84rem; padding-left:18px; display:grid; gap:6px;">
+          <li>「作品画像を追加」からアップロード → 自動で作品一覧に追加</li>
+          <li>各作品カードに<strong style="color:#fff;">「作品名」「作者名」</strong>を直接入力できます</li>
+          <li><strong style="color:#fff;">「前へ」「次へ」</strong>で表示順を変更（スマートフォンのスライド順 / ライトボックス順に反映）</li>
+          <li>「下書き保存」または「公開する」を実行すると、表示順と作品情報が保存されます</li>
+        </ul>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ============================
+     5. 活動記録・告知
+============================= -->
+<section class="section" id="s5">
+  <div class="section-num">Section 05</div>
+  <h2 class="section-title">活動記録・告知の管理</h2>
+  <p class="section-lead">サイドバーの「活動記録・告知」から開きます。展示会以外の活動記録・告知を投稿します。</p>
+
+  <div class="mock-label">— 活動記録・告知パネル —</div>
+  <div class="mock">
+    <div class="m-app">
+      <div class="m-sidebar">
+        <div class="m-brand"><div class="m-brand-badge"><i class="fa-solid fa-palette"></i></div><div class="m-brand-copy"><strong>凌美会 管理画面</strong></div></div>
+        <button class="m-nav-btn">ダッシュボード</button>
+        <button class="m-nav-btn">展示会</button>
+        <button class="m-nav-btn active">活動記録・告知</button>
+        <button class="m-nav-btn">入部希望の方</button>
+        <button class="m-nav-btn">ご依頼の方</button>
+        <button class="m-nav-btn">更新履歴</button>
+      </div>
+      <div class="m-content">
+        <div class="m-topbar">
+          <div class="m-topbar-status">準備完了</div>
+          <div class="m-topbar-actions">
+            <button class="m-btn ghost" style="font-size:0.76rem;">サイトを開く</button>
+            <button class="m-btn primary" style="font-size:0.76rem;">下書き保存</button>
+            <button class="m-btn success" style="font-size:0.76rem;">公開する</button>
+          </div>
+        </div>
+
+        <div class="m-card" style="margin-top:12px;">
+          <!-- パネルヘッダー -->
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:14px;">
+            <div>
+              <div style="font-size:1rem; font-weight:800; margin-bottom:4px;">活動記録・告知</div>
+              <div style="font-size:0.74rem; color:var(--muted);">公開日が新しい順に表示されます。必要に応じて非公開にできます。</div>
+            </div>
+            <button class="m-btn" style="font-size:0.76rem; flex-shrink:0;">記事を追加</button>
+          </div>
+
+          <!-- Item 1: published -->
+          <div class="m-editor-item">
+            <div class="m-editor-head">
+              <div>
+                <div class="m-item-title">六甲祭2025の活動報告 <span class="m-chip pub">公開中</span></div>
+                <div class="m-item-meta">初回公開日: 2025.11.03</div>
+              </div>
+              <div style="display:flex; gap:6px;">
+                <button class="m-btn subtle" style="font-size:0.7rem; padding:5px 9px;">非公開</button>
+                <button class="m-btn danger" style="font-size:0.7rem; padding:5px 9px;">削除</button>
+              </div>
+            </div>
+            <div class="m-form-grid" style="gap:8px;">
+              <div class="m-field-group full">
+                <label>記事タイトル</label>
+                <div class="m-input-mock filled">六甲祭2025の活動報告</div>
+              </div>
+              <div class="m-field-group">
+                <label>カテゴリ</label>
+                <div class="m-select-mock">活動記録</div>
+              </div>
+              <div class="m-field-group full">
+                <label>本文</label>
+                <div class="m-textarea-mock filled">今年も六甲祭に参加しました。部員それぞれが作品を展示し、多くの方にご覧いただきました。</div>
+              </div>
+              <div class="m-field-group full">
+                <label>画像</label>
+                <button class="m-btn subtle" style="font-size:0.76rem; align-self:start;">画像の設定</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Item 2: not published -->
+          <div class="m-editor-item" style="margin-top:10px;">
+            <div class="m-editor-head">
+              <div>
+                <div class="m-item-title">春展2026のお知らせ <span class="m-chip hidden">非公開</span></div>
+                <div class="m-item-meta">初回公開日: 2026.01.15</div>
+              </div>
+              <div style="display:flex; gap:6px;">
+                <button class="m-btn subtle" style="font-size:0.7rem; padding:5px 9px; background:rgba(246,217,38,0.22); color:#fffccc;">公開に戻す</button>
+                <button class="m-btn danger" style="font-size:0.7rem; padding:5px 9px;">削除</button>
+              </div>
+            </div>
+            <div class="m-form-grid" style="gap:8px;">
+              <div class="m-field-group full">
+                <label>記事タイトル</label>
+                <div class="m-input-mock filled">春展2026のお知らせ</div>
+              </div>
+              <div class="m-field-group">
+                <label>カテゴリ</label>
+                <div class="m-select-mock">イベント告知</div>
+              </div>
+              <div class="m-field-group full">
+                <label>本文</label>
+                <div class="m-textarea-mock filled">春の展示会を開催します。詳細は後日お知らせします。</div>
+              </div>
+              <div class="m-field-group full">
+                <label>画像</label>
+                <button class="m-btn subtle" style="font-size:0.76rem; align-self:start;">画像の設定</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top:20px;">
+    <div class="sub-section-title">入力項目</div>
+    <table class="m-table">
+      <thead><tr><th>項目</th><th>必須</th><th>説明・入力例</th></tr></thead>
+      <tbody>
+        <tr><td>記事タイトル</td><td class="required">◎</td><td>例：「六甲祭2025の活動報告」</td></tr>
+        <tr><td>カテゴリ</td><td class="required">◎</td><td>活動記録 / イベント告知 / その他 の3種類（下記参照）</td></tr>
+        <tr><td>本文</td><td></td><td>記事の説明テキスト。改行も反映されます</td></tr>
+        <tr><td>画像</td><td></td><td>「画像の設定」ボタンで設定します（→ Section 8 参照）</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div style="margin-top:20px;">
+    <div class="sub-section-title">カテゴリの使い分け</div>
+    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px;">
+      <div class="m-card" style="text-align:center;">
+        <div style="font-size:1.4rem; margin-bottom:8px;">📸</div>
+        <strong style="font-size:0.9rem;">活動記録</strong>
+        <p style="font-size:0.8rem; color:var(--soft); margin-top:6px;">終わった活動の報告・写真</p>
+      </div>
+      <div class="m-card" style="text-align:center;">
+        <div style="font-size:1.4rem; margin-bottom:8px;">📢</div>
+        <strong style="font-size:0.9rem;">イベント告知</strong>
+        <p style="font-size:0.8rem; color:var(--soft); margin-top:6px;">これから行う活動の案内</p>
+      </div>
+      <div class="m-card" style="text-align:center;">
+        <div style="font-size:1.4rem; margin-bottom:8px;">📝</div>
+        <strong style="font-size:0.9rem;">その他</strong>
+        <p style="font-size:0.8rem; color:var(--soft); margin-top:6px;">上記に当てはまらない情報</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout tip" style="margin-top:16px;">
+    <i class="fa-solid fa-circle-info"></i>
+    <div>記事は<strong>作成日時が新しい順</strong>に自動で並びます。並び順を手動で変更することはできません。</div>
+  </div>
+</section>
+
+<!-- ============================
+     6. 新歓カレンダー
+============================= -->
+<section class="section" id="s6">
+  <div class="section-num">Section 06</div>
+  <h2 class="section-title">入部希望の方（新歓カレンダー）</h2>
+  <p class="section-lead">サイドバーの「入部希望の方」から開きます。毎年新しい新歓カレンダー画像を更新します。</p>
+
+  <div class="mock-label">— 新歓カレンダーパネル —</div>
+  <div class="mock">
+    <div class="m-app">
+      <div class="m-sidebar">
+        <div class="m-brand"><div class="m-brand-badge"><i class="fa-solid fa-palette"></i></div><div class="m-brand-copy"><strong>凌美会 管理画面</strong></div></div>
+        <button class="m-nav-btn">ダッシュボード</button>
+        <button class="m-nav-btn">展示会</button>
+        <button class="m-nav-btn">活動記録・告知</button>
+        <button class="m-nav-btn active">入部希望の方</button>
+        <button class="m-nav-btn">ご依頼の方</button>
+        <button class="m-nav-btn">更新履歴</button>
+      </div>
+      <div class="m-content">
+        <div class="m-topbar">
+          <div class="m-topbar-status">準備完了</div>
+          <div class="m-topbar-actions">
+            <button class="m-btn ghost" style="font-size:0.76rem;">サイトを開く</button>
+            <button class="m-btn primary" style="font-size:0.76rem;">下書き保存</button>
+            <button class="m-btn success" style="font-size:0.76rem;">公開する</button>
+          </div>
+        </div>
+
+        <div class="m-card">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:14px;">
+            <div>
+              <div style="font-size:1rem; font-weight:800; margin-bottom:4px;">入部希望の方</div>
+              <div style="font-size:0.74rem; color:var(--muted);">年度ごとの新歓イベントカレンダー画像を設定します。表示名は年度から自動で作られます。</div>
+            </div>
+            <button class="m-btn" style="font-size:0.76rem; flex-shrink:0;">年度を追加</button>
+          </div>
+
+          <!-- カレンダー年度一覧 -->
+          <div class="m-editor-item">
+            <div class="m-editor-head">
+              <div>
+                <div class="m-item-title">2026年度 新歓イベントカレンダー <span class="m-chip pub">公開中</span></div>
+                <div class="m-item-meta">画像は16:9推奨です。</div>
+              </div>
+              <div style="display:flex; gap:6px;">
+                <button class="m-btn subtle" style="font-size:0.7rem; padding:5px 9px;">公開中</button>
+                <button class="m-btn danger" style="font-size:0.7rem; padding:5px 9px;">削除</button>
+              </div>
+            </div>
+            <div class="m-form-grid" style="gap:8px;">
+              <div class="m-field-group">
+                <label>年度</label>
+                <div class="m-input-mock filled">2026</div>
+              </div>
+              <div class="m-field-group">
+                <label>画像</label>
+                <button class="m-btn subtle" style="font-size:0.76rem; align-self:center;">画像の設定</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="m-editor-item">
+            <div class="m-editor-head">
+              <div>
+                <div class="m-item-title" style="color:var(--soft);">2025年度 新歓イベントカレンダー <span class="m-chip hidden">非公開</span></div>
+                <div class="m-item-meta">画像は16:9推奨です。</div>
+              </div>
+              <div style="display:flex; gap:6px;">
+                <button class="m-btn subtle" style="font-size:0.7rem; padding:5px 9px; background:rgba(246,217,38,0.22); border-color:rgba(246,217,38,0.3); color:#fffccc;">この年度を公開</button>
+                <button class="m-btn danger" style="font-size:0.7rem; padding:5px 9px;">削除</button>
+              </div>
+            </div>
+            <div class="m-form-grid" style="gap:8px;">
+              <div class="m-field-group">
+                <label>年度</label>
+                <div class="m-input-mock filled">2025</div>
+              </div>
+              <div class="m-field-group">
+                <label>画像</label>
+                <button class="m-btn subtle" style="font-size:0.76rem; align-self:center;">画像の設定</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top:20px;">
+    <div class="sub-section-title">入力項目</div>
+    <table class="m-table">
+      <thead><tr><th>項目</th><th>必須</th><th>説明</th></tr></thead>
+      <tbody>
+        <tr><td>年度</td><td class="required">◎</td><td>4桁の西暦（例：2026）。ラベル「○○年度 新歓イベントカレンダー」は自動で生成されます</td></tr>
+        <tr><td>画像</td><td></td><td>16:9推奨。「画像の設定」ボタンから設定します（→ Section 8 参照）。複数枚アップロードするとスライドショーになります</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <ol class="steps" style="margin-top:20px;">
+    <li><div class="num">1</div><div class="body"><strong>「年度を追加」で新しい年度を作成する</strong><small>年度（例：2026）を入力します。</small></div></li>
+    <li><div class="num">2</div><div class="body"><strong>「画像の設定」ボタンをクリックして、カレンダー画像をアップロードする</strong><small>16:9推奨。複数枚アップロードするとスライドショーになります（詳細は Section 8 参照）。</small></div></li>
+    <li><div class="num">3</div><div class="body"><strong>新しい年度の「この年度を公開」ボタンをクリックして公開中に切り替える</strong><small>公開できるカレンダーは常に1年度のみ。切り替えると前の年度は自動的に非公開になります。</small></div></li>
+  </ol>
+
+  <div class="callout warn">
+    <i class="fa-solid fa-triangle-exclamation"></i>
+    <div>公開できるカレンダーは <strong>1年度分だけ</strong> です。「この年度を公開」ボタンで切り替えると、それまで公開中だった年度は自動的に非公開になります。</div>
+  </div>
+</section>
+
+<!-- ============================
+     7. ご依頼事例
+============================= -->
+<section class="section" id="s7">
+  <div class="section-num">Section 07</div>
+  <h2 class="section-title">ご依頼の方（依頼事例）</h2>
+  <p class="section-lead">サイドバーの「ご依頼の方」から開きます。過去の制作依頼事例を登録・公開します。</p>
+
+  <div class="mock-label">— 依頼事例パネル —</div>
+  <div class="mock">
+    <div class="m-app">
+      <div class="m-sidebar">
+        <div class="m-brand"><div class="m-brand-badge"><i class="fa-solid fa-palette"></i></div><div class="m-brand-copy"><strong>凌美会 管理画面</strong></div></div>
+        <button class="m-nav-btn">ダッシュボード</button>
+        <button class="m-nav-btn">展示会</button>
+        <button class="m-nav-btn">活動記録・告知</button>
+        <button class="m-nav-btn">入部希望の方</button>
+        <button class="m-nav-btn active">ご依頼の方</button>
+        <button class="m-nav-btn">更新履歴</button>
+      </div>
+      <div class="m-content">
+        <div class="m-topbar">
+          <div class="m-topbar-status">準備完了</div>
+          <div class="m-topbar-actions">
+            <button class="m-btn ghost" style="font-size:0.76rem;">サイトを開く</button>
+            <button class="m-btn primary" style="font-size:0.76rem;">下書き保存</button>
+            <button class="m-btn success" style="font-size:0.76rem;">公開する</button>
+          </div>
+        </div>
+
+        <div class="m-card">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:14px;">
+            <div>
+              <div style="font-size:1rem; font-weight:800; margin-bottom:4px;">ご依頼の方</div>
+              <div style="font-size:0.74rem; color:var(--muted);">紹介したい取り組み事例を並べます。新しく追加した事例は先頭に配置されます。</div>
+            </div>
+            <button class="m-btn" style="font-size:0.76rem; flex-shrink:0;">取り組み事例を追加</button>
+          </div>
+
+        <div class="m-editor-item">
+          <div class="m-editor-head">
+            <div>
+              <div class="m-item-title">#1  ○○大学祭のポスター制作 <span class="m-chip pub">公開中</span></div>
+              <div class="m-item-meta">表示順 1</div>
+            </div>
+            <div style="display:flex; gap:6px;">
+              <button class="m-btn subtle" style="font-size:0.7rem; padding:5px 8px;">↑</button>
+              <button class="m-btn subtle" style="font-size:0.7rem; padding:5px 8px;">↓</button>
+              <button class="m-btn subtle" style="font-size:0.7rem; padding:5px 9px;">非公開</button>
+              <button class="m-btn danger" style="font-size:0.7rem; padding:5px 9px;">削除</button>
+            </div>
+          </div>
+          <div class="m-form-grid" style="gap:8px;">
+            <div class="m-field-group full">
+              <label>取り組みタイトル</label>
+              <div class="m-input-mock filled">○○大学祭のポスター制作</div>
+            </div>
+            <div class="m-field-group full">
+              <label>本文</label>
+              <div class="m-textarea-mock filled">毎年恒例の○○大学祭にて、ポスターとチラシのデザインを担当しました。</div>
+            </div>
+            <div class="m-field-group full">
+              <label>画像</label>
+              <button class="m-btn subtle" style="font-size:0.76rem; align-self:start;">画像の設定</button>
+            </div>
+          </div>
+        </div>
+        <div class="m-editor-item">
+          <div class="m-editor-head">
+            <div>
+              <div class="m-item-title">#2  △△店 店内装飾デザイン <span class="m-chip pub">公開中</span></div>
+              <div class="m-item-meta">表示順 2</div>
+            </div>
+            <div style="display:flex; gap:6px;">
+              <button class="m-btn subtle" style="font-size:0.7rem; padding:5px 8px;">↑</button>
+              <button class="m-btn subtle" style="font-size:0.7rem; padding:5px 8px;">↓</button>
+              <button class="m-btn subtle" style="font-size:0.7rem; padding:5px 9px;">非公開</button>
+              <button class="m-btn danger" style="font-size:0.7rem; padding:5px 9px;">削除</button>
+            </div>
+          </div>
+          <div class="m-form-grid" style="gap:8px;">
+            <div class="m-field-group full">
+              <label>取り組みタイトル</label>
+              <div class="m-input-mock filled">△△店 店内装飾デザイン</div>
+            </div>
+            <div class="m-field-group full">
+              <label>本文</label>
+              <div class="m-textarea-mock filled">店舗の雰囲気に合わせた装飾パネルを制作しました。</div>
+            </div>
+            <div class="m-field-group full">
+              <label>画像</label>
+              <button class="m-btn subtle" style="font-size:0.76rem; align-self:start;">画像の設定</button>
+            </div>
+          </div>
+        </div>
+        </div><!-- /.m-card -->
+      </div><!-- /.m-content -->
+    </div><!-- /.m-app -->
+  </div><!-- /.mock -->
+
+  <div style="margin-top:20px;">
+    <div class="sub-section-title">入力項目</div>
+    <table class="m-table">
+      <thead><tr><th>項目</th><th>必須</th><th>説明</th></tr></thead>
+      <tbody>
+        <tr><td>取り組みタイトル</td><td class="required">◎</td><td>事例のタイトル（例：「○○大学祭のポスター制作」）</td></tr>
+        <tr><td>本文</td><td></td><td>依頼内容や制作の経緯・工夫した点などを記載します</td></tr>
+        <tr><td>画像</td><td></td><td>制作物の写真や完成画像。「画像の設定」ボタンから設定します（→ Section 8 参照）</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <ol class="steps" style="margin-top:20px;">
+    <li><div class="num">1</div><div class="body"><strong>「取り組み事例を追加」ボタンをクリックして新規事例を作成する</strong></div></li>
+    <li><div class="num">2</div><div class="body"><strong>取り組みタイトルと本文を入力する</strong></div></li>
+    <li><div class="num">3</div><div class="body"><strong>「画像の設定」ボタンから制作物の画像をアップロードする</strong><small>詳細は Section 8 を参照してください。</small></div></li>
+    <li><div class="num">4</div><div class="body"><strong>「↑」「↓」ボタンで表示順を調整する</strong><small>管理画面上の順番がそのままホームページに反映されます。</small></div></li>
+  </ol>
+
+  <div class="callout tip" style="margin-top:16px;">
+    <i class="fa-solid fa-circle-info"></i>
+    <div>依頼事例は<strong>管理画面上の並び順</strong>（#1, #2…）がそのままホームページに反映されます。「↑」「↓」ボタンで順番を変更してください。</div>
+  </div>
+</section>
+
+<!-- ============================
+     8. 画像の管理
+============================= -->
+<section class="section" id="s8">
+  <div class="section-num">Section 08</div>
+  <h2 class="section-title">画像の管理</h2>
+  <p class="section-lead">活動記録・告知、新歓カレンダー、依頼事例の各コンテンツには「画像の設定」ボタンがあり、クリックすると「画像の設定」画面が開きます。展示会の画像管理は <a href="#s4-3" style="color:var(--green);">Section 4-3「展示会の画像・作品情報の設定」</a>を参照してください。</p>
+
+  <!-- 8-1: 一般コンテンツ（活動記録・新歓・依頼事例） -->
+  <div class="sub-section" id="s8-1">
+    <div class="sub-section-title">活動記録・新歓カレンダー・依頼事例の画像管理</div>
+    <p style="color:var(--soft); font-size:0.9rem; margin-bottom:16px;">
+      これら3種のコンテンツでは共通の「画像の設定」画面を使います。
+    </p>
+
+    <div class="mock-label">— 「画像の設定」（活動記録・依頼事例・新歓カレンダー） —</div>
+    <div class="mock">
+      <div style="background:#0a0a0a; padding:16px;">
+        <div class="m-modal-overlay">
+          <div class="m-modal-panel">
+            <div class="m-modal-head">
+              <div>
+                <h3>画像の設定</h3>
+                <div style="font-size:0.74rem; color:var(--muted); margin-top:4px;">六甲祭2025の活動報告</div>
+              </div>
+              <button class="m-btn ghost" style="font-size:0.8rem; padding:6px 10px;"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="m-modal-body">
+              <!-- Upload area -->
+              <div style="padding:12px; border-radius:14px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); margin-bottom:10px;">
+                <div style="display:grid; grid-template-columns:1fr auto; gap:10px; align-items:center; margin-bottom:8px;">
+                  <div>
+                    <div style="font-size:0.8rem; font-weight:800; margin-bottom:4px;">画像を追加</div>
+                    <input type="file" style="font-size:0.76rem; color:var(--muted);" disabled>
+                  </div>
+                  <button class="m-btn success" style="font-size:0.78rem;">アップロード</button>
+                </div>
+                <div style="font-size:0.74rem; color:var(--muted);">推奨ファイルサイズは3MB以下です。</div>
+              </div>
+              <!-- 画像一覧（並び順管理） -->
+              <div style="font-size:0.8rem; font-weight:800; margin-bottom:4px;">画像</div>
+              <div style="font-size:0.74rem; color:var(--muted); margin-bottom:10px;">ここで並べた順にサイトへ表示されます。</div>
+              <div class="m-file-grid">
+                <div class="m-file-card">
+                  <div class="m-file-thumb">🖼️</div>
+                  <div class="m-file-name">photo01.jpg / 1.2 MB</div>
+                  <div style="font-size:0.7rem; color:var(--muted); padding:2px 8px;">表示順 1 / 1.2 MB</div>
+                  <div class="m-file-actions">
+                    <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 7px;" disabled>前へ</button>
+                    <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 7px;">次へ</button>
+                    <button class="m-btn danger" style="font-size:0.68rem; padding:4px 7px;"><i class="fa-solid fa-trash"></i></button>
+                  </div>
+                </div>
+                <div class="m-file-card">
+                  <div class="m-file-thumb">🖼️</div>
+                  <div class="m-file-name">photo02.jpg</div>
+                  <div style="font-size:0.7rem; color:var(--muted); padding:2px 8px;">表示順 2 / 2.4 MB</div>
+                  <div class="m-file-actions">
+                    <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 7px;">前へ</button>
+                    <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 7px;" disabled>次へ</button>
+                    <button class="m-btn danger" style="font-size:0.68rem; padding:4px 7px;"><i class="fa-solid fa-trash"></i></button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub-section-title" style="margin-top:24px;">アップロード手順</div>
+    <ol class="steps">
+      <li><div class="num">1</div><div class="body"><strong>「画像の設定」ボタンをクリックする</strong></div></li>
+      <li><div class="num">2</div><div class="body"><strong>「画像を追加」のファイル選択でパソコンから画像を選ぶ</strong><small>JPEG / PNG / WebP / GIF 対応。推奨3MB以下、最大20MBまで。新歓カレンダーは16:9推奨。</small></div></li>
+      <li><div class="num">3</div><div class="body"><strong>「アップロード」ボタンをクリック</strong><small>一覧の末尾に自動追加されます。</small></div></li>
+      <li><div class="num">4</div><div class="body"><strong>「前へ」「次へ」で表示順を調整する（任意）</strong><small>並び順は「下書き保存」または「公開する」を実行したときに確定します。</small></div></li>
+      <li><div class="num">5</div><div class="body"><strong>「✕」で閉じる</strong><small>アップロードと削除はすぐに反映されます。並び順の変更は「下書き保存」または「公開する」を実行すると確定します。</small></div></li>
+    </ol>
+
+    <div class="callout warn">
+      <i class="fa-solid fa-triangle-exclamation"></i>
+      <div>1件のコンテンツに表示できる画像は <strong>最大10枚</strong> です（それ以上アップロードは可能ですが、11枚目以降はサイトに表示されません）。</div>
+    </div>
+
+    <div class="sub-section-title" style="margin-top:20px;">ボタン一覧</div>
+    <table class="m-table" style="margin-top:12px;">
+      <thead><tr><th>ボタン</th><th>説明</th></tr></thead>
+      <tbody>
+        <tr><td><button class="m-btn subtle" style="font-size:0.76rem; pointer-events:none;">前へ</button></td><td>この画像の表示順を1つ前にします。ホームページでの表示順に直結します。</td></tr>
+        <tr><td><button class="m-btn subtle" style="font-size:0.76rem; pointer-events:none;">次へ</button></td><td>この画像の表示順を1つ後ろにします。</td></tr>
+        <tr><td><button class="m-btn danger" style="font-size:0.76rem; pointer-events:none;"><i class="fa-solid fa-trash"></i></button></td><td>画像を削除します（取り消しはできません）。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+</section>
+
+<!-- ============================
+     9. 更新履歴
+============================= -->
+<section class="section" id="s9">
+  <div class="section-num">Section 09</div>
+  <h2 class="section-title">更新履歴の確認</h2>
+  <p class="section-lead">サイドバーの「更新履歴」タブから開きます。フリーテキストの更新履歴メモを入力する欄と、現在の編集内容で公開した場合の更新履歴プレビューの2つが表示されます。</p>
+
+  <div class="mock-label">— 更新履歴タブ —</div>
+  <div class="mock">
+    <div class="m-app">
+      <div class="m-sidebar">
+        <div class="m-brand"><div class="m-brand-badge"><i class="fa-solid fa-palette"></i></div><div class="m-brand-copy"><strong>凌美会 管理画面</strong></div></div>
+        <button class="m-nav-btn">ダッシュボード</button>
+        <button class="m-nav-btn">展示会</button>
+        <button class="m-nav-btn">活動記録・告知</button>
+        <button class="m-nav-btn">入部希望の方</button>
+        <button class="m-nav-btn">ご依頼の方</button>
+        <button class="m-nav-btn active">更新履歴</button>
+      </div>
+      <div class="m-content">
+        <div class="m-topbar">
+          <div class="m-topbar-status">準備完了</div>
+          <div class="m-topbar-actions">
+            <button class="m-btn ghost" style="font-size:0.76rem;">サイトを開く</button>
+            <button class="m-btn primary" style="font-size:0.76rem;">下書き保存</button>
+            <button class="m-btn success" style="font-size:0.76rem;">公開する</button>
+          </div>
+        </div>
+
+        <!-- 更新履歴メモ（フリーテキスト） -->
+        <div class="m-card" style="margin-bottom:12px;">
+          <h3>更新履歴メモ</h3>
+          <div style="font-size:0.78rem; color:var(--muted); margin-bottom:10px;">必要なときだけ、自由記述の履歴を追加できます。サイト側の履歴には現在の公開状態に応じて表示されます。</div>
+          <div class="m-field-group full">
+            <label style="font-size:0.76rem; color:var(--muted);">フリーテキスト履歴（改行ごとに1項目）</label>
+            <div class="m-textarea-mock" style="min-height:56px; color:var(--muted);">例: 会場のご案内を更新しました。
+次回展示の詳細を追記しました。</div>
+          </div>
+        </div>
+
+        <!-- サイト更新履歴プレビュー -->
+        <div class="m-card">
+          <h3>サイトの更新履歴プレビュー</h3>
+          <p style="font-size:0.78rem; color:var(--muted); margin-bottom:10px;">現在の編集内容で公開した場合に「UPDATE LOG」がどう変わるかを表示します。タブを開くたびに自動で再計算されます。</p>
+          <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px;">
+            <span class="m-sim-badge added" style="font-size:0.72rem;">追加・再表示</span>
+            <span class="m-sim-badge removed" style="font-size:0.72rem;">非表示</span>
+            <span class="m-sim-badge unchanged" style="font-size:0.72rem;">継続表示</span>
+          </div>
+          <div class="m-log-list">
+            <div class="m-log-item" style="border-color:rgba(136,196,132,0.28);">
+              <div class="m-log-date">2026.05.16</div>
+              <ul style="list-style:none; margin:4px 0 0; padding:0; display:flex; flex-direction:column; gap:4px;">
+                <li style="display:flex; align-items:center; gap:6px; font-size:0.8rem;"><span class="m-sim-badge added" style="font-size:0.68rem;">追加</span>展示会「第XX回凌美会展」の情報を公開</li>
+              </ul>
+            </div>
+            <div class="m-log-item">
+              <div class="m-log-date">2026.05.01</div>
+              <ul style="list-style:none; margin:4px 0 0; padding:0; display:flex; flex-direction:column; gap:4px;">
+                <li style="display:flex; align-items:center; gap:6px; font-size:0.8rem;"><span class="m-sim-badge unchanged" style="font-size:0.68rem;">継続</span>活動記録・告知「六甲祭2025の活動報告」</li>
+                <li style="display:flex; align-items:center; gap:6px; font-size:0.8rem;"><span class="m-sim-badge removed" style="font-size:0.68rem;">非表示</span>活動記録・告知「春の活動報告（旧）」</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <table class="m-table" style="margin-top:20px;">
+    <thead><tr><th>項目</th><th>説明</th></tr></thead>
+    <tbody>
+      <tr><td>更新履歴メモ（フリーテキスト）</td><td>自動生成されない補足情報を手動で追加できます。改行ごとに1項目として扱われます。入力後に「公開する」を実行すると、サイトの更新履歴として記録されます。</td></tr>
+      <tr><td>サイトの更新履歴プレビュー</td><td>現在の編集内容で公開した場合にホームページの「UPDATE LOG」がどう変わるかを自動計算して表示します。タブを開くたびに再計算されます。</td></tr>
+    </tbody>
+  </table>
+
+  <div style="margin-top:20px;">
+    <div class="sub-section-title">プレビューのバッジの意味</div>
+    <table class="m-table">
+      <thead><tr><th>バッジ</th><th>表示ラベル</th><th>意味</th></tr></thead>
+      <tbody>
+        <tr><td><span class="m-sim-badge added" style="font-size:0.78rem;">追加</span></td><td>追加・再表示</td><td>今回の公開で更新履歴に新たに表示されるエントリ（新規公開・非公開からの復帰）</td></tr>
+        <tr><td><span class="m-sim-badge removed" style="font-size:0.78rem;">非表示</span></td><td>非表示</td><td>今回の公開でサイト上から非表示になるエントリ（記事を非公開にした場合など）</td></tr>
+        <tr><td><span class="m-sim-badge unchanged" style="font-size:0.78rem;">継続</span></td><td>継続表示</td><td>既存のまま継続して表示される更新履歴（変更なし）</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout tip">
+    <i class="fa-solid fa-circle-info"></i>
+    <div>「更新履歴メモ」は必須ではありません。展示会・活動記録・依頼事例・新歓カレンダーへの変更は<strong>自動的に履歴として記録</strong>されます。自動生成では表現しきれない補足情報がある場合にのみ使用してください。</div>
+  </div>
+
+  <div class="callout info" style="margin-top:14px;">
+    <i class="fa-solid fa-circle-info"></i>
+    <div>誰がいつ「公開する」を実行したかの記録は、<strong>ダッシュボードの「公開履歴」カード</strong>で確認できます。更新履歴タブには表示されません。</div>
+  </div>
+</section>
+
+<!-- ============================
+     10. 下書き保存と公開
+============================= -->
+<section class="section" id="s10">
+  <div class="section-num">Section 10</div>
+  <h2 class="section-title">下書き保存と公開</h2>
+  <p class="section-lead">編集した内容をホームページに反映するには「公開する」ボタンを使います。すべてのコンテンツの編集が終わってから「公開する」を押してください。</p>
+
+  <div class="sub-section" id="s10-1">
+    <div class="sub-section-title">下書き保存と公開の違い</div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:16px 0;">
+      <div class="m-card">
+        <div style="text-align:center; margin-bottom:12px;">
+          <button class="m-btn primary" style="pointer-events:none; font-size:0.9rem;"><i class="fa-solid fa-floppy-disk"></i> 下書き保存</button>
+        </div>
+        <ul style="color:var(--soft); font-size:0.84rem; padding-left:18px; display:grid; gap:8px;">
+          <li>ホームページには<strong style="color:#fff;">反映されない</strong></li>
+          <li>ダッシュボードから再読込できる</li>
+          <li>公開が完了すると<strong style="color:#fff;">自動的に削除される</strong></li>
+          <li>複数人が作業する場合は要注意</li>
+        </ul>
+      </div>
+      <div class="m-card" style="border-color:rgba(136,196,132,0.28);">
+        <div style="text-align:center; margin-bottom:12px;">
+          <button class="m-btn success" style="pointer-events:none; font-size:0.9rem;"><i class="fa-solid fa-rocket"></i> 公開する</button>
+        </div>
+        <ul style="color:var(--soft); font-size:0.84rem; padding-left:18px; display:grid; gap:8px;">
+          <li>ホームページに<strong style="color:#fff;">反映される</strong></li>
+          <li>数分後に実際のサイトに反映</li>
+          <li>変更内容が更新履歴に記録される</li>
+          <li>確認画面（プレビュー）が表示される</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="callout tip">
+      <i class="fa-solid fa-circle-info"></i>
+      <div>ブラウザを閉じる前に必ず「下書き保存」を。</div>
+    </div>
+  </div>
+
+  <div class="sub-section" id="s10-2">
+    <div class="sub-section-title">公開前の確認</div>
+    <p style="color:var(--soft); font-size:0.9rem; margin-bottom:12px;">「公開する」を押す前に、サイドバーの<strong style="color:#fff;">「更新履歴」タブ</strong>を開いて変更内容を確認することをお勧めします。現在の編集内容で公開した場合に更新履歴がどう変わるかをプレビュー表示します。</p>
+    <div class="callout tip">
+      <i class="fa-solid fa-circle-info"></i>
+      <div>更新履歴タブの使い方・バッジの意味については <a href="#s9" style="color:var(--green);">Section 9「更新履歴の確認」</a> を参照してください。</div>
+    </div>
+  </div>
+
+  <div class="sub-section" id="s10-3">
+    <div class="sub-section-title">公開完了までの流れ</div>
+
+    <div class="flow-chart">
+      <div class="flow-step">
+        <div class="flow-icon"><i class="fa-solid fa-rocket"></i></div>
+        <div class="flow-label">「公開する」<br>クリック</div>
+        <div class="flow-sub">確認ダイアログで確定</div>
+      </div>
+      <div class="flow-arrow"><i class="fa-solid fa-chevron-right"></i></div>
+      <div class="flow-step">
+        <div class="flow-icon"><i class="fa-solid fa-database"></i></div>
+        <div class="flow-label">データ保存</div>
+        <div class="flow-sub">スプレッドシート更新<br>（数秒）</div>
+      </div>
+      <div class="flow-arrow"><i class="fa-solid fa-chevron-right"></i></div>
+      <div class="flow-step">
+        <div class="flow-icon"><i class="fa-solid fa-gears"></i></div>
+        <div class="flow-label">自動ビルド開始</div>
+        <div class="flow-sub">サイトの再生成<br>処理が始まる</div>
+      </div>
+      <div class="flow-arrow"><i class="fa-solid fa-chevron-right"></i></div>
+      <div class="flow-step">
+        <div class="flow-icon"><i class="fa-solid fa-globe"></i></div>
+        <div class="flow-label">公開完了</div>
+        <div class="flow-sub">約3〜5分後</div>
+      </div>
+    </div>
+
+    <!-- トップバーの状態変化 -->
+    <div style="margin-top:20px;">
+      <div class="mock-label">— トップバーの状態変化 —</div>
+      <div class="mock" style="border-radius:16px;">
+        <div style="padding:16px; display:grid; gap:10px;">
+          <div>
+            <div style="font-size:0.72rem; color:var(--muted); margin-bottom:4px;">① 公開処理中</div>
+            <div class="m-topbar-status publishing"><i class="fa-solid fa-spinner fa-spin"></i> 公開処理中...</div>
+          </div>
+          <div>
+            <div style="font-size:0.72rem; color:var(--muted); margin-bottom:4px;">② 完了時</div>
+            <div class="m-topbar-status done"><i class="fa-solid fa-circle-check"></i> 公開を開始しました。数分後にサイトに反映されます。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ============================
+     11. よくある質問
+============================= -->
+<section class="section" id="s11">
+  <div class="section-num">Section 11</div>
+  <h2 class="section-title">よくある質問</h2>
+
+  <div style="display:grid; gap:16px;">
+
+    <div class="m-card">
+      <h3 style="color:var(--yellow); font-size:0.92rem; margin-bottom:8px;"><i class="fa-solid fa-circle-question"></i> 「現在、ファイルを開くことができません。」と表示される</h3>
+      <p style="font-size:0.88rem; color:var(--soft); margin-bottom:8px;">複数の Google アカウントでブラウザにログインしている場合によく発生します。以下の順で試してください。</p>
+      <ol style="font-size:0.88rem; color:var(--soft); padding-left:18px; display:grid; gap:6px;">
+        <li><strong style="color:#fff;">Chrome のゲストモード</strong>で管理画面の URL を開く（最も確実）</li>
+        <li>シークレットウィンドウ（Edge は InPrivate ウィンドウ）で開く</li>
+        <li>上記でも解決しない場合は、ブラウザの Cookie をすべて削除してから再度開く</li>
+        <li>それでも解決しない場合は<a href="https://accounts.google.com/AccountChooser?continue=https%3A%2F%2Fscript.google.com%2Fmacros%2Fs%2FAKfycbwsBpjWM_nLAFQZ9vZMmECIkisdSeElK9A89hz7CUuI8O_SQMWVgrdPaG-uf_Hlvcp-%2Fexec" target="_blank" rel="noopener" style="color:var(--green);">こちらのリンク</a>にアクセスし、一覧に表示されるアカウントを順番に試す</li>
+      </ol>
+    </div>
+
+    <div class="m-card">
+      <h3 style="color:var(--yellow); font-size:0.92rem; margin-bottom:8px;"><i class="fa-solid fa-circle-question"></i> 「このメールアドレスにはアクセス権がありません」と表示される</h3>
+      <p style="font-size:0.88rem; color:var(--soft);">管理画面へのアクセスが許可されていません。<strong style="color:#fff;">システム管理者</strong>にメールアドレスの追加を依頼してください。</p>
+    </div>
+
+    <div class="m-card">
+      <h3 style="color:var(--yellow); font-size:0.92rem; margin-bottom:8px;"><i class="fa-solid fa-circle-question"></i> 確認コードのメールが届かない</h3>
+      <ul style="font-size:0.88rem; color:var(--soft); padding-left:18px; display:grid; gap:6px;">
+        <li>迷惑メールフォルダを確認してください</li>
+        <li>メールアドレスの入力が正しいか確認してください</li>
+        <li>数分待ってから「確認コードを送信」を再クリックしてください</li>
+      </ul>
+    </div>
+
+    <div class="m-card">
+      <h3 style="color:var(--yellow); font-size:0.92rem; margin-bottom:8px;"><i class="fa-solid fa-circle-question"></i> 公開したのにホームページに反映されない</h3>
+      <p style="font-size:0.88rem; color:var(--soft);">反映には <strong style="color:#fff;">3〜5 分</strong>かかります。時間をおいてからブラウザを更新（F5）してください。5分以上経っても反映されない場合はシステム管理者に連絡してください。</p>
+    </div>
+
+    <div class="m-card">
+      <h3 style="color:var(--yellow); font-size:0.92rem; margin-bottom:8px;"><i class="fa-solid fa-circle-question"></i> 「セッションが切れています」と表示される</h3>
+      <p style="font-size:0.88rem; color:var(--soft);">セッションの有効期限（30分）が切れました。ページをリロードして再ログインしてください。<strong style="color:#fff;">こまめに「下書き保存」することで作業内容を保護できます。</strong></p>
+    </div>
+
+    <div class="m-card">
+      <h3 style="color:var(--yellow); font-size:0.92rem; margin-bottom:8px;"><i class="fa-solid fa-circle-question"></i> 下書きを保存したが消えてしまった</h3>
+      <p style="font-size:0.88rem; color:var(--soft);">誰かが「公開する」を実行すると全員の下書きがクリアされます。複数人で作業する場合は事前に共有・調整してください。</p>
+    </div>
+
+    <div class="m-card">
+      <h3 style="color:var(--yellow); font-size:0.92rem; margin-bottom:8px;"><i class="fa-solid fa-circle-question"></i> デザインや固定テキスト（活動場所・スケジュールなど）を変更したい</h3>
+      <p style="font-size:0.88rem; color:var(--soft);">これらの情報は管理画面から変更できません。<strong style="color:#fff;">システム管理者（開発担当者）</strong>に変更を依頼してください。</p>
+    </div>
+
+    <div class="m-card">
+      <h3 style="color:var(--yellow); font-size:0.92rem; margin-bottom:8px;"><i class="fa-solid fa-circle-question"></i> 画像をアップロードしたはずなのに「画像の設定」に表示されない</h3>
+      <p style="font-size:0.88rem; color:var(--soft);">「画像の設定」を一度閉じて、もう一度開いてください。</p>
+    </div>
+
+    <div class="m-card">
+      <h3 style="color:var(--yellow); font-size:0.92rem; margin-bottom:8px;"><i class="fa-solid fa-circle-question"></i> 展示会の作品写真がサイトに反映されない</h3>
+      <p style="font-size:0.88rem; color:var(--soft);">展示会が<strong style="color:#fff;">「公開中」</strong>の状態で「公開する」を実行しているか確認してください。「非公開」のままでは、たとえ「公開する」を押してもサイトから作品画像が見えません。</p>
+    </div>
+
+  </div>
+
+  <div style="margin-top:40px; padding:24px; border-radius:20px; background:linear-gradient(180deg, rgba(33,54,148,0.18), rgba(33,54,148,0.08)); border:1px solid rgba(33,54,148,0.32);">
+    <h3 style="font-size:1rem; margin-bottom:8px;"><i class="fa-solid fa-headset"></i> 管理者への連絡</h3>
+    <p style="color:var(--soft); font-size:0.88rem; margin-bottom:12px;">このマニュアルで解決しない問題が発生した場合は、システム管理者にご連絡ください。</p>
+    <div style="font-size:0.84rem; color:var(--soft); display:grid; gap:6px;">
+      <div><strong style="color:#fff;">伝えていただくと助かる情報：</strong></div>
+      <div>① 問題の内容（何をしようとしたか）</div>
+      <div>② 操作の手順（どのボタンを押したか）</div>
+      <div>③ 表示されたエラーメッセージ（スクリーンショットがあると理想的）</div>
+      <div>④ 発生した日時</div>
+    </div>
+  </div>
+
+</section>
+</main>
+</div>
+
+<script>
+// TOC active state on scroll
+const sections = document.querySelectorAll('section[id]');
+const tocLinks = document.querySelectorAll('.toc-sidebar a');
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      tocLinks.forEach(a => a.classList.remove('active'));
+      const active = document.querySelector(`.toc-sidebar a[href="#${e.target.id}"]`);
+      if (active) active.classList.add('active');
+    }
+  });
+}, { rootMargin: '-20% 0px -70% 0px' });
+sections.forEach(s => observer.observe(s));
+</script>
+</body>
+</html>

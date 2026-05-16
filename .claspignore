@@ -4,3 +4,5 @@
 .env
 .env.*
 *.log
+README.md
+UserGuide.html
