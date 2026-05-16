@@ -64,7 +64,10 @@ homepage-cms/
 │
 ├── Ui.html           メイン HTML テンプレート（GAS テンプレート形式）
 ├── UiScript.html     フロントエンド JavaScript
-└── UiStyles.html     フロントエンド CSS
+├── UiStyles.html     フロントエンド CSS
+│
+└── docs/
+    └── index.html    利用者向けマニュアル
 ```
 
 ---

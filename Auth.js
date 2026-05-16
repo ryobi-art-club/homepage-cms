@@ -1,3 +1,6 @@
+const OTP_REQUEST_LIMIT = 5;
+const OTP_REQUEST_WINDOW_SECONDS = 3600;
+
 function requestOtp(email) {
   const config = getConfig_();
   const normalizedEmail = normalizeEmail_(email);
@@ -9,6 +12,14 @@ function requestOtp(email) {
     throw new Error('このメールアドレスにはアクセス権がありません。');
   }
 
+  const cache = CacheService.getScriptCache();
+  const reqCountKey = 'otp_req:' + normalizedEmail;
+  const reqCount = parseInt(cache.get(reqCountKey) || '0', 10);
+  if (reqCount >= OTP_REQUEST_LIMIT) {
+    throw new Error('確認コードの送信回数が上限に達しました。しばらく時間をおいてから再試行してください。');
+  }
+  cache.put(reqCountKey, String(reqCount + 1), OTP_REQUEST_WINDOW_SECONDS);
+
   const code = String(Math.floor(100000 + Math.random() * 900000));
   const record = {
     email: normalizedEmail,
@@ -16,7 +27,7 @@ function requestOtp(email) {
     expiresAt: Date.now() + config.OTP_TTL_MINUTES * 60 * 1000,
     attempts: 0
   };
-  CacheService.getScriptCache().put('otp:' + normalizedEmail, JSON.stringify(record), config.OTP_TTL_MINUTES * 60);
+  cache.put('otp:' + normalizedEmail, JSON.stringify(record), config.OTP_TTL_MINUTES * 60);
 
   MailApp.sendEmail({
     to: normalizedEmail,
@@ -59,6 +70,7 @@ function verifyOtp(email, code) {
   }
 
   cache.remove('otp:' + normalizedEmail);
+  cache.remove('otp_req:' + normalizedEmail);
   const allowed = getAllowedUserByEmail_(normalizedEmail);
   const sessionToken = Utilities.getUuid() + '-' + Utilities.getUuid();
   cache.put('session:' + sessionToken, JSON.stringify({
