@@ -89,6 +89,31 @@ function escapeHtml(value) {
     .replace(/'/g, '&#039;');
 }
 
+function richTextLinkPattern() {
+  const slashPair = String.fromCharCode(92, 47, 92, 47);
+  return new RegExp('\\[([^\\]\\n]+)\\]\\((https?:' + slashPair + '[^\\s)]+)\\)', 'g');
+}
+
+function renderInlineRichText(value) {
+  const text = String(value == null ? '' : value);
+  const pattern = richTextLinkPattern();
+  let html = '';
+  let lastIndex = 0;
+  let match;
+  while ((match = pattern.exec(text)) !== null) {
+    html += escapeHtml(text.slice(lastIndex, match.index));
+    html += '<a href="' + escapeHtml(match[2]) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(match[1]) + '</a>';
+    lastIndex = pattern.lastIndex;
+  }
+  html += escapeHtml(text.slice(lastIndex));
+  return html;
+}
+
+function renderRichText(value) {
+  const text = String(value == null ? '' : value);
+  return text.split(/\r?\n/).map(renderInlineRichText).join('<br>');
+}
+
 function formatDate(value) {
   if (!value) return '';
   const date = new Date(value);
@@ -1350,7 +1375,7 @@ async function renderActivityPreview(items) {
         <span class="preview-site-kicker">${escapeHtml(activityCategoryLabel(item.category))}</span>
         <div class="preview-inline-meta"><span>${formatDate(item.createdAt)}</span></div>
         <h4>${escapeHtml(item.title || 'タイトル未入力')}</h4>
-        <p>${escapeHtml(item.body || '本文未入力')}</p>
+        <p>${renderRichText(item.body || '本文未入力')}</p>
         ${buildThumbCarouselHtml(imageResult.items)}
         ${folderImageWarning(imageResult.total, GENERAL_IMAGE_LIMIT, '画像')}
       </article>
@@ -1513,7 +1538,7 @@ async function renderExhibitionPreview(items) {
           <h4>${escapeHtml(item.title || '展示会名')}</h4>
           <div class="preview-exhibition-layout">
             <div class="preview-exhibition-copy">
-              <p class="preview-exhibition-overview">${escapeHtml(item.theme || '')}</p>
+              <p class="preview-exhibition-overview">${renderRichText(item.theme || '')}</p>
               <div class="preview-exhibition-meta">${buildMetaListHtml(item)}</div>
             </div>
             <div class="preview-dm-slot">${buildThumbCarouselHtml(dm, true)}</div>
@@ -1538,7 +1563,7 @@ async function renderExhibitionPreview(items) {
         <h4>${escapeHtml(recent.title || '展示会名')}</h4>
         <div class="preview-exhibition-layout">
           <div class="preview-exhibition-copy">
-            <p class="preview-exhibition-overview">${escapeHtml(recent.theme || '')}</p>
+            <p class="preview-exhibition-overview">${renderRichText(recent.theme || '')}</p>
             <div class="preview-exhibition-meta">${buildMetaListHtml(recent)}</div>
           </div>
           <div class="preview-dm-slot">${buildThumbCarouselHtml(dm, true)}</div>
@@ -1563,7 +1588,7 @@ async function renderExhibitionPreview(items) {
           ${buildExhibitionSubtitleHtml(item)}
           <div style="font-weight:700; margin-bottom:6px;">${escapeHtml(item.title || '')}</div>
           <div class="preview-dm-slot">${buildThumbCarouselHtml(archiveDm, true)}</div>
-          <div class="small-note" style="margin-bottom:8px;">${escapeHtml(item.theme || '')}</div>
+          <div class="small-note" style="margin-bottom:8px;">${renderRichText(item.theme || '')}</div>
           ${buildMetaListHtml(item)}
           ${folderId ? `<div class="preview-drive-wrap"><a class="button subtle" href="${escapeHtml(driveFolderUrl(folderId))}" target="_blank" rel="noopener noreferrer">Google Driveで見る</a></div>` : ''}
         </div>
@@ -1738,7 +1763,7 @@ async function renderRequestPreview(items) {
         <span class="preview-site-kicker">REQUESTS</span>
         <div class="preview-inline-meta"><span>表示順 ${index + 1}</span></div>
         <h4>${escapeHtml(item.title || 'タイトル未入力')}</h4>
-        <p>${escapeHtml(item.body || '本文未入力')}</p>
+        <p>${renderRichText(item.body || '本文未入力')}</p>
         ${buildThumbCarouselHtml(imageResult.items)}
         ${folderImageWarning(imageResult.total, GENERAL_IMAGE_LIMIT, '画像')}
       </article>
