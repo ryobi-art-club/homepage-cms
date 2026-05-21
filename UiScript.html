@@ -25,8 +25,17 @@ const appState = {
   },
   imageCache: {},
   mediaCache: {},
+  statusHistory: [],
   dirty: false,
   suppressDirty: false
+};
+
+const STATUS_MIN_VISIBLE_MS = 1000;
+const STATUS_HISTORY_LIMIT = 30;
+const statusRuntime = {
+  queue: [],
+  processing: false,
+  token: 0
 };
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -38,8 +47,22 @@ function bindGlobalEvents() {
   document.getElementById('verifyOtpButton').addEventListener('click', onVerifyOtp);
   document.getElementById('saveDraftButton').addEventListener('click', onSaveDraft);
   document.getElementById('publishButton').addEventListener('click', onPublish);
+  document.getElementById('statusHistoryButton').addEventListener('click', (event) => {
+    event.stopPropagation();
+    toggleStatusHistory();
+  });
+  document.getElementById('statusHistoryPanel').addEventListener('click', (event) => {
+    event.stopPropagation();
+  });
   document.querySelectorAll('[data-panel-target]').forEach((button) => {
     button.addEventListener('click', () => activatePanel(button.getAttribute('data-panel-target')));
+  });
+  document.addEventListener('click', (event) => {
+    const area = document.getElementById('statusArea');
+    if (area && !area.contains(event.target)) toggleStatusHistory(false);
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') toggleStatusHistory(false);
   });
   document.addEventListener('input', (event) => {
     if (event.target.closest && event.target.closest('#appShell')) markDirty();
@@ -66,11 +89,97 @@ function activatePanel(panelId) {
   }
 }
 
-function setStatus(message, kind = 'default') {
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function renderStatusMessage(message, kind = 'default') {
   const status = document.getElementById('statusMessage');
   status.textContent = message;
+  status.setAttribute('data-kind', kind);
   status.style.color = kind === 'error' ? '#ffd5d5' : (kind === 'success' ? '#0a0a0a' : '');
   status.style.background = kind === 'error' ? 'rgba(243,108,108,0.18)' : (kind === 'success' ? 'rgba(136,196,132,0.92)' : 'rgba(255,255,255,0.04)');
+}
+
+function statusTimeLabel(date) {
+  return [
+    String(date.getHours()).padStart(2, '0'),
+    String(date.getMinutes()).padStart(2, '0'),
+    String(date.getSeconds()).padStart(2, '0')
+  ].join(':');
+}
+
+function pushStatusHistory(message, kind = 'default') {
+  appState.statusHistory.unshift({
+    message: String(message == null ? '' : message),
+    kind,
+    time: statusTimeLabel(new Date())
+  });
+  appState.statusHistory = appState.statusHistory.slice(0, STATUS_HISTORY_LIMIT);
+  renderStatusHistory();
+}
+
+function renderStatusHistory() {
+  const list = document.getElementById('statusHistoryList');
+  if (!list) return;
+  if (!appState.statusHistory.length) {
+    list.innerHTML = '<div class="status-history-empty">まだ履歴はありません。</div>';
+    return;
+  }
+  list.innerHTML = appState.statusHistory.map((item) => [
+    '<div class="status-history-item is-' + escapeHtml(item.kind || 'default') + '">',
+    '<div class="status-history-meta">',
+    '<span>' + escapeHtml(item.time || '') + '</span>',
+    '<span>' + escapeHtml(item.kind === 'error' ? 'エラー' : (item.kind === 'success' ? '完了' : '情報')) + '</span>',
+    '</div>',
+    '<div class="status-history-message">' + escapeHtml(item.message || '') + '</div>',
+    '</div>'
+  ].join('')).join('');
+}
+
+function toggleStatusHistory(force) {
+  const panel = document.getElementById('statusHistoryPanel');
+  const button = document.getElementById('statusHistoryButton');
+  if (!panel || !button) return;
+  const nextOpen = typeof force === 'boolean' ? force : panel.classList.contains('hidden');
+  panel.classList.toggle('hidden', !nextOpen);
+  button.setAttribute('aria-expanded', nextOpen ? 'true' : 'false');
+  if (nextOpen) renderStatusHistory();
+}
+
+function clearStatusQueue() {
+  statusRuntime.queue = [];
+  statusRuntime.token += 1;
+  statusRuntime.processing = false;
+}
+
+async function processStatusQueue() {
+  if (statusRuntime.processing) return;
+  statusRuntime.processing = true;
+  const token = statusRuntime.token;
+  while (statusRuntime.queue.length) {
+    const item = statusRuntime.queue.shift();
+    renderStatusMessage(item.message, item.kind);
+    await sleep(item.minMs);
+    if (token !== statusRuntime.token) return;
+  }
+  statusRuntime.processing = false;
+}
+
+function setStatus(message, kind = 'default', options = {}) {
+  if (kind === 'error' || options.immediate) {
+    clearStatusQueue();
+    pushStatusHistory(message, kind);
+    renderStatusMessage(message, kind);
+    return;
+  }
+  pushStatusHistory(message, kind);
+  statusRuntime.queue.push({
+    message,
+    kind,
+    minMs: options.minMs || STATUS_MIN_VISIBLE_MS
+  });
+  processStatusQueue();
 }
 
 function setAuthStatus(message, kind = 'default') {
@@ -2041,8 +2150,8 @@ async function onPublish() {
     if (!confirm('この内容で公開しますか？')) return;
     setStatus('公開処理を開始しています…');
     const result = await serverCall('publishState', appState.sessionToken, payload);
-    setStatus((result.changeSummary ? result.changeSummary + '\n' : '') + '公開を開始しました。数分後にサイトに反映されます。', 'success');
     await loadBootstrap();
+    setStatus((result.changeSummary ? result.changeSummary + '\n' : '') + '公開処理を完了しました。数分後にサイトに反映されます。', 'success');
     clearDirty();
   } catch (error) {
     setStatus(error.message, 'error');

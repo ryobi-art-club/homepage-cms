@@ -359,8 +359,15 @@ img { max-width: 100%; display: block; }
   margin-bottom: 14px;
   flex-wrap: wrap;
 }
-.m-topbar-status {
+.m-status-area {
   flex: 1;
+  min-width: 220px;
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+.m-topbar-status {
   padding: 10px 14px;
   border-radius: 12px;
   background: rgba(255,255,255,0.04);
@@ -370,6 +377,59 @@ img { max-width: 100%; display: block; }
 }
 .m-topbar-status.done { background: rgba(136,196,132,0.18); color: #d9f5d5; border-color: rgba(136,196,132,0.28); }
 .m-topbar-status.publishing { background: rgba(246,217,38,0.16); color: #fffccc; border-color: rgba(246,217,38,0.25); }
+.m-status-history-button {
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.05);
+  color: var(--soft);
+  border-radius: 12px;
+  padding: 0 10px;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+.m-status-history-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 5;
+  width: min(360px, 100%);
+  border-radius: 14px;
+  background: rgba(12,12,12,0.96);
+  border: 1px solid rgba(255,255,255,0.12);
+  box-shadow: 0 18px 54px rgba(0,0,0,0.42);
+  overflow: hidden;
+}
+.m-status-history-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  font-size: 0.82rem;
+}
+.m-status-history-list {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+}
+.m-status-history-item {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.06);
+  font-size: 0.76rem;
+  color: var(--soft);
+}
+.m-status-history-item.success {
+  background: rgba(136,196,132,0.12);
+  border-color: rgba(136,196,132,0.22);
+}
+.m-status-history-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  margin-bottom: 3px;
+}
 .m-topbar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
 /* Card */
@@ -911,7 +971,10 @@ img { max-width: 100%; display: block; }
         <!-- Content -->
         <div class="m-content">
           <div class="m-topbar">
-            <div class="m-topbar-status">準備完了</div>
+            <div class="m-status-area">
+              <div class="m-topbar-status">準備完了</div>
+              <button class="m-status-history-button">履歴</button>
+            </div>
             <div class="m-topbar-actions">
               <button class="m-btn ghost" style="font-size:0.78rem;">サイトを開く</button>
               <button class="m-btn primary" style="font-size:0.78rem;">下書き保存</button>
@@ -939,7 +1002,7 @@ img { max-width: 100%; display: block; }
       <thead><tr><th>エリア</th><th>説明</th></tr></thead>
       <tbody>
         <tr><td><strong>サイドバー</strong>（左）</td><td>ページを切り替えるナビゲーションメニュー。下部にログイン中のアカウント名が表示されます。</td></tr>
-        <tr><td><strong>トップバー</strong>（上）</td><td>現在の状態メッセージ（「準備完了」「保存中...」など）と主要操作ボタン。</td></tr>
+        <tr><td><strong>トップバー</strong>（上）</td><td>現在の状態メッセージ（「準備完了」「保存中...」など）と主要操作ボタン。「履歴」ボタンから直近のステータスメッセージを確認できます。</td></tr>
         <tr><td><strong>メインエリア</strong>（右・中央）</td><td>選択したページのコンテンツ編集エリア。</td></tr>
       </tbody>
     </table>
@@ -948,7 +1011,7 @@ img { max-width: 100%; display: block; }
   <div class="sub-section" id="s2-3">
     <div class="sub-section-title">トップバーのボタン</div>
 
-    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; margin:16px 0;">
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:16px; margin:16px 0;">
       <div class="m-card" style="text-align:center;">
         <button class="m-btn ghost" style="margin-bottom:10px; pointer-events:none; width:100%;"><i class="fa-solid fa-arrow-up-right-from-square"></i> サイトを開く</button>
         <p style="font-size:0.82rem; color:var(--soft);">現在のホームページを新しいタブで確認</p>
@@ -960,6 +1023,10 @@ img { max-width: 100%; display: block; }
       <div class="m-card" style="text-align:center;">
         <button class="m-btn success" style="margin-bottom:10px; pointer-events:none; width:100%;"><i class="fa-solid fa-rocket"></i> 公開する</button>
         <p style="font-size:0.82rem; color:var(--soft);">ホームページに反映。数分後に実際に反映されます</p>
+      </div>
+      <div class="m-card">
+        <button class="m-status-history-button" style="height:34px; margin-bottom:10px;">履歴</button>
+        <p style="font-size:0.82rem; color:var(--soft);">ステータスメッセージの履歴を最新順に確認できます。エラーが出た場合は、内容を確認してから再操作してください。</p>
       </div>
     </div>
   </div>
@@ -990,7 +1057,10 @@ img { max-width: 100%; display: block; }
       </div>
       <div class="m-content">
         <div class="m-topbar">
-          <div class="m-topbar-status">準備完了</div>
+          <div class="m-status-area">
+            <div class="m-topbar-status">準備完了</div>
+            <button class="m-status-history-button">履歴</button>
+          </div>
           <div class="m-topbar-actions">
             <button class="m-btn ghost" style="font-size:0.76rem;">サイトを開く</button>
             <button class="m-btn primary" style="font-size:0.76rem;">下書き保存</button>
@@ -1095,7 +1165,10 @@ img { max-width: 100%; display: block; }
         </div>
         <div class="m-content">
           <div class="m-topbar">
-            <div class="m-topbar-status">準備完了</div>
+            <div class="m-status-area">
+              <div class="m-topbar-status">準備完了</div>
+              <button class="m-status-history-button">履歴</button>
+            </div>
             <div class="m-topbar-actions">
               <button class="m-btn ghost" style="font-size:0.76rem;">サイトを開く</button>
               <button class="m-btn primary" style="font-size:0.76rem;">下書き保存</button>
@@ -1473,7 +1546,10 @@ img { max-width: 100%; display: block; }
       </div>
       <div class="m-content">
         <div class="m-topbar">
-          <div class="m-topbar-status">準備完了</div>
+          <div class="m-status-area">
+            <div class="m-topbar-status">準備完了</div>
+            <button class="m-status-history-button">履歴</button>
+          </div>
           <div class="m-topbar-actions">
             <button class="m-btn ghost" style="font-size:0.76rem;">サイトを開く</button>
             <button class="m-btn primary" style="font-size:0.76rem;">下書き保存</button>
@@ -1621,7 +1697,10 @@ img { max-width: 100%; display: block; }
       </div>
       <div class="m-content">
         <div class="m-topbar">
-          <div class="m-topbar-status">準備完了</div>
+          <div class="m-status-area">
+            <div class="m-topbar-status">準備完了</div>
+            <button class="m-status-history-button">履歴</button>
+          </div>
           <div class="m-topbar-actions">
             <button class="m-btn ghost" style="font-size:0.76rem;">サイトを開く</button>
             <button class="m-btn primary" style="font-size:0.76rem;">下書き保存</button>
@@ -1734,7 +1813,10 @@ img { max-width: 100%; display: block; }
       </div>
       <div class="m-content">
         <div class="m-topbar">
-          <div class="m-topbar-status">準備完了</div>
+          <div class="m-status-area">
+            <div class="m-topbar-status">準備完了</div>
+            <button class="m-status-history-button">履歴</button>
+          </div>
           <div class="m-topbar-actions">
             <button class="m-btn ghost" style="font-size:0.76rem;">サイトを開く</button>
             <button class="m-btn primary" style="font-size:0.76rem;">下書き保存</button>
@@ -1956,7 +2038,10 @@ img { max-width: 100%; display: block; }
       </div>
       <div class="m-content">
         <div class="m-topbar">
-          <div class="m-topbar-status">準備完了</div>
+          <div class="m-status-area">
+            <div class="m-topbar-status">準備完了</div>
+            <button class="m-status-history-button">履歴</button>
+          </div>
           <div class="m-topbar-actions">
             <button class="m-btn ghost" style="font-size:0.76rem;">サイトを開く</button>
             <button class="m-btn primary" style="font-size:0.76rem;">下書き保存</button>
@@ -2122,11 +2207,26 @@ img { max-width: 100%; display: block; }
         <div style="padding:16px; display:grid; gap:10px;">
           <div>
             <div style="font-size:0.72rem; color:var(--muted); margin-bottom:4px;">① 公開処理中</div>
-            <div class="m-topbar-status publishing"><i class="fa-solid fa-spinner fa-spin"></i> 公開処理中...</div>
+            <div class="m-topbar-status publishing"><i class="fa-solid fa-spinner fa-spin"></i> 公開処理を開始しています...</div>
           </div>
           <div>
             <div style="font-size:0.72rem; color:var(--muted); margin-bottom:4px;">② 完了時</div>
-            <div class="m-topbar-status done"><i class="fa-solid fa-circle-check"></i> 公開を開始しました。数分後にサイトに反映されます。</div>
+            <div class="m-topbar-status done"><i class="fa-solid fa-circle-check"></i> 公開処理を完了しました。数分後にサイトに反映されます。</div>
+          </div>
+          <div>
+            <div style="font-size:0.72rem; color:var(--muted); margin-bottom:4px;">③ 履歴</div>
+            <div class="m-status-area" style="max-width:420px;">
+              <div class="m-topbar-status done">公開処理を完了しました。数分後にサイトに反映されます。</div>
+              <button class="m-status-history-button">履歴</button>
+              <div class="m-status-history-panel" style="position:static; width:100%; grid-column:1 / -1; margin-top:8px;">
+                <div class="m-status-history-head"><strong>ステータス履歴</strong><span style="color:var(--muted);">最新順</span></div>
+                <div class="m-status-history-list">
+                  <div class="m-status-history-item success"><div class="m-status-history-meta"><span>14:23:08</span><span>完了</span></div>公開処理を完了しました。数分後にサイトに反映されます。</div>
+                  <div class="m-status-history-item"><div class="m-status-history-meta"><span>14:23:07</span><span>情報</span></div>読み込み完了</div>
+                  <div class="m-status-history-item"><div class="m-status-history-meta"><span>14:23:06</span><span>情報</span></div>最新データを読み込んでいます...</div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>

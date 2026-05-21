@@ -66,7 +66,19 @@
       <main class="content">
         <div class="topbar">
           <div class="topbar-title">
-            <div id="statusMessage" class="status-box">準備完了</div>
+            <div class="status-area" id="statusArea">
+              <div id="statusMessage" class="status-box">準備完了</div>
+              <button id="statusHistoryButton" class="status-history-button" type="button" aria-expanded="false" aria-controls="statusHistoryPanel">履歴</button>
+              <div id="statusHistoryPanel" class="status-history-panel hidden" role="dialog" aria-label="ステータスメッセージ履歴">
+                <div class="status-history-head">
+                  <strong>ステータス履歴</strong>
+                  <span class="small-note">最新順</span>
+                </div>
+                <div id="statusHistoryList" class="status-history-list">
+                  <div class="status-history-empty">まだ履歴はありません。</div>
+                </div>
+              </div>
+            </div>
           </div>
           <div class="topbar-actions">
             <a id="openPreviewLink" class="button ghost hidden" href="#" target="_blank" rel="noopener noreferrer">サイトを開く</a>
