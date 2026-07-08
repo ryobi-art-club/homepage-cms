@@ -751,9 +751,9 @@ function renderExhibitionMediaSettings(files, context) {
     renderMediaUploadBox('dm', 'DM画像を追加', 'exhibition'),
     renderExhibitionDmList(files, dmIds),
     '</div>',
-    renderCatalogImportPanel(catalog, works),
     '<div class="media-section">',
     '<h3>作品画像</h3>',
+    renderCatalogImportPanel(catalog, works),
     renderMediaUploadBox('work', '作品画像を追加', 'exhibition'),
     '<div class="small-note">表示順は、スマートフォン表示と拡大表示時のスライド順に反映されます。PCでは画像の縦横比に合わせて、見やすい配置に自動調整されます。</div>',
     '<div class="media-file-grid media-work-grid">',
@@ -769,7 +769,7 @@ function renderCatalogImportPanel(catalog, works) {
   const usedKeys = selectedCatalogKeysFromWorks(works || []);
   const unusedCount = items.filter((item) => usedKeys.indexOf(item.key) === -1).length;
   return [
-    '<div class="media-section catalog-import-section">',
+    '<div class="media-upload-box catalog-import-section">',
     '<div class="catalog-import-head">',
     '<div>',
     '<h3>目録PDFから作品情報を自動入力</h3>',
