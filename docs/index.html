@@ -375,8 +375,8 @@ img { max-width: 100%; display: block; }
   font-size: 0.82rem;
   color: var(--soft);
 }
-.m-topbar-status.done { background: rgba(136,196,132,0.18); color: #d9f5d5; border-color: rgba(136,196,132,0.28); }
-.m-topbar-status.publishing { background: rgba(246,217,38,0.16); color: #fffccc; border-color: rgba(246,217,38,0.25); }
+.m-topbar-status.done { background: rgba(136,196,132,0.92); color: #0a0a0a; border-color: transparent; font-weight: 800; white-space: pre-line; }
+.m-topbar-status.error { background: rgba(243,108,108,0.18); color: #ffd5d5; border-color: rgba(243,108,108,0.22); white-space: pre-line; }
 .m-status-history-button {
   border: 1px solid rgba(255,255,255,0.10);
   background: rgba(255,255,255,0.05);
@@ -431,6 +431,25 @@ img { max-width: 100%; display: block; }
   margin-bottom: 3px;
 }
 .m-topbar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* 編集ページの2カラム（左: 編集フォーム / 右: プレビュー） */
+.m-editor-grid { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 10px; align-items: start; }
+.m-editor-grid .m-form-grid { grid-template-columns: 1fr; }
+.m-kicker { display: inline-block; color: var(--yellow); font-size: 0.6rem; letter-spacing: 0.18em; font-weight: 700; margin-bottom: 6px; text-transform: uppercase; }
+.m-psite-card { padding: 10px 12px; border-radius: 12px; background: linear-gradient(180deg, rgba(255,255,255,0.07), rgba(255,255,255,0.03)); border: 1px solid rgba(255,255,255,0.08); margin-bottom: 8px; }
+.m-psite-card h5 { font-size: 0.82rem; margin: 0 0 4px; }
+.m-psite-card p { font-size: 0.7rem; color: var(--soft); margin: 0; }
+.m-pmeta { display: grid; gap: 4px; margin-top: 8px; }
+.m-pmeta-row { display: grid; grid-template-columns: 32px 1fr; gap: 6px; font-size: 0.64rem; padding-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.m-pmeta-row:last-child { border-bottom: 0; padding-bottom: 0; }
+.m-pmeta-row .lbl { color: var(--muted); white-space: nowrap; }
+.m-pthumb-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
+.m-pthumb { aspect-ratio: 1/1; border-radius: 8px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); display: grid; place-items: center; font-size: 0.95rem; }
+.m-pposter { width: 56px; aspect-ratio: 100/148; border-radius: 8px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.08); display: grid; place-items: center; font-size: 1rem; flex-shrink: 0; }
+.m-pdots { display: flex; justify-content: center; gap: 4px; margin-top: 6px; }
+.m-pdots span { width: 5px; height: 5px; border-radius: 999px; background: rgba(255,255,255,0.35); }
+.m-pdots span.act { background: var(--yellow); }
+.m-pcal { aspect-ratio: 16/9; border-radius: 10px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); display: grid; place-items: center; font-size: 1.3rem; margin-top: 8px; }
 
 /* Card */
 .m-card {
@@ -704,6 +723,7 @@ img { max-width: 100%; display: block; }
   .manual-content { padding: 28px 20px 80px; }
   .m-app { grid-template-columns: 1fr; }
   .m-form-grid { grid-template-columns: 1fr; }
+  .m-editor-grid { grid-template-columns: 1fr; }
   .m-kpi-row { grid-template-columns: 1fr 1fr; }
   .m-file-grid { grid-template-columns: 1fr 1fr; }
 }
@@ -768,7 +788,8 @@ img { max-width: 100%; display: block; }
     <li><a href="#s2">2. 画面の見方</a></li>
     <li class="toc-sub"><ul class="toc-list">
       <li><a href="#s2-1">全体レイアウト</a></li>
-      <li><a href="#s2-3">トップバーのボタン</a></li>
+      <li><a href="#s2-2">編集フォーム＋プレビュー</a></li>
+      <li><a href="#s2-3">トップバーのボタンと状態表示</a></li>
     </ul></li>
     <li><a href="#s3">3. ダッシュボード</a></li>
     <li><a href="#s4">4. 展示会の管理</a></li>
@@ -866,65 +887,76 @@ img { max-width: 100%; display: block; }
     <!-- 3ステップのモックを並べる -->
     <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; align-items:start;">
       <div>
-        <div class="mock-label">① コード入力欄が表示される</div>
+        <div class="mock-label">① コード入力欄が追加表示される</div>
         <div class="mock" style="border-radius:16px;">
-          <div class="m-auth-shell" style="padding:20px 16px; min-height:280px;">
+          <div class="m-auth-shell" style="padding:20px 16px; min-height:320px;">
             <div class="m-auth-card" style="padding:16px;">
               <h2 style="font-size:1rem;">凌美会 管理画面</h2>
               <div class="m-hr" style="margin:10px 0;"></div>
               <div class="m-field" style="margin-bottom:8px;">
                 <label>メールアドレス</label>
-                <div class="m-input filled" style="font-size:0.78rem;">ta***@example.com</div>
+                <div class="m-input filled" style="font-size:0.78rem;">tanaka@example.com</div>
               </div>
+              <button class="m-btn warn" style="width:100%; font-size:0.76rem; margin-bottom:8px;">確認コードを送信</button>
               <div class="m-field">
                 <label>確認コード</label>
                 <div class="m-input" style="font-size:0.78rem; color:var(--muted);">6桁のコード</div>
               </div>
+              <button class="m-btn success" style="width:100%; font-size:0.76rem; margin-top:8px;">認証して続行</button>
+              <div class="m-status success" style="font-size:0.72rem; margin-top:10px;">ta****@example.com に確認コードを送信しました。</div>
             </div>
           </div>
         </div>
       </div>
       <div>
-        <div class="mock-label">② コードを入力して認証</div>
+        <div class="mock-label">② コードを入力して「認証して続行」</div>
         <div class="mock" style="border-radius:16px;">
-          <div class="m-auth-shell" style="padding:20px 16px; min-height:280px;">
+          <div class="m-auth-shell" style="padding:20px 16px; min-height:320px;">
             <div class="m-auth-card" style="padding:16px;">
               <h2 style="font-size:1rem;">凌美会 管理画面</h2>
               <div class="m-hr" style="margin:10px 0;"></div>
               <div class="m-field" style="margin-bottom:8px;">
                 <label>メールアドレス</label>
-                <div class="m-input filled" style="font-size:0.78rem;">ta***@example.com</div>
+                <div class="m-input filled" style="font-size:0.78rem;">tanaka@example.com</div>
               </div>
+              <button class="m-btn warn" style="width:100%; font-size:0.76rem; margin-bottom:8px;">確認コードを送信</button>
               <div class="m-field">
                 <label>確認コード</label>
-                <div class="m-input code" style="font-size:1.1rem; color:#fff;">4 8 3 2 0 1</div>
+                <div class="m-input filled" style="font-size:0.78rem; color:#fff;">483201</div>
               </div>
-              <div style="margin-top:10px;">
-                <button class="m-btn success" style="width:100%; font-size:0.82rem;">認証して続行</button>
-              </div>
+              <button class="m-btn success" style="width:100%; font-size:0.76rem; margin-top:8px;">認証して続行</button>
             </div>
           </div>
         </div>
       </div>
       <div>
-        <div class="mock-label">③ 認証成功 → 管理画面へ</div>
+        <div class="mock-label">③ 認証中… → 管理画面へ</div>
         <div class="mock" style="border-radius:16px;">
-          <div class="m-auth-shell" style="padding:20px 16px; min-height:280px;">
+          <div class="m-auth-shell" style="padding:20px 16px; min-height:320px;">
             <div class="m-auth-card" style="padding:16px;">
               <h2 style="font-size:1rem;">凌美会 管理画面</h2>
               <div class="m-hr" style="margin:10px 0;"></div>
-              <div class="m-status success" style="font-size:0.82rem; text-align:center; padding:14px;">
-                <i class="fa-solid fa-circle-check"></i> 認証成功！<br>管理画面を読み込んでいます...
+              <div class="m-field" style="margin-bottom:8px;">
+                <label>確認コード</label>
+                <div class="m-input filled" style="font-size:0.78rem; color:#fff;">483201</div>
               </div>
+              <button class="m-btn success" style="width:100%; font-size:0.76rem; margin-top:8px; opacity:0.38;">認証中…</button>
+              <div class="m-status success" style="font-size:0.72rem; margin-top:10px;">認証に成功しました。データを読み込んでいます…</div>
             </div>
           </div>
         </div>
       </div>
     </div>
 
+    <ol class="steps" style="margin-top:20px;">
+      <li><div class="num">1</div><div class="body"><strong>メール入力欄の下に「確認コード」欄が追加表示される</strong><small>緑のメッセージ「ta****@example.com に確認コードを送信しました。」が出ます（アドレスの一部は「*」で伏せて表示されます）。届いたメールの件名は「【凌美会】確認コード」です。</small></div></li>
+      <li><div class="num">2</div><div class="body"><strong>メールに記載された6桁のコードを入力して「認証して続行」ボタン（緑）をクリック</strong><small>認証中はボタンが「認証中…」に変わり、押せなくなります。</small></div></li>
+      <li><div class="num">3</div><div class="body"><strong>「認証に成功しました。データを読み込んでいます…」と表示されたら、そのまま待つ</strong><small>読み込みが終わると自動で管理画面に切り替わります。</small></div></li>
+    </ol>
+
     <div class="callout warn" style="margin-top:20px;">
       <i class="fa-solid fa-clock"></i>
-      <div><strong>確認コードの有効期限は 10 分です。</strong> 期限が切れた場合は「確認コードを送信」からやり直してください。確認コードの送信は同じメールアドレスにつき 1 時間に 5 回までです。コードを 5 回間違えるとロックされ、再送信が必要になります。</div>
+      <div><strong>確認コードの有効期限は 10 分です。</strong> 期限が切れると「確認コードの有効期限が切れています。」と表示されるので、「確認コードを送信」からやり直してください。コードを 5 回間違えると「確認コードの入力回数が上限に達しました。」と表示され、コードの再送信が必要になります。また、確認コードの送信は同じメールアドレスにつき 1 時間に 5 回までです。</div>
     </div>
     <div class="callout tip">
       <i class="fa-solid fa-circle-info"></i>
@@ -982,6 +1014,15 @@ img { max-width: 100%; display: block; }
             </div>
           </div>
           <div class="m-card" style="margin-bottom:8px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+              <h4 style="margin-bottom:0;">Drive容量</h4>
+              <span style="font-size:0.68rem; padding:3px 8px; border-radius:999px; background:rgba(255,255,255,0.08); color:var(--soft);">余裕があります</span>
+            </div>
+            <div style="height:6px; border-radius:999px; background:rgba(255,255,255,0.08); overflow:hidden;">
+              <div style="width:42%; height:100%; background:linear-gradient(90deg,var(--green),var(--yellow)); border-radius:999px;"></div>
+            </div>
+          </div>
+          <div class="m-card" style="margin-bottom:8px;">
             <h4 style="margin-bottom:8px;">概要</h4>
             <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:8px;">
               <div class="m-kpi"><div class="m-kpi-label">活動記録・告知</div><div class="m-kpi-val">12</div></div>
@@ -990,9 +1031,15 @@ img { max-width: 100%; display: block; }
               <div class="m-kpi"><div class="m-kpi-label">公開履歴</div><div class="m-kpi-val">8</div></div>
             </div>
           </div>
-          <div class="m-card">
-            <h4>下書き一覧</h4>
-            <div style="color:var(--muted); font-size:0.8rem;">保存済みの下書きはありません</div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+            <div class="m-card" style="margin-bottom:0;">
+              <h4>下書き一覧</h4>
+              <div style="color:var(--muted); font-size:0.78rem;">保存済みの下書きはありません。</div>
+            </div>
+            <div class="m-card" style="margin-bottom:0;">
+              <h4>公開履歴</h4>
+              <div style="color:var(--muted); font-size:0.78rem;">まだ公開履歴がありません。</div>
+            </div>
           </div>
         </div>
       </div>
@@ -1001,15 +1048,68 @@ img { max-width: 100%; display: block; }
     <table class="m-table" style="margin-top:24px;">
       <thead><tr><th>エリア</th><th>説明</th></tr></thead>
       <tbody>
-        <tr><td><strong>サイドバー</strong>（左）</td><td>ページを切り替えるナビゲーションメニュー。下部にログイン中のアカウント名が表示されます。</td></tr>
-        <tr><td><strong>トップバー</strong>（上）</td><td>現在の状態メッセージ（「準備完了」「保存中...」など）と主要操作ボタン。「履歴」ボタンから直近のステータスメッセージを確認できます。</td></tr>
-        <tr><td><strong>メインエリア</strong>（右・中央）</td><td>選択したページのコンテンツ編集エリア。</td></tr>
+        <tr><td><strong>サイドバー</strong>（左）</td><td>ページを切り替えるナビゲーションメニュー。下部にログイン中のアカウント名とメールアドレスが表示されます。</td></tr>
+        <tr><td><strong>トップバー</strong>（上）</td><td>現在の状態メッセージ（「準備完了」「読み込み完了」など）と主要操作ボタン。「履歴」ボタンから直近のステータスメッセージを確認できます。画面をスクロールしても上部に固定表示されます。</td></tr>
+        <tr><td><strong>メインエリア</strong>（右・中央）</td><td>選択したページのコンテンツ編集エリア。展示会などの編集ページでは、左に編集フォーム・右にプレビューの2カラムで表示されます（次項参照）。</td></tr>
       </tbody>
     </table>
   </div>
 
+  <div class="sub-section" id="s2-2">
+    <div class="sub-section-title">編集ページの共通構成（編集フォーム＋プレビュー）</div>
+    <p style="color:var(--soft); font-size:0.9rem; margin-bottom:14px;">
+      「展示会」「活動記録・告知」「入部希望の方」「ご依頼の方」の各編集ページは、<strong style="color:#fff;">左が編集フォーム、右がプレビュー</strong>の2カラム構成です。フォームに入力すると、右側のプレビューがその場で更新され、ホームページでの見え方を確認しながら編集できます。
+    </p>
+
+    <div class="mock-label">— 編集ページの構成（例: 活動記録・告知） —</div>
+    <div class="mock">
+      <div style="padding:16px;">
+        <div class="m-editor-grid">
+          <div class="m-card" style="margin-bottom:0;">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:10px;">
+              <div style="font-size:0.9rem; font-weight:800;">活動記録・告知</div>
+              <button class="m-btn" style="font-size:0.7rem;">記事を追加</button>
+            </div>
+            <div class="m-editor-item" style="margin-bottom:0;">
+              <div class="m-item-title" style="font-size:0.8rem; margin-bottom:8px;">六甲祭2025の活動報告 <span class="m-chip pub" style="font-size:0.64rem;">公開中</span></div>
+              <div class="m-form-grid" style="gap:6px;">
+                <div class="m-field-group full">
+                  <label>記事タイトル</label>
+                  <div class="m-input-mock filled" style="font-size:0.74rem; min-height:32px;">六甲祭2025の活動報告</div>
+                </div>
+                <div class="m-field-group full">
+                  <label>本文</label>
+                  <div class="m-textarea-mock filled" style="font-size:0.74rem; min-height:50px;">今年も六甲祭に参加しました。</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="m-card" style="margin-bottom:0;">
+            <h4>プレビュー</h4>
+            <div class="m-psite-card">
+              <span class="m-kicker">活動記録</span>
+              <div style="font-size:0.62rem; color:var(--muted); margin-bottom:2px;">2025.11.03</div>
+              <h5>六甲祭2025の活動報告</h5>
+              <p>今年も六甲祭に参加しました。</p>
+              <div class="m-pthumb-row">
+                <div class="m-pthumb">🖼️</div>
+                <div class="m-pthumb">🖼️</div>
+                <div class="m-pthumb">🖼️</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout tip" style="margin-top:14px;">
+      <i class="fa-solid fa-circle-info"></i>
+      <div>プレビューはあくまで<strong>表示イメージ</strong>です。実際のホームページには「公開する」を実行するまで反映されません。プレビューには公開中のコンテンツだけが表示され、「非公開」にしたものは表示されません。</div>
+    </div>
+  </div>
+
   <div class="sub-section" id="s2-3">
-    <div class="sub-section-title">トップバーのボタン</div>
+    <div class="sub-section-title">トップバーのボタンと状態表示</div>
 
     <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:16px; margin:16px 0;">
       <div class="m-card" style="text-align:center;">
@@ -1027,6 +1127,53 @@ img { max-width: 100%; display: block; }
       <div class="m-card">
         <button class="m-status-history-button" style="height:34px; margin-bottom:10px;">履歴</button>
         <p style="font-size:0.82rem; color:var(--soft);">ステータスメッセージの履歴を最新順に確認できます。エラーが出た場合は、内容を確認してから再操作してください。</p>
+      </div>
+    </div>
+
+    <div class="sub-section-title" style="margin-top:24px;">状態メッセージの色の意味</div>
+    <div class="mock" style="border-radius:16px;">
+      <div style="padding:16px; display:grid; gap:10px;">
+        <div>
+          <div style="font-size:0.72rem; color:var(--muted); margin-bottom:4px;">通常（処理中・お知らせ）— グレー</div>
+          <div class="m-topbar-status">下書きを保存しています…</div>
+        </div>
+        <div>
+          <div style="font-size:0.72rem; color:var(--muted); margin-bottom:4px;">完了 — 緑（黒文字）</div>
+          <div class="m-topbar-status done">下書きを保存しました。</div>
+        </div>
+        <div>
+          <div style="font-size:0.72rem; color:var(--muted); margin-bottom:4px;">エラー — 赤</div>
+          <div class="m-topbar-status error">セッションが切れています。もう一度認証してください。</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub-section-title" style="margin-top:24px;">「履歴」ボタン → ステータス履歴パネル</div>
+    <p style="color:var(--soft); font-size:0.9rem; margin-bottom:12px;">
+      状態メッセージは次の操作をすると流れてしまいますが、「履歴」ボタンを押すと直近30件までを最新順で見返せます。パネルの外側をクリックするか Esc キーで閉じます。
+    </p>
+    <div class="mock" style="border-radius:16px; max-width:420px;">
+      <div style="padding:16px;">
+        <div class="m-status-history-panel" style="position:static; width:100%;">
+          <div class="m-status-history-head">
+            <strong>ステータス履歴</strong>
+            <span style="font-size:0.72rem; color:var(--muted);">最新順</span>
+          </div>
+          <div class="m-status-history-list">
+            <div class="m-status-history-item success">
+              <div class="m-status-history-meta"><span>14:32:05</span><span>完了</span></div>
+              <div>公開処理を完了しました。数分後にサイトに反映されます。</div>
+            </div>
+            <div class="m-status-history-item">
+              <div class="m-status-history-meta"><span>14:31:58</span><span>情報</span></div>
+              <div>公開処理を開始しています…</div>
+            </div>
+            <div class="m-status-history-item">
+              <div class="m-status-history-meta"><span>14:20:11</span><span>情報</span></div>
+              <div>下書きを保存しました。</div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -1068,19 +1215,31 @@ img { max-width: 100%; display: block; }
           </div>
         </div>
 
-        <!-- Drive 容量カード（最上部に独立して表示） -->
-        <div class="m-card" style="margin-bottom:10px; border-color:rgba(136,196,132,0.22);">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <!-- Drive容量カード（最上部に独立して表示） -->
+        <div class="m-card" style="margin-bottom:10px;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:10px;">
             <div>
-              <h3 style="margin-bottom:2px;">ストレージ容量</h3>
-              <div style="font-size:0.72rem; color:var(--muted);">画像ファイルなどの Google Drive 保存容量</div>
+              <h3 style="margin-bottom:2px;">Drive容量</h3>
+              <div style="font-size:0.72rem; color:var(--muted);">ホームページ素材以外も含む、実行アカウント全体の容量です。</div>
             </div>
-            <span style="font-size:0.72rem; padding:3px 8px; border-radius:999px; background:rgba(136,196,132,0.18); color:#d9f5d5; border:1px solid rgba(136,196,132,0.28);">余裕があります</span>
+            <span style="font-size:0.72rem; padding:4px 10px; border-radius:999px; background:rgba(255,255,255,0.08); color:var(--soft); font-weight:800; flex-shrink:0;">余裕があります</span>
           </div>
           <div style="height:8px; border-radius:999px; background:rgba(255,255,255,0.08); overflow:hidden; margin-bottom:8px;">
             <div style="width:42%; height:100%; background:linear-gradient(90deg,var(--green),var(--yellow)); border-radius:999px;"></div>
           </div>
-          <div style="font-size:0.78rem; color:var(--soft);">使用中: 6.3 GB / 15 GB &nbsp;|&nbsp; <strong>残り 8.7 GB</strong></div>
+          <div style="display:flex; justify-content:space-between; gap:8px; font-size:0.78rem; color:var(--soft); margin-bottom:10px;">
+            <span>使用中 6.3 GB / 15 GB</span>
+            <strong>残り 8.7 GB</strong>
+          </div>
+          <div style="font-size:0.72rem; color:var(--muted); margin-bottom:6px;">退避候補</div>
+          <div style="display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center; padding:8px 10px; border-radius:10px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.06);">
+            <div>
+              <div style="font-size:0.68rem; color:var(--yellow); font-weight:800;">展示会</div>
+              <div style="font-size:0.76rem; font-weight:700;">夏展2024</div>
+              <div style="font-size:0.68rem; color:var(--muted);">2024.08.10 / 非公開</div>
+            </div>
+            <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 8px;">Driveで開く</button>
+          </div>
         </div>
 
         <!-- 概要 KPI（4項目） -->
@@ -1111,11 +1270,11 @@ img { max-width: 100%; display: block; }
             <div style="display:grid; gap:6px;">
               <div style="padding:8px 10px; border-radius:10px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); font-size:0.76rem;">
                 <div style="color:var(--muted); font-size:0.7rem; margin-bottom:2px;">2026.05.15 / 田中 花子</div>
-                <div style="color:var(--soft);">published: 展示会「第XX回凌美会展」を公開</div>
+                <div style="color:var(--soft);">展示会「第XX回凌美会展」を公開</div>
               </div>
               <div style="padding:8px 10px; border-radius:10px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); font-size:0.76rem;">
                 <div style="color:var(--muted); font-size:0.7rem; margin-bottom:2px;">2026.05.01 / 鈴木 二郎</div>
-                <div style="color:var(--soft);">published: 活動記録・告知「六甲祭2025の活動報告」を公開</div>
+                <div style="color:var(--soft);">活動記録・告知「六甲祭2025の活動報告」を公開</div>
               </div>
             </div>
           </div>
@@ -1127,10 +1286,10 @@ img { max-width: 100%; display: block; }
   <table class="m-table" style="margin-top:20px;">
     <thead><tr><th>項目</th><th>説明</th></tr></thead>
     <tbody>
-      <tr><td>ストレージ容量（最上部）</td><td>画像ファイルなどの Google Drive 保存容量の使用状況です。残量に応じてバッジ色が変わります。</td></tr>
-      <tr><td>概要 KPI（4項目）</td><td>公開中の活動記録・告知件数 / 展示会件数 / 取り組み事例件数 / 累計公開履歴件数。いずれも公開中（非公開除く）の件数です。</td></tr>
+      <tr><td>Drive容量（最上部）</td><td>画像などを保存する Google Drive アカウント全体の使用状況です。残量に応じてバッジが「余裕があります」→「注意」（黄）→「警告」（濃い黄）→「強い警告」（赤）に変わります。容量が逼迫すると、Drive へ退避してよさそうな古いコンテンツが「退避候補」として提案されます。</td></tr>
+      <tr><td>概要 KPI（4項目）</td><td>公開中の活動記録・告知件数 / 展示会件数 / 取り組み事例件数（いずれも非公開は含みません）と、サイトの「UPDATE LOG」に載っている更新履歴の件数です。</td></tr>
       <tr><td>下書き一覧</td><td>過去に「下書き保存」した内容。「読み込む」で編集を再開できます。公開が完了すると全員分の下書きが自動クリアされます。</td></tr>
-      <tr><td>公開履歴（右カード）</td><td>誰がいつ「公開する」を実行したかの管理ログ。ダッシュボードのこのカードでのみ確認できます。</td></tr>
+      <tr><td>公開履歴（右カード）</td><td>誰がいつ「公開する」を実行し、何を変更したか（例:「展示会「第XX回凌美会展」を公開」）の管理ログ。ダッシュボードのこのカードでのみ確認できます。</td></tr>
     </tbody>
   </table>
 </section>
@@ -1176,8 +1335,9 @@ img { max-width: 100%; display: block; }
             </div>
           </div>
 
-          <!-- 展示会カード -->
-          <div class="m-card" style="margin-top:12px;">
+          <!-- 展示会カード（左: 編集フォーム / 右: プレビュー） -->
+          <div class="m-editor-grid" style="margin-top:12px;">
+          <div class="m-card" style="margin-bottom:0;">
             <!-- パネルヘッダー -->
             <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:14px;">
               <div>
@@ -1207,7 +1367,7 @@ img { max-width: 100%; display: block; }
                 </div>
                 <div class="m-field-group full">
                   <label>サブタイトル（任意）</label>
-                  <div class="m-input-mock"></div>
+                  <div class="m-input-mock" style="color:var(--muted);">例: 第〇回 凌美会展</div>
                 </div>
                 <div class="m-field-group">
                   <label>開始日（自動並び替え用）</label>
@@ -1309,8 +1469,58 @@ img { max-width: 100%; display: block; }
               <div style="color:var(--muted); font-size:0.78rem; margin-top:8px;">DM画像、作品画像、作品名、作者名、表示順は「画像・作品情報の設定」から編集できます。</div>
             </div>
           </div>
+
+          <!-- プレビュー列 -->
+          <div class="m-card" style="margin-bottom:0;">
+            <h4>プレビュー</h4>
+            <div class="m-psite-card">
+              <span class="m-kicker">Next Exhibition</span>
+              <h5>第XX回凌美会展</h5>
+              <div style="display:flex; gap:8px; align-items:flex-start;">
+                <div style="flex:1; min-width:0;">
+                  <div class="m-pmeta">
+                    <div class="m-pmeta-row"><span class="lbl">会期</span><span>2026年8月1日（土）〜8月8日（土）<br><span style="color:var(--muted);">11:00〜18:00（最終日17:00まで）</span></span></div>
+                    <div class="m-pmeta-row"><span class="lbl">会場</span><span>ギャラリー〇〇<br><span style="color:var(--muted);">神戸市中央区〇〇1-2-3</span></span></div>
+                  </div>
+                </div>
+                <div>
+                  <div class="m-pposter">🖼️</div>
+                  <div class="m-pdots"><span class="act"></span><span></span></div>
+                </div>
+              </div>
+            </div>
+            <div class="m-psite-card">
+              <span class="m-kicker">Recent Exhibition</span>
+              <div style="font-size:0.62rem; color:var(--muted);">〜夏の記憶〜</div>
+              <h5>夏展2025</h5>
+              <p>夏の作品展です。</p>
+              <div class="m-pthumb-row" style="grid-template-columns:repeat(2,1fr);">
+                <div>
+                  <div class="m-pthumb" style="aspect-ratio:4/3;">🖼️</div>
+                  <div style="font-size:0.6rem; font-weight:700; margin-top:2px;">秋の情景</div>
+                  <div style="font-size:0.58rem; color:var(--muted);">田中 花子</div>
+                </div>
+                <div>
+                  <div class="m-pthumb" style="aspect-ratio:4/3;">🖼️</div>
+                  <div style="font-size:0.6rem; font-weight:700; margin-top:2px;">海辺にて</div>
+                  <div style="font-size:0.58rem; color:var(--muted);">鈴木 二郎</div>
+                </div>
+              </div>
+            </div>
+            <div class="m-psite-card" style="margin-bottom:0;">
+              <span class="m-kicker">Archive</span>
+              <h5>展示会アーカイブ</h5>
+              <p style="color:var(--muted);">公開中のアーカイブはありません。</p>
+            </div>
+          </div>
+          </div><!-- /.m-editor-grid -->
         </div>
       </div>
+    </div>
+
+    <div class="callout tip" style="margin-top:16px;">
+      <i class="fa-solid fa-circle-info"></i>
+      <div>右側のプレビューはホームページの展示会ページと同じ構成です。<strong style="color:#fff;">NEXT EXHIBITION</strong> ＝ 開催予定（複数あれば近い順）、<strong style="color:#fff;">RECENT EXHIBITION</strong> ＝ アーカイブの<strong>最新1件</strong>（作品画像もここに表示）、<strong style="color:#fff;">ARCHIVE</strong> ＝ それ以外のアーカイブの一覧です。上のモックではアーカイブが「夏展2025」の1件だけなので、RECENT に表示され、ARCHIVE 一覧は空になっています。</div>
     </div>
   </div>
 
@@ -1320,14 +1530,14 @@ img { max-width: 100%; display: block; }
       <thead><tr><th>項目</th><th>必須</th><th>説明・入力例</th></tr></thead>
       <tbody>
         <tr><td>展示会名</td><td class="required">◎</td><td>例：「第XX回凌美会展」（最大140文字）</td></tr>
-        <tr><td>サブタイトル</td><td></td><td>例：「〜テーマ〜」（任意）</td></tr>
+        <tr><td>サブタイトル</td><td></td><td>例：「〜夏の記憶〜」「第〇回 凌美会展」など。ホームページでは展示会名の上に小さく表示されます（任意）</td></tr>
         <tr><td>概要</td><td></td><td>展示会の説明文。改行と <code style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:4px;font-size:0.8em;">[表示テキスト](https://...)</code> 形式のリンクを使用できます。</td></tr>
         <tr><td>会場名</td><td></td><td>例：「ギャラリーマルコ」</td></tr>
         <tr><td>会場住所</td><td></td><td>例：「神戸市中央区〇〇1-2-3」</td></tr>
         <tr><td>会期表示</td><td></td><td>例：「2026年8月1日（土）〜8月8日（土）」</td></tr>
         <tr><td>時間帯表示</td><td></td><td>例：「11:00〜18:00（最終日17:00まで）」</td></tr>
         <tr><td>Google マップ 埋め込み URL</td><td></td><td>Google マップで会場を検索 → 「共有」→「地図を埋め込む」→ 表示された <code style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:4px;font-size:0.8em;">&lt;iframe&gt;</code> の <code style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:4px;font-size:0.8em;">src="https://..."</code> の URL 部分をコピーして貼り付ける。右端の<i class="fa-solid fa-location-dot"></i>ボタンで簡易生成もできますが参考程度に。</td></tr>
-        <tr><td>開始日（自動並び替え用）</td><td></td><td>例：2026-08-01。この日付をもとに自動で並び順が決まります</td></tr>
+        <tr><td>開始日（自動並び替え用）</td><td></td><td>カレンダーから日付を選択します（例：2026/08/01）。この日付をもとに自動で並び順が決まります</td></tr>
         <tr><td>画像・作品情報</td><td></td><td>「画像・作品情報の設定」ボタンでDM画像・作品画像を設定します（→ Section 4-3 参照）</td></tr>
         <tr><td>公開 / 非公開</td><td></td><td>「非公開」ボタンで表示をオフにします。「公開する」を実行したときにホームページへ反映されます</td></tr>
         <tr><td>開催予定 / アーカイブ</td><td class="required">◎</td><td>「アーカイブに移動」ボタンで切り替え。展示終了後はアーカイブに移してから公開します</td></tr>
@@ -1340,6 +1550,11 @@ img { max-width: 100%; display: block; }
     <div>展示会の公開・非公開は「公開する」を実行したときにホームページへ反映されます。「非公開」ボタンを押しただけでは変わりません。<br>
     <strong style="color:#fff;">「公開中」で「公開する」：</strong>ホームページに作品画像が表示されるようになります<br>
     <strong style="color:#fff;">「非公開」で「公開する」：</strong>ホームページから作品画像が非表示になります</div>
+  </div>
+
+  <div class="callout caution">
+    <i class="fa-solid fa-triangle-exclamation"></i>
+    <div>「削除」ボタンを押すと「この展示会を削除しますか？　公開済みのコンテンツは削除ではなく非公開推奨です。」という確認が表示されます。過去の展示会は削除せず、<strong>「非公開」またはアーカイブのまま残す</strong>ことをお勧めします。</div>
   </div>
 
   <div class="sub-section" id="s4-2">
@@ -1404,9 +1619,9 @@ img { max-width: 100%; display: block; }
             </div>
             <div class="m-modal-body" style="display:grid; gap:16px;">
 
-              <!-- ① DM画像セクション -->
-              <div>
-                <div style="font-size:0.86rem; font-weight:800; margin-bottom:8px; color:#fff; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:6px;">① DM画像</div>
+              <!-- DM画像セクション -->
+              <div style="padding:12px; border-radius:14px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08);">
+                <div style="font-size:0.86rem; font-weight:800; margin-bottom:10px; color:#fff;">DM画像</div>
                 <div style="padding:10px; border-radius:12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); margin-bottom:10px;">
                   <div style="display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center;">
                     <div>
@@ -1419,31 +1634,38 @@ img { max-width: 100%; display: block; }
                 </div>
                 <div class="m-file-grid" style="grid-template-columns:1fr 1fr;">
                   <div class="m-file-card">
-                    <div class="m-file-thumb" style="aspect-ratio:3/4;">🖼️</div>
-                    <div style="font-size:0.74rem; font-weight:800; padding:4px 8px; color:var(--yellow);">DM 表</div>
+                    <div class="m-file-thumb" style="aspect-ratio:100/148;">🖼️</div>
+                    <div style="font-size:0.72rem; color:var(--muted); padding:2px 8px;">DM 表</div>
                     <div class="m-file-actions">
-                      <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 7px;" disabled>表へ</button>
+                      <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 7px; opacity:0.38;">表へ</button>
                       <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 7px;">裏へ</button>
                       <button class="m-btn danger" style="font-size:0.68rem; padding:4px 7px;"><i class="fa-solid fa-trash"></i></button>
                     </div>
                   </div>
                   <div class="m-file-card">
-                    <div class="m-file-thumb" style="aspect-ratio:3/4;">🖼️</div>
-                    <div style="font-size:0.74rem; font-weight:800; padding:4px 8px; color:var(--muted);">DM 裏</div>
+                    <div class="m-file-thumb" style="aspect-ratio:100/148;">🖼️</div>
+                    <div style="font-size:0.72rem; color:var(--muted); padding:2px 8px;">DM 裏</div>
                     <div class="m-file-actions">
                       <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 7px;">表へ</button>
-                      <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 7px;" disabled>裏へ</button>
+                      <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 7px; opacity:0.38;">裏へ</button>
                       <button class="m-btn danger" style="font-size:0.68rem; padding:4px 7px;"><i class="fa-solid fa-trash"></i></button>
                     </div>
                   </div>
                 </div>
               </div>
 
-              <!-- ② 作品画像セクション -->
-              <div>
-                <div style="font-size:0.86rem; font-weight:800; margin-bottom:8px; color:#fff; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:6px;">② 作品画像</div>
+              <!-- 作品画像セクション -->
+              <div style="padding:12px; border-radius:14px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08);">
+                <div style="font-size:0.86rem; font-weight:800; margin-bottom:10px; color:#fff;">作品画像</div>
                 <div style="padding:10px; border-radius:12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); margin-bottom:8px;">
-                  <div style="font-size:0.8rem; font-weight:800; margin-bottom:6px;">目録PDFから作品情報を自動入力</div>
+                  <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:6px;">
+                    <div>
+                      <div style="font-size:0.8rem; font-weight:800;">目録PDFから作品情報を自動入力</div>
+                      <div style="font-size:0.72rem; color:var(--muted); margin-top:2px;">作品目録をAI解析して作品情報を自動抽出します。</div>
+                      <div style="font-size:0.72rem; color:var(--muted);">現在使用中モデル：gemini-3.1-flash-lite</div>
+                    </div>
+                    <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 8px; flex-shrink:0;">抽出結果を消去</button>
+                  </div>
                   <div style="display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center;">
                     <div>
                       <div style="font-size:0.78rem; font-weight:700; margin-bottom:4px;">目録PDF</div>
@@ -1451,11 +1673,10 @@ img { max-width: 100%; display: block; }
                     </div>
                     <button class="m-btn success" style="font-size:0.74rem;">読み込む</button>
                   </div>
-                  <div style="font-size:0.72rem; color:var(--muted); margin-top:6px;">作品目録をAI解析して作品情報を自動抽出します。</div>
-                  <div style="font-size:0.72rem; color:var(--muted); margin-top:4px;">現在使用中モデル：gemini-3.1-flash-lite</div>
                   <div style="font-size:0.74rem; padding:8px 10px; border-radius:10px; background:rgba(136,196,132,0.10); border:1px solid rgba(136,196,132,0.20); color:var(--soft); margin-top:8px;">
-                    目録PDFから25件を読み込みました。未使用: 23件
+                    <strong style="color:#fff;">mokuroku_2026.pdf</strong> から 25件を読み込みました。 未使用: 23件
                   </div>
+                  <div style="font-size:0.74rem; color:var(--green); font-weight:800; margin-top:8px;">▸ 抽出結果を表示</div>
                 </div>
                 <div style="padding:10px; border-radius:12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); margin-bottom:8px;">
                   <div style="display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center;">
@@ -1465,8 +1686,9 @@ img { max-width: 100%; display: block; }
                     </div>
                     <button class="m-btn success" style="font-size:0.74rem;">アップロード</button>
                   </div>
-                  <div style="font-size:0.72rem; color:var(--muted); margin-top:6px;">表示順は「前へ」「次へ」で変更できます。PCでは縦横比に合わせて自動配置されます。</div>
+                  <div style="font-size:0.72rem; color:var(--muted); margin-top:6px;">推奨ファイルサイズは3MB以下です。</div>
                 </div>
+                <div style="font-size:0.72rem; color:var(--muted); margin-bottom:8px;">表示順は、スマートフォン表示と拡大表示時のスライド順に反映されます。PCでは画像の縦横比に合わせて、見やすい配置に自動調整されます。</div>
                 <div class="m-file-grid">
                   <div class="m-file-card">
                     <div class="m-file-thumb">🖼️</div>
@@ -1486,7 +1708,7 @@ img { max-width: 100%; display: block; }
                       </div>
                     </div>
                     <div class="m-file-actions">
-                      <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 7px;" disabled>前へ</button>
+                      <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 7px; opacity:0.38;">前へ</button>
                       <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 7px;">次へ</button>
                       <button class="m-btn danger" style="font-size:0.68rem; padding:4px 7px;"><i class="fa-solid fa-trash"></i></button>
                     </div>
@@ -1510,7 +1732,7 @@ img { max-width: 100%; display: block; }
                     </div>
                     <div class="m-file-actions">
                       <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 7px;">前へ</button>
-                      <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 7px;" disabled>次へ</button>
+                      <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 7px; opacity:0.38;">次へ</button>
                       <button class="m-btn danger" style="font-size:0.68rem; padding:4px 7px;"><i class="fa-solid fa-trash"></i></button>
                     </div>
                   </div>
@@ -1525,25 +1747,42 @@ img { max-width: 100%; display: block; }
 
     <div style="margin-top:20px; display:grid; gap:12px;">
       <div class="m-card">
-        <h3 style="font-size:0.9rem; margin-bottom:10px;">① DM画像（最大2枚：表・裏）</h3>
+        <h3 style="font-size:0.9rem; margin-bottom:10px;">DM画像（最大2枚：表・裏）</h3>
         <ul style="color:var(--soft); font-size:0.84rem; padding-left:18px; display:grid; gap:6px;">
-          <li>「DM画像を追加」からアップロード → 自動でDM一覧に追加</li>
+          <li>「DM画像を追加」からアップロード → 自動でDM一覧に追加。1枚目が「DM 表」、2枚目が「DM 裏」になります</li>
           <li><strong style="color:#fff;">「表へ」「裏へ」</strong>ボタンで表面・裏面を入れ替えられます</li>
-          <li>DM画像は<strong style="color:#fff;">最大2枚まで</strong>。3枚目を追加しようとするとエラーになります</li>
+          <li>DM画像は<strong style="color:#fff;">最大2枚まで</strong>。3枚目を追加しようとすると「DM画像は表・裏の2枚までです。不要なDM画像を削除してから追加してください。」と表示されます</li>
           <li>「下書き保存」または「公開する」を実行すると、表面・裏面の設定が確定します</li>
         </ul>
       </div>
       <div class="m-card">
-        <h3 style="font-size:0.9rem; margin-bottom:10px;">② 作品画像（最大200枚）</h3>
+        <h3 style="font-size:0.9rem; margin-bottom:10px;">目録PDFの読み込み（任意）</h3>
         <ul style="color:var(--soft); font-size:0.84rem; padding-left:18px; display:grid; gap:6px;">
-          <li>「作品画像を追加」からアップロード → 自動で作品一覧に追加</li>
+          <li>展示会の作品目録PDF（10MB以下）を「読み込む」と、AIが作品名・作者名の一覧を抽出します</li>
+          <li>読み込み結果は「<strong style="color:#fff;">mokuroku_2026.pdf から 25件を読み込みました。 未使用: 23件</strong>」のように表示され、「抽出結果を表示」で一覧を確認、「抽出結果を消去」でやり直せます</li>
+          <li>抽出後、各作品カードに「目録項目」の選択欄が現れます。該当作品を選ぶと作品名・作者名が自動入力されます（同じ目録項目を複数の画像に紐づけることはできません）</li>
+        </ul>
+      </div>
+      <div class="m-card">
+        <h3 style="font-size:0.9rem; margin-bottom:10px;">作品画像</h3>
+        <ul style="color:var(--soft); font-size:0.84rem; padding-left:18px; display:grid; gap:6px;">
+          <li>「作品画像を追加」からアップロード → 自動で作品一覧の末尾に追加</li>
           <li>各作品カードに<strong style="color:#fff;">「作品名」「作者名」</strong>を直接入力できます</li>
-          <li>目録PDFを読み込んだ場合は、各作品カードの<strong style="color:#fff;">「目録項目」</strong>から該当作品を選ぶと作品名・作者名が入力されます</li>
           <li>展示風景など目録にない画像は「目録に紐づけない」のまま、必要に応じて手入力します</li>
-          <li><strong style="color:#fff;">「前へ」「次へ」</strong>で表示順を変更（スマートフォンのスライド順 / ライトボックス順に反映）</li>
+          <li><strong style="color:#fff;">「前へ」「次へ」</strong>で表示順を変更（スマートフォンのスライド順 / 拡大表示のスライド順に反映。PCでは縦横比に合わせて自動配置）</li>
           <li>「下書き保存」または「公開する」を実行すると、表示順と作品情報が保存されます</li>
         </ul>
       </div>
+    </div>
+
+    <div class="callout warn" style="margin-top:16px;">
+      <i class="fa-solid fa-triangle-exclamation"></i>
+      <div>目録PDFから読み込んだ抽出結果は<strong>一時データ</strong>です。作品カードに紐づけないままこの画面を閉じようとすると「目録PDFから読み込んだ一時データは、画面を閉じると消えます。閉じますか？」と確認されます。紐づけを済ませてから閉じてください。</div>
+    </div>
+
+    <div class="callout tip" style="margin-top:12px;">
+      <i class="fa-solid fa-circle-info"></i>
+      <div>アップロードや削除の結果（「アップロードしました。」「ファイルを削除しました。」など）は、この画面の<strong>ヘッダー部分</strong>とトップバーの両方に表示されます。エラーが出た場合もここで確認できます。</div>
     </div>
 
   </div>
@@ -1582,7 +1821,8 @@ img { max-width: 100%; display: block; }
           </div>
         </div>
 
-        <div class="m-card" style="margin-top:12px;">
+        <div class="m-editor-grid" style="margin-top:12px;">
+        <div class="m-card" style="margin-bottom:0;">
           <!-- パネルヘッダー -->
           <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:14px;">
             <div>
@@ -1656,6 +1896,24 @@ img { max-width: 100%; display: block; }
             </div>
           </div>
         </div>
+
+        <!-- プレビュー列 -->
+        <div class="m-card" style="margin-bottom:0;">
+          <h4>プレビュー</h4>
+          <div class="m-psite-card" style="margin-bottom:0;">
+            <span class="m-kicker">活動記録</span>
+            <div style="font-size:0.62rem; color:var(--muted); margin-bottom:2px;">2025.11.03</div>
+            <h5>六甲祭2025の活動報告</h5>
+            <p>今年も六甲祭に参加しました。部員それぞれが作品を展示し、多くの方にご覧いただきました。</p>
+            <div class="m-pthumb-row">
+              <div class="m-pthumb">🖼️</div>
+              <div class="m-pthumb">🖼️</div>
+              <div class="m-pthumb">🖼️</div>
+            </div>
+          </div>
+          <div style="font-size:0.68rem; color:var(--muted); margin-top:8px;">※ 非公開の記事（春展2026のお知らせ）はプレビューに表示されません。</div>
+        </div>
+        </div><!-- /.m-editor-grid -->
       </div>
     </div>
   </div>
@@ -1733,7 +1991,8 @@ img { max-width: 100%; display: block; }
           </div>
         </div>
 
-        <div class="m-card">
+        <div class="m-editor-grid">
+        <div class="m-card" style="margin-bottom:0;">
           <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:14px;">
             <div>
               <div style="font-size:1rem; font-weight:800; margin-bottom:4px;">入部希望の方</div>
@@ -1759,9 +2018,9 @@ img { max-width: 100%; display: block; }
                 <label>年度</label>
                 <div class="m-input-mock filled">2026</div>
               </div>
-              <div class="m-field-group">
+              <div class="m-field-group full">
                 <label>画像</label>
-                <button class="m-btn subtle" style="font-size:0.76rem; align-self:center;">画像の設定</button>
+                <button class="m-btn subtle" style="font-size:0.76rem; align-self:start;">画像の設定</button>
               </div>
             </div>
           </div>
@@ -1782,13 +2041,26 @@ img { max-width: 100%; display: block; }
                 <label>年度</label>
                 <div class="m-input-mock filled">2025</div>
               </div>
-              <div class="m-field-group">
+              <div class="m-field-group full">
                 <label>画像</label>
-                <button class="m-btn subtle" style="font-size:0.76rem; align-self:center;">画像の設定</button>
+                <button class="m-btn subtle" style="font-size:0.76rem; align-self:start;">画像の設定</button>
               </div>
             </div>
           </div>
         </div>
+
+        <!-- プレビュー列 -->
+        <div class="m-card" style="margin-bottom:0;">
+          <h4>プレビュー</h4>
+          <div class="m-psite-card" style="margin-bottom:0;">
+            <span class="m-kicker">Welcome Calendar</span>
+            <h5>2026年度 新歓イベントカレンダー</h5>
+            <div class="m-pcal">🗓️</div>
+            <div class="m-pdots"><span class="act"></span><span></span><span></span></div>
+          </div>
+          <div style="font-size:0.68rem; color:var(--muted); margin-top:8px;">※ プレビューには「公開中」の年度だけが表示されます。</div>
+        </div>
+        </div><!-- /.m-editor-grid -->
       </div>
     </div>
   </div>
@@ -1805,7 +2077,7 @@ img { max-width: 100%; display: block; }
   </div>
 
   <ol class="steps" style="margin-top:20px;">
-    <li><div class="num">1</div><div class="body"><strong>「年度を追加」で新しい年度を作成する</strong><small>年度（例：2026）を入力します。</small></div></li>
+    <li><div class="num">1</div><div class="body"><strong>「年度を追加」で新しい年度を作成する</strong><small>既存年度の翌年（例：2026）が自動で入力されます。必要なら書き換えてください。年度は新しい順に自動で並びます。</small></div></li>
     <li><div class="num">2</div><div class="body"><strong>「画像の設定」ボタンをクリックして、カレンダー画像をアップロードする</strong><small>16:9推奨。複数枚アップロードするとスライドショーになります（詳細は Section 8 参照）。</small></div></li>
     <li><div class="num">3</div><div class="body"><strong>新しい年度の「この年度を公開」ボタンをクリックして公開中に切り替える</strong><small>公開できるカレンダーは常に1年度のみ。切り替えると前の年度は自動的に非公開になります。</small></div></li>
   </ol>
@@ -1849,7 +2121,8 @@ img { max-width: 100%; display: block; }
           </div>
         </div>
 
-        <div class="m-card">
+        <div class="m-editor-grid">
+        <div class="m-card" style="margin-bottom:0;">
           <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:14px;">
             <div>
               <div style="font-size:1rem; font-weight:800; margin-bottom:4px;">ご依頼の方</div>
@@ -1861,7 +2134,7 @@ img { max-width: 100%; display: block; }
         <div class="m-editor-item">
           <div class="m-editor-head">
             <div>
-              <div class="m-item-title">#1  ○○大学祭のポスター制作 <span class="m-chip pub">公開中</span></div>
+              <div class="m-item-title">○○大学祭のポスター制作 <span class="m-chip pub">公開中</span></div>
               <div class="m-item-meta">表示順 1</div>
             </div>
             <div style="display:flex; gap:6px;">
@@ -1889,7 +2162,7 @@ img { max-width: 100%; display: block; }
         <div class="m-editor-item">
           <div class="m-editor-head">
             <div>
-              <div class="m-item-title">#2  △△店 店内装飾デザイン <span class="m-chip pub">公開中</span></div>
+              <div class="m-item-title">△△店 店内装飾デザイン <span class="m-chip pub">公開中</span></div>
               <div class="m-item-meta">表示順 2</div>
             </div>
             <div style="display:flex; gap:6px;">
@@ -1915,6 +2188,28 @@ img { max-width: 100%; display: block; }
           </div>
         </div>
         </div><!-- /.m-card -->
+
+        <!-- プレビュー列 -->
+        <div class="m-card" style="margin-bottom:0;">
+          <h4>プレビュー</h4>
+          <div class="m-psite-card">
+            <span class="m-kicker">Requests</span>
+            <div style="font-size:0.62rem; color:var(--muted); margin-bottom:2px;">表示順 1</div>
+            <h5>○○大学祭のポスター制作</h5>
+            <p>毎年恒例の○○大学祭にて、ポスターとチラシのデザインを担当しました。</p>
+            <div class="m-pthumb-row" style="grid-template-columns:repeat(2,1fr);">
+              <div class="m-pthumb">🖼️</div>
+              <div class="m-pthumb">🖼️</div>
+            </div>
+          </div>
+          <div class="m-psite-card" style="margin-bottom:0;">
+            <span class="m-kicker">Requests</span>
+            <div style="font-size:0.62rem; color:var(--muted); margin-bottom:2px;">表示順 2</div>
+            <h5>△△店 店内装飾デザイン</h5>
+            <p>店舗の雰囲気に合わせた装飾パネルを制作しました。</p>
+          </div>
+        </div>
+        </div><!-- /.m-editor-grid -->
       </div><!-- /.m-content -->
     </div><!-- /.m-app -->
   </div><!-- /.mock -->
@@ -1940,7 +2235,7 @@ img { max-width: 100%; display: block; }
 
   <div class="callout tip" style="margin-top:16px;">
     <i class="fa-solid fa-circle-info"></i>
-    <div>依頼事例は<strong>管理画面上の並び順</strong>（#1, #2…）がそのままホームページに反映されます。「↑」「↓」ボタンで順番を変更してください。</div>
+    <div>依頼事例は<strong>管理画面上の並び順（表示順 1, 2…）</strong>がそのままホームページに反映されます。「↑」「↓」ボタンで順番を変更してください。</div>
   </div>
 </section>
 
@@ -1989,21 +2284,19 @@ img { max-width: 100%; display: block; }
               <div class="m-file-grid">
                 <div class="m-file-card">
                   <div class="m-file-thumb">🖼️</div>
-                  <div class="m-file-name">photo01.jpg / 1.2 MB</div>
                   <div style="font-size:0.7rem; color:var(--muted); padding:2px 8px;">表示順 1 / 1.2 MB</div>
                   <div class="m-file-actions">
-                    <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 7px;" disabled>前へ</button>
+                    <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 7px; opacity:0.38;">前へ</button>
                     <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 7px;">次へ</button>
                     <button class="m-btn danger" style="font-size:0.68rem; padding:4px 7px;"><i class="fa-solid fa-trash"></i></button>
                   </div>
                 </div>
                 <div class="m-file-card">
                   <div class="m-file-thumb">🖼️</div>
-                  <div class="m-file-name">photo02.jpg</div>
                   <div style="font-size:0.7rem; color:var(--muted); padding:2px 8px;">表示順 2 / 2.4 MB</div>
                   <div class="m-file-actions">
                     <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 7px;">前へ</button>
-                    <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 7px;" disabled>次へ</button>
+                    <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 7px; opacity:0.38;">次へ</button>
                     <button class="m-btn danger" style="font-size:0.68rem; padding:4px 7px;"><i class="fa-solid fa-trash"></i></button>
                   </div>
                 </div>
@@ -2017,8 +2310,8 @@ img { max-width: 100%; display: block; }
     <div class="sub-section-title" style="margin-top:24px;">アップロード手順</div>
     <ol class="steps">
       <li><div class="num">1</div><div class="body"><strong>「画像の設定」ボタンをクリックする</strong></div></li>
-      <li><div class="num">2</div><div class="body"><strong>「画像を追加」のファイル選択でパソコンから画像を選ぶ</strong><small>JPEG / PNG / WebP / GIF 対応。推奨3MB以下、最大20MBまで。新歓カレンダーは16:9推奨。</small></div></li>
-      <li><div class="num">3</div><div class="body"><strong>「アップロード」ボタンをクリック</strong><small>一覧の末尾に自動追加されます。</small></div></li>
+      <li><div class="num">2</div><div class="body"><strong>「画像を追加」のファイル選択でパソコンから画像を選ぶ</strong><small>画像ファイル対応（JPEG / PNG / WebP / GIF など）。複数選択できます。推奨3MB以下、1枚20MBを超えるとアップロードできません。5MBを超えるファイルは確認ダイアログが表示されます。新歓カレンダーは16:9推奨。</small></div></li>
+      <li><div class="num">3</div><div class="body"><strong>「アップロード」ボタンをクリック</strong><small>一覧の末尾に自動追加されます。完了すると画面上部に「アップロードしました。」と表示されます。</small></div></li>
       <li><div class="num">4</div><div class="body"><strong>「前へ」「次へ」で表示順を調整する（任意）</strong><small>並び順は「下書き保存」または「公開する」を実行したときに確定します。</small></div></li>
       <li><div class="num">5</div><div class="body"><strong>「✕」で閉じる</strong><small>アップロードと削除はすぐに反映されます。並び順の変更は「下書き保存」または「公開する」を実行すると確定します。</small></div></li>
     </ol>
@@ -2034,7 +2327,7 @@ img { max-width: 100%; display: block; }
       <tbody>
         <tr><td><button class="m-btn subtle" style="font-size:0.76rem; pointer-events:none;">前へ</button></td><td>この画像の表示順を1つ前にします。ホームページでの表示順に直結します。</td></tr>
         <tr><td><button class="m-btn subtle" style="font-size:0.76rem; pointer-events:none;">次へ</button></td><td>この画像の表示順を1つ後ろにします。</td></tr>
-        <tr><td><button class="m-btn danger" style="font-size:0.76rem; pointer-events:none;"><i class="fa-solid fa-trash"></i></button></td><td>画像を削除します（取り消しはできません）。</td></tr>
+        <tr><td><button class="m-btn danger" style="font-size:0.76rem; pointer-events:none;"><i class="fa-solid fa-trash"></i></button></td><td>画像を削除します。「この画像を削除しますか？」の確認後、すぐに削除されます（管理画面からは取り消せません）。</td></tr>
       </tbody>
     </table>
   </div>
@@ -2088,7 +2381,7 @@ img { max-width: 100%; display: block; }
         <!-- サイト更新履歴プレビュー -->
         <div class="m-card">
           <h3>サイトの更新履歴プレビュー</h3>
-          <p style="font-size:0.78rem; color:var(--muted); margin-bottom:10px;">現在の編集内容で公開した場合に「UPDATE LOG」がどう変わるかを表示します。タブを開くたびに自動で再計算されます。</p>
+          <p style="font-size:0.78rem; color:var(--muted); margin-bottom:10px;">緑は今回の公開で新しく表示される項目、赤は今回の公開でサイト上から非表示になる項目です。</p>
           <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px;">
             <span class="m-sim-badge added" style="font-size:0.72rem;">追加・再表示</span>
             <span class="m-sim-badge removed" style="font-size:0.72rem;">非表示</span>
@@ -2105,7 +2398,7 @@ img { max-width: 100%; display: block; }
               <div class="m-log-date">2026.05.01</div>
               <ul style="list-style:none; margin:4px 0 0; padding:0; display:flex; flex-direction:column; gap:4px;">
                 <li style="display:flex; align-items:center; gap:6px; font-size:0.8rem;"><span class="m-sim-badge unchanged" style="font-size:0.68rem;">継続</span>活動記録・告知「六甲祭2025の活動報告」</li>
-                <li style="display:flex; align-items:center; gap:6px; font-size:0.8rem;"><span class="m-sim-badge removed" style="font-size:0.68rem;">非表示</span>活動記録・告知「春の活動報告（旧）」</li>
+                <li style="display:flex; align-items:center; gap:6px; font-size:0.8rem;"><span class="m-sim-badge removed" style="font-size:0.68rem;">非表示</span><span style="text-decoration:line-through; color:rgba(255,255,255,0.7);">活動記録・告知「春の活動報告（旧）」</span></li>
               </ul>
             </div>
           </div>
@@ -2117,8 +2410,8 @@ img { max-width: 100%; display: block; }
   <table class="m-table" style="margin-top:20px;">
     <thead><tr><th>項目</th><th>説明</th></tr></thead>
     <tbody>
-      <tr><td>更新履歴メモ（フリーテキスト）</td><td>自動生成されない補足情報を手動で追加できます。改行ごとに1項目として扱われます。入力後に「公開する」を実行すると、サイトの更新履歴として記録されます。</td></tr>
-      <tr><td>サイトの更新履歴プレビュー</td><td>現在の編集内容で公開した場合にホームページの「UPDATE LOG」がどう変わるかを自動計算して表示します。タブを開くたびに再計算されます。</td></tr>
+      <tr><td>更新履歴メモ（フリーテキスト）</td><td>自動生成されない補足情報を手動で追加できます。改行ごとに1項目として扱われます。入力後に「公開する」を実行すると、サイトの更新履歴に記録されます（管理側の公開履歴には「補足: …」として残ります）。</td></tr>
+      <tr><td>サイトの更新履歴プレビュー</td><td>現在の編集内容で公開した場合にホームページの「UPDATE LOG」がどう変わるかを自動計算して表示します。タブを開いたときと、メモを入力したときに自動で再計算されます（再計算中は「公開後の履歴を確認しています...」と表示されます）。</td></tr>
     </tbody>
   </table>
 
@@ -2139,7 +2432,7 @@ img { max-width: 100%; display: block; }
     <div>「更新履歴メモ」は必須ではありません。展示会・活動記録・依頼事例・新歓カレンダーへの変更は<strong>自動的に履歴として記録</strong>されます。自動生成では表現しきれない補足情報がある場合にのみ使用してください。</div>
   </div>
 
-  <div class="callout info" style="margin-top:14px;">
+  <div class="callout tip" style="margin-top:14px;">
     <i class="fa-solid fa-circle-info"></i>
     <div>誰がいつ「公開する」を実行したかの記録は、<strong>ダッシュボードの「公開履歴」カード</strong>で確認できます。更新履歴タブには表示されません。</div>
   </div>
@@ -2162,6 +2455,7 @@ img { max-width: 100%; display: block; }
           <button class="m-btn primary" style="pointer-events:none; font-size:0.9rem;"><i class="fa-solid fa-floppy-disk"></i> 下書き保存</button>
         </div>
         <ul style="color:var(--soft); font-size:0.84rem; padding-left:18px; display:grid; gap:8px;">
+          <li>クリックすると「現在の内容を新しい下書きとして保存しますか？」と確認されます</li>
           <li>ホームページには<strong style="color:#fff;">反映されない</strong></li>
           <li>ダッシュボードから再読込できる</li>
           <li>公開が完了すると<strong style="color:#fff;">自動的に削除される</strong></li>
@@ -2173,17 +2467,22 @@ img { max-width: 100%; display: block; }
           <button class="m-btn success" style="pointer-events:none; font-size:0.9rem;"><i class="fa-solid fa-rocket"></i> 公開する</button>
         </div>
         <ul style="color:var(--soft); font-size:0.84rem; padding-left:18px; display:grid; gap:8px;">
+          <li>クリックすると「この内容で公開しますか？」と確認されます</li>
           <li>ホームページに<strong style="color:#fff;">反映される</strong></li>
           <li>数分後に実際のサイトに反映</li>
           <li>変更内容が更新履歴に記録される</li>
-          <li>確認画面（プレビュー）が表示される</li>
         </ul>
       </div>
     </div>
 
     <div class="callout tip">
       <i class="fa-solid fa-circle-info"></i>
-      <div>ブラウザを閉じる前に必ず「下書き保存」を。</div>
+      <div>ブラウザを閉じる前に必ず「下書き保存」を。未保存の変更があるままタブを閉じたり再読み込みしたりしようとすると、ブラウザの確認ダイアログが表示されます。</div>
+    </div>
+
+    <div class="callout warn">
+      <i class="fa-solid fa-triangle-exclamation"></i>
+      <div><strong>タイトルが未入力のコンテンツがあると公開できません。</strong>「公開する」を押したときに「入力が必要な項目があります。- 展示会「新規展示会 1」：展示会名」のようなエラーが赤く表示されたら、該当のタイトル（展示会名・記事タイトル・取り組みタイトル）を入力してから再度公開してください。</div>
     </div>
   </div>
 
@@ -2231,14 +2530,24 @@ img { max-width: 100%; display: block; }
       <div class="mock" style="border-radius:16px;">
         <div style="padding:16px; display:grid; gap:10px;">
           <div>
-            <div style="font-size:0.72rem; color:var(--muted); margin-bottom:4px;">① 公開処理中</div>
-            <div class="m-topbar-status publishing"><i class="fa-solid fa-spinner fa-spin"></i> 公開処理を開始しています...</div>
+            <div style="font-size:0.72rem; color:var(--muted); margin-bottom:4px;">① 公開処理中（グレー表示）</div>
+            <div class="m-topbar-status">公開処理を開始しています…</div>
           </div>
           <div>
-            <div style="font-size:0.72rem; color:var(--muted); margin-bottom:4px;">② 完了時</div>
-            <div class="m-topbar-status done"><i class="fa-solid fa-circle-check"></i> 公開処理を完了しました。数分後にサイトに反映されます。</div>
+            <div style="font-size:0.72rem; color:var(--muted); margin-bottom:4px;">② 完了時（緑表示・変更内容の要約つき）</div>
+            <div class="m-topbar-status done">展示会「第XX回凌美会展」を公開
+公開処理を完了しました。数分後にサイトに反映されます。</div>
+          </div>
+          <div>
+            <div style="font-size:0.72rem; color:var(--muted); margin-bottom:4px;">③ エラー時（赤表示）— 例: 必須項目の未入力</div>
+            <div class="m-topbar-status error">入力が必要な項目があります。
+- 展示会「新規展示会 1」：展示会名</div>
           </div>
         </div>
+      </div>
+      <div class="callout tip" style="margin-top:14px;">
+        <i class="fa-solid fa-circle-info"></i>
+        <div>完了メッセージの1行目には、今回の公開で何が変わったかの要約（例:「展示会「第XX回凌美会展」を公開」）が表示されます。変更がなかった場合は「変更なし」と表示されます。メッセージを見逃した場合は「履歴」ボタンから確認できます。</div>
       </div>
     </div>
 
@@ -2276,7 +2585,7 @@ img { max-width: 100%; display: block; }
         <li>迷惑メールフォルダを確認してください</li>
         <li>メールアドレスの入力が正しいか確認してください</li>
         <li>数分待ってから「確認コードを送信」を再クリックしてください</li>
-        <li>何度も送信した場合は、送信回数の上限に達している可能性があります。しばらく時間をおいてから再度お試しください</li>
+        <li>「確認コードの送信回数が上限に達しました。」と表示された場合は、1時間あたりの送信上限（5回）に達しています。しばらく時間をおいてから再度お試しください</li>
       </ul>
     </div>
 
@@ -2286,7 +2595,7 @@ img { max-width: 100%; display: block; }
     </div>
 
     <div class="m-card">
-      <h3 style="color:var(--yellow); font-size:0.92rem; margin-bottom:8px;"><i class="fa-solid fa-circle-question"></i> 「セッションが切れています」と表示される</h3>
+      <h3 style="color:var(--yellow); font-size:0.92rem; margin-bottom:8px;"><i class="fa-solid fa-circle-question"></i> 「セッションが切れています。もう一度認証してください。」と表示される</h3>
       <p style="font-size:0.88rem; color:var(--soft);">セッションの有効期限（30分）が切れました。ページをリロードして再ログインしてください。<strong style="color:#fff;">こまめに「下書き保存」することで作業内容を保護できます。</strong></p>
     </div>
 
