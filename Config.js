@@ -43,6 +43,8 @@ function getConfig_() {
   config.GH_INSTALLATION_ID = String(props.getProperty('GH_INSTALLATION_ID') || '').trim();
   config.GH_PRIVATE_KEY = String(props.getProperty('GH_PRIVATE_KEY') || '').replace(/\\n/g, '\n');
   config.GH_FINE_GRAINED_PAT = String(props.getProperty('GH_FINE_GRAINED_PAT') || '').trim();
+  config.GEMINI_API_KEY = String(props.getProperty('GEMINI_API_KEY') || '').trim();
+  config.GEMINI_MODEL = String(props.getProperty('GEMINI_MODEL') || 'gemini-3.1-flash-lite').trim();
   return config;
 }
 

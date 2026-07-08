@@ -207,6 +207,16 @@ payload 受信
 | `trashManagedFile(sessionToken, request)` | ファイルをゴミ箱に移動（フォルダが空になれば自動削除）|
 | `saveMediaSettings(sessionToken, request)` | 展示会の DM 画像・作品ファイルの整理順を保存 |
 
+### `Gemini.js` — 目録PDFの作品情報抽出
+
+**公開 API（フロントエンドから呼び出される関数）：**
+
+| 関数 | 役割 |
+|------|------|
+| `extractExhibitionCatalog(sessionToken, request)` | 展示会の目録PDFをGemini APIに一時的に渡し、作品番号・作品名・作者名などをJSONで返す |
+
+PDF本体は Drive やスプレッドシートには保存しません。管理画面では抽出結果を一時的な入力候補として表示し、各作品画像カードに反映された作品名・作者名だけが既存の `work_files` に保存されます。
+
 **フォルダ命名規則：**
 
 - 下書き中：`{タイトル}_下書き_{yyyyMMdd_HHmm}`
@@ -338,6 +348,14 @@ GAS スクリプトエディタの「プロジェクトの設定」→「スク�
 | `GH_WORKFLOW_FILE` | ワークフローファイル名（例：`deploy.yml`）|
 | `GH_BRANCH` | ワークフローを起動するブランチ名（例：`main`）|
 | `GH_AUTH_MODE` | GitHub 認証モード：`PAT` または `APP` |
+
+### 任意プロパティ
+
+| プロパティ名 | 説明 |
+|------------|------|
+| `SITE_PREVIEW_URL` | 「サイトを見る」ボタンのURL。未設定時は `GH_OWNER` と `GH_REPO` から GitHub Pages URL を推定 |
+| `GEMINI_API_KEY` | 目録PDFから作品情報を抽出する場合に設定する Gemini API キー |
+| `GEMINI_MODEL` | 目録PDF抽出に使うモデル名。未設定時は `gemini-3.1-flash-lite` |
 
 ### 認証モード別の追加プロパティ
 

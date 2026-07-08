@@ -25,6 +25,7 @@ const appState = {
   },
   imageCache: {},
   mediaCache: {},
+  catalogDrafts: {},
   statusHistory: [],
   dirty: false,
   suppressDirty: false
@@ -499,6 +500,7 @@ const FILE_WARN_SIZE = 5 * 1024 * 1024;
 const FILE_STRONG_WARN_SIZE = 10 * 1024 * 1024;
 const FILE_MAX_SIZE = 20 * 1024 * 1024;
 const FILE_TOTAL_WARN_SIZE = 50 * 1024 * 1024;
+const CATALOG_PDF_MAX_SIZE = 10 * 1024 * 1024;
 const TRASH_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:block"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M9 6V4h6v2"></path></svg>';
 const URL_PROTOCOL = 'https:' + String.fromCharCode(47, 47);
 
@@ -619,6 +621,10 @@ async function openMediaDialog(kind, index = 0) {
 }
 
 function closeMediaDialog() {
+  const context = currentMediaContext();
+  if (context.kind === 'exhibition' && hasCatalogDraft(context)) {
+    if (!confirm('目録PDFから読み込んだ一時データは、画面を閉じると消えます。閉じますか？')) return;
+  }
   syncMediaEditorRowsToState();
   syncActiveMediaHiddenFields();
   const dialog = document.getElementById('mediaDialog');
@@ -631,6 +637,32 @@ function setMediaStatus(message, type) {
   if (!status) return;
   status.textContent = message || '';
   status.className = 'media-dialog-status' + (message ? ' is-visible' : ' hidden') + (type ? ' is-' + type : '');
+}
+
+function catalogDraftKey(context) {
+  const item = context && context.item ? context.item : {};
+  return [
+    'exhibition',
+    item.exhibitionId || item.draftCreatedAt || context.index || 0,
+    item.title || ''
+  ].join('|');
+}
+
+function getCatalogDraft(context) {
+  return appState.catalogDrafts[catalogDraftKey(context)] || null;
+}
+
+function setCatalogDraft(context, draft) {
+  appState.catalogDrafts[catalogDraftKey(context)] = draft;
+}
+
+function clearCatalogDraft(context) {
+  delete appState.catalogDrafts[catalogDraftKey(context)];
+}
+
+function hasCatalogDraft(context) {
+  const draft = getCatalogDraft(context);
+  return !!(draft && Array.isArray(draft.items) && draft.items.length);
 }
 
 function isMediaDialogOpen() {
@@ -708,6 +740,7 @@ function renderGenericMediaCard(file, index, count) {
 function renderExhibitionMediaSettings(files, context) {
   const item = context.item || {};
   const dmIds = normalizeIdList(item.dmFileIds);
+  const catalog = getCatalogDraft(context);
   const works = (item.workFiles || item.works || []).map((work, index) => {
     const fileId = work.fileId || work.file_id;
     return Object.assign({}, work, { fileId, sortOrder: Number(work.sortOrder || work.sort_order || index + 1) });
@@ -718,15 +751,70 @@ function renderExhibitionMediaSettings(files, context) {
     renderMediaUploadBox('dm', 'DM画像を追加', 'exhibition'),
     renderExhibitionDmList(files, dmIds),
     '</div>',
+    renderCatalogImportPanel(catalog, works),
     '<div class="media-section">',
     '<h3>作品画像</h3>',
     renderMediaUploadBox('work', '作品画像を追加', 'exhibition'),
     '<div class="small-note">表示順は、スマートフォン表示と拡大表示時のスライド順に反映されます。PCでは画像の縦横比に合わせて、見やすい配置に自動調整されます。</div>',
     '<div class="media-file-grid media-work-grid">',
-    works.length ? works.map((work, index) => renderExhibitionWorkRow(fileById(files, work.fileId), work, index, works.length)).join('') : '<div class="preview-empty">作品画像は未設定です。</div>',
+    works.length ? works.map((work, index) => renderExhibitionWorkRow(fileById(files, work.fileId), work, index, works.length, catalog, works)).join('') : '<div class="preview-empty">作品画像は未設定です。目録PDFを先に読み込んだ場合は、作品画像をアップロードすると各画像に紐づけできます。</div>',
     '</div>',
     '</div>'
   ].join('');
+}
+
+function renderCatalogImportPanel(catalog, works) {
+  const pdfAccept = 'application/' + 'pdf';
+  const items = catalog && Array.isArray(catalog.items) ? catalog.items : [];
+  const usedKeys = selectedCatalogKeysFromWorks(works || []);
+  const unusedCount = items.filter((item) => usedKeys.indexOf(item.key) === -1).length;
+  return [
+    '<div class="media-section catalog-import-section">',
+    '<div class="catalog-import-head">',
+    '<div>',
+    '<h3>目録PDFから作品情報を自動入力</h3>',
+    '<div class="small-note">作品目録をAI解析して作品情報を自動抽出します。</div>',
+    '<div class="small-note">現在使用中モデル：' + escapeHtml((appState.options && appState.options.geminiModel) || 'GEMINI_MODEL') + '</div>',
+    '</div>',
+    items.length ? '<button class="button subtle" type="button" onclick="clearCatalogDraftAndRender()">抽出結果を消去</button>' : '',
+    '</div>',
+    '<div class="media-upload-row">',
+    '<div class="field media-file-field">',
+    '<label>目録PDF</label>',
+    '<input id="catalogPdfInput" type="file" accept="' + escapeHtml(pdfAccept) + '">',
+    '</div>',
+    '<button class="button success" type="button" onclick="onCatalogPdfExtract()">読み込む</button>',
+    '</div>',
+    items.length ? [
+      '<div class="catalog-summary">',
+      '<strong>' + escapeHtml(catalog.sourceName || '目録PDF') + '</strong> から ' + items.length + '件を読み込みました。',
+      unusedCount ? ' 未使用: ' + unusedCount + '件' : ' すべて選択済みです。',
+      '</div>',
+      renderCatalogExtractedList(items, usedKeys)
+    ].join('') : '',
+    '</div>'
+  ].join('');
+}
+
+function renderCatalogExtractedList(items, usedKeys) {
+  return [
+    '<details class="catalog-details">',
+    '<summary>抽出結果を表示</summary>',
+    '<div class="catalog-result-list">',
+    items.map((item) => [
+      '<div class="catalog-result-row' + (usedKeys.indexOf(item.key) >= 0 ? ' is-used' : '') + '">',
+      '<span class="catalog-result-order">' + escapeHtml(item.sortOrder) + '</span>',
+      '<span class="catalog-result-main">' + escapeHtml(item.artist || '作者未入力') + ' / ' + escapeHtml(item.title || '作品名未入力') + '</span>',
+      item.size || item.materials ? '<span class="catalog-result-sub">' + escapeHtml([item.size, item.materials].filter(Boolean).join(' / ')) + '</span>' : '',
+      '</div>'
+    ].join('')).join(''),
+    '</div>',
+    '</details>'
+  ].join('');
+}
+
+function selectedCatalogKeysFromWorks(works) {
+  return (works || []).map((work) => String(work.catalogKey || '')).filter(Boolean);
 }
 
 function renderExhibitionDmList(files, dmIds) {
@@ -749,12 +837,13 @@ function renderExhibitionDmList(files, dmIds) {
   ].join('');
 }
 
-function renderExhibitionWorkRow(file, work, index, count) {
+function renderExhibitionWorkRow(file, work, index, count, catalog, works) {
   return [
-    '<article class="media-file-card media-work-card" data-exhibition-media-row data-file-id="' + escapeHtml(file.id) + '">',
+    '<article class="media-file-card media-work-card" data-exhibition-media-row data-file-id="' + escapeHtml(file.id) + '" data-catalog-key="' + escapeHtml(work.catalogKey || '') + '">',
     '<div class="media-file-thumb media-file-thumb-work"><img src="' + escapeHtml(file.thumbnailUrl) + '" alt=""></div>',
     '<div class="small-note">表示順 ' + (index + 1) + ' / ' + formatBytes(file.size || 0) + '</div>',
     '<div class="form-grid compact-media-grid">',
+    renderCatalogSelect(work, catalog, works),
     '<div class="field"><label>作品名</label><input data-field="workTitle" value="' + escapeHtml(work.title || work.workTitle || '') + '"></div>',
     '<div class="field"><label>作者名</label><input data-field="artistName" value="' + escapeHtml(work.artist || work.artistName || '') + '"></div>',
     '</div>',
@@ -765,6 +854,38 @@ function renderExhibitionWorkRow(file, work, index, count) {
     '</div>',
     '</article>'
   ].join('');
+}
+
+function renderCatalogSelect(work, catalog, works) {
+  const items = catalog && Array.isArray(catalog.items) ? catalog.items : [];
+  if (!items.length) return '';
+  const selectedKey = String(work.catalogKey || matchCatalogItemKey(work, items) || '');
+  const usedKeys = selectedCatalogKeysFromWorks(works || []).filter((key) => key !== selectedKey);
+  return [
+    '<div class="field">',
+    '<label>目録項目</label>',
+    '<select data-field="catalogItem" onchange="onCatalogItemSelect(this)">',
+    '<option value="">目録に紐づけない</option>',
+    items.map((item) => {
+      const label = catalogItemLabel(item);
+      const disabled = usedKeys.indexOf(item.key) >= 0 ? 'disabled' : '';
+      return '<option value="' + escapeHtml(item.key) + '" ' + (item.key === selectedKey ? 'selected' : '') + ' ' + disabled + '>' + escapeHtml(label) + '</option>';
+    }).join(''),
+    '</select>',
+    '</div>'
+  ].join('');
+}
+
+function catalogItemLabel(item) {
+  return [item.sortOrder, item.artist || '作者未入力', item.title || '作品名未入力'].join(' / ');
+}
+
+function matchCatalogItemKey(work, items) {
+  const title = String(work.title || work.workTitle || '').trim();
+  const artist = String(work.artist || work.artistName || '').trim();
+  if (!title && !artist) return '';
+  const found = (items || []).find((item) => item.title === title && item.artist === artist);
+  return found ? found.key : '';
 }
 
 
@@ -809,6 +930,92 @@ function readFilePayload(file) {
     reader.onerror = () => reject(reader.error || new Error('ファイルの読み込みに失敗しました。'));
     reader.readAsDataURL(file);
   });
+}
+
+function validateCatalogPdf(file) {
+  if (!file) throw new Error('目録PDFを選択してください。');
+  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
+  if (!isPdf) throw new Error('PDFファイルを選択してください。');
+  if (file.size > CATALOG_PDF_MAX_SIZE) throw new Error('目録PDFは10MB以下にしてください。');
+}
+
+function normalizeCatalogDraft(result) {
+  const items = (result.items || []).map((item, index) => ({
+    key: 'catalog-' + index + '-' + String(item.sortOrder || index + 1),
+    sortOrder: Number(item.sortOrder || item.sort_order || index + 1) || index + 1,
+    artist: String(item.artist || '').trim(),
+    title: String(item.title || '').trim(),
+    size: String(item.size || '').trim(),
+    materials: String(item.materials || '').trim()
+  })).filter((item) => item.artist || item.title);
+  return {
+    sourceName: result.sourceName || '',
+    model: result.model || '',
+    warnings: result.warnings || [],
+    items
+  };
+}
+
+async function onCatalogPdfExtract() {
+  const context = currentMediaContext();
+  if (context.kind !== 'exhibition') return;
+  const input = document.getElementById('catalogPdfInput');
+  const file = input && input.files && input.files[0] ? input.files[0] : null;
+  try {
+    validateCatalogPdf(file);
+    syncMediaEditorRowsToState();
+    document.getElementById('mediaDialogBody').classList.add('is-loading');
+    setMediaStatus('目録PDFを読み込んでいます…');
+    setStatus('目録PDFを読み込んでいます…');
+    const payload = await readFilePayload(file);
+    const result = await serverCall('extractExhibitionCatalog', appState.sessionToken, payload);
+    const draft = normalizeCatalogDraft(result);
+    if (!draft.items.length) throw new Error('目録から作品情報を抽出できませんでした。');
+    setCatalogDraft(context, draft);
+    renderMediaDialog(context.folderId ? (appState.mediaCache[context.folderId] || []) : []);
+    const message = '目録PDFから' + draft.items.length + '件の作品情報を読み込みました。各作品画像カードで目録項目を選択してください。';
+    setMediaStatus(message, 'success');
+    setStatus(message, 'success');
+  } catch (error) {
+    setMediaStatus(error.message || String(error), 'error');
+    setStatus(error.message || String(error), 'error');
+  } finally {
+    const body = document.getElementById('mediaDialogBody');
+    if (body) body.classList.remove('is-loading');
+  }
+}
+
+function onCatalogItemSelect(select) {
+  const context = currentMediaContext();
+  const draft = getCatalogDraft(context);
+  const row = select.closest('[data-exhibition-media-row]');
+  if (!draft || !row) return;
+  let key = select.value || '';
+  if (key) {
+    const duplicated = Array.from(document.querySelectorAll('[data-field="catalogItem"]')).some((other) => other !== select && other.value === key);
+    if (duplicated) {
+      setMediaStatus('同じ目録項目は複数の画像に紐づけできません。', 'error');
+      select.value = '';
+      key = '';
+    }
+  }
+  const item = (draft.items || []).find((candidate) => candidate.key === key);
+  row.setAttribute('data-catalog-key', key);
+  if (item) {
+    row.querySelector('[data-field="workTitle"]').value = item.title || '';
+    row.querySelector('[data-field="artistName"]').value = item.artist || '';
+  }
+  syncMediaEditorRowsToState();
+  markDirty();
+  syncActiveMediaHiddenFields();
+  refreshPreviewForKind('exhibition');
+}
+
+function clearCatalogDraftAndRender() {
+  const context = currentMediaContext();
+  clearCatalogDraft(context);
+  renderMediaDialog(context.folderId ? (appState.mediaCache[context.folderId] || []) : []);
+  setMediaStatus('目録PDFの抽出結果を消去しました。', 'success');
 }
 
 async function onMediaUpload(uploadRole) {
@@ -947,7 +1154,8 @@ function syncMediaEditorRowsToState() {
       fileId,
       sortOrder: index + 1,
       title: row.querySelector('[data-field="workTitle"]').value.trim(),
-      artist: row.querySelector('[data-field="artistName"]').value.trim()
+      artist: row.querySelector('[data-field="artistName"]').value.trim(),
+      catalogKey: row.querySelector('[data-field="catalogItem"]') ? row.querySelector('[data-field="catalogItem"]').value : (row.getAttribute('data-catalog-key') || '')
     });
   });
   context.item.workFiles = workFiles;

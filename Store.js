@@ -5,7 +5,9 @@ function getBootstrapData(sessionToken) {
     viewerEmail: session.email,
     viewerName: session.name || session.email,
     previewUrl: getConfig_().SITE_PREVIEW_URL,
-    options: listDriveFolders(sessionToken),
+    options: Object.assign(listDriveFolders(sessionToken), {
+      geminiModel: getConfig_().GEMINI_MODEL
+    }),
     state: state,
     drafts: readDrafts_(),
     adminLog: readAdminLog_(),
