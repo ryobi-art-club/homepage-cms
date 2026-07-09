@@ -621,10 +621,6 @@ async function openMediaDialog(kind, index = 0) {
 }
 
 function closeMediaDialog() {
-  const context = currentMediaContext();
-  if (context.kind === 'exhibition' && hasCatalogDraft(context)) {
-    if (!confirm('目録PDFから読み込んだ一時データは、画面を閉じると消えます。閉じますか？')) return;
-  }
   syncMediaEditorRowsToState();
   syncActiveMediaHiddenFields();
   const dialog = document.getElementById('mediaDialog');
@@ -658,11 +654,6 @@ function setCatalogDraft(context, draft) {
 
 function clearCatalogDraft(context) {
   delete appState.catalogDrafts[catalogDraftKey(context)];
-}
-
-function hasCatalogDraft(context) {
-  const draft = getCatalogDraft(context);
-  return !!(draft && Array.isArray(draft.items) && draft.items.length);
 }
 
 function isMediaDialogOpen() {
@@ -767,6 +758,7 @@ function renderCatalogImportPanel(catalog, works) {
   const pdfAccept = 'application/' + 'pdf';
   const items = catalog && Array.isArray(catalog.items) ? catalog.items : [];
   const usedKeys = selectedCatalogKeysFromWorks(works || []);
+  const linkedCount = usedKeys.length;
   const unusedCount = items.filter((item) => usedKeys.indexOf(item.key) === -1).length;
   return [
     '<div class="media-upload-box catalog-import-section">',
@@ -776,7 +768,12 @@ function renderCatalogImportPanel(catalog, works) {
     '<div class="small-note">作品目録をAI解析して作品情報を自動抽出します。</div>',
     '<div class="small-note">現在使用中モデル：' + escapeHtml((appState.options && appState.options.geminiModel) || 'GEMINI_MODEL') + '</div>',
     '</div>',
-    items.length ? '<button class="button subtle" type="button" onclick="clearCatalogDraftAndRender()">抽出結果を消去</button>' : '',
+    items.length ? [
+      '<div class="catalog-import-actions">',
+      '<button class="button subtle" data-catalog-sort-button type="button" onclick="sortExhibitionWorksByCatalogOrder()" ' + (linkedCount < 2 ? 'disabled' : '') + '>作品番号順に並べる</button>',
+      '<button class="button subtle" type="button" onclick="clearCatalogDraftAndRender()">抽出結果を消去</button>',
+      '</div>'
+    ].join('') : '',
     '</div>',
     '<div class="media-upload-row">',
     '<div class="field media-file-field">',
@@ -1006,9 +1003,46 @@ function onCatalogItemSelect(select) {
     row.querySelector('[data-field="artistName"]').value = item.artist || '';
   }
   syncMediaEditorRowsToState();
+  updateCatalogSortButtonState();
   markDirty();
   syncActiveMediaHiddenFields();
   refreshPreviewForKind('exhibition');
+}
+
+function updateCatalogSortButtonState() {
+  const button = document.querySelector('[data-catalog-sort-button]');
+  if (!button) return;
+  const linkedCount = Array.from(document.querySelectorAll('[data-field="catalogItem"]'))
+    .filter((select) => select.value).length;
+  button.disabled = linkedCount < 2;
+}
+
+function sortExhibitionWorksByCatalogOrder() {
+  const context = currentMediaContext();
+  const draft = getCatalogDraft(context);
+  if (!context.item || !draft) return;
+  syncMediaEditorRowsToState();
+  const items = draft.items || [];
+  const linkedWorks = (context.item.workFiles || []).filter((work) => work.catalogKey).slice();
+  if (linkedWorks.length < 2) {
+    setMediaStatus('作品番号順に並べるには、目録を2件以上の作品画像に紐づけてください。', 'error');
+    return;
+  }
+  linkedWorks.sort((a, b) => {
+    const itemA = items.find((item) => item.key === a.catalogKey);
+    const itemB = items.find((item) => item.key === b.catalogKey);
+    return Number(itemA ? itemA.sortOrder : 0) - Number(itemB ? itemB.sortOrder : 0);
+  });
+  const unlinkedWorks = (context.item.workFiles || []).filter((work) => !work.catalogKey);
+  context.item.workFiles = linkedWorks.concat(unlinkedWorks).map((work, index) => (
+    Object.assign({}, work, { sortOrder: index + 1 })
+  ));
+  context.item.works = context.item.workFiles;
+  markDirty();
+  syncActiveMediaHiddenFields();
+  renderMediaDialog(context.folderId ? (appState.mediaCache[context.folderId] || []) : []);
+  refreshPreviewForKind('exhibition');
+  setMediaStatus('紐づけた作品を作品番号順に並べ、未紐づけ画像を後ろへ移動しました。', 'success');
 }
 
 function clearCatalogDraftAndRender() {
@@ -1372,23 +1406,31 @@ function renderStorageCard() {
     warning: '警告',
     danger: '強い警告'
   }[storage.level || 'ok'];
-  const recommendationHtml = recommendations.length
+  const showRecommendations = storage.level && storage.level !== 'ok';
+  const recommendationHtml = !showRecommendations
+    ? ''
+    : recommendations.length
     ? [
         '<div class="recommendation-list">',
-        '<div class="small-note">退避候補</div>',
+        '<div class="small-note">退避候補（合計 ' + formatBytes(storage.recommendationBytes || 0) + '）</div>',
         recommendations.map((item) => [
           '<div class="recommendation-item">',
           '<div>',
           '<span class="recommendation-kind">' + escapeHtml(item.label || '') + '</span>',
           '<strong>' + escapeHtml(item.title || '') + '</strong>',
-          '<span class="small-note">' + escapeHtml(formatDate(item.date) || '日付なし') + (item.published === false ? ' / 非公開' : '') + '</span>',
+          '<span class="small-note">' + escapeHtml(formatDate(item.date) || '日付なし') + (item.published === false ? ' / 非公開' : '') + ' / ' + formatBytes(item.size || 0) + '</span>',
           '</div>',
           '<a class="button subtle" href="' + escapeHtml(item.folderUrl || '#') + '" target="_blank" rel="noopener noreferrer">Driveで開く</a>',
           '</div>'
         ].join('')).join(''),
+        '<div class="small-note">' + (
+          storage.recommendationSufficient
+            ? 'すべて退避した場合の見込み残量: ' + formatBytes(storage.projectedRemaining || storage.remaining)
+            : '登録済み素材をすべて退避しても、十分な空き容量に届かない見込みです。'
+        ) + '</div>',
         '</div>'
       ].join('')
-    : '<div class="small-note">退避候補はまだありません。</div>';
+    : '<div class="small-note">容量を確保できる退避候補はありません。</div>';
   return [
     '<div class="card storage-card is-' + escapeHtml(storage.level || 'ok') + '">',
     '<div class="storage-head">',

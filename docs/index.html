@@ -1222,24 +1222,25 @@ img { max-width: 100%; display: block; }
               <h3 style="margin-bottom:2px;">Drive容量</h3>
               <div style="font-size:0.72rem; color:var(--muted);">ホームページ素材以外も含む、実行アカウント全体の容量です。</div>
             </div>
-            <span style="font-size:0.72rem; padding:4px 10px; border-radius:999px; background:rgba(255,255,255,0.08); color:var(--soft); font-weight:800; flex-shrink:0;">余裕があります</span>
+            <span style="font-size:0.72rem; padding:4px 10px; border-radius:999px; background:rgba(246,217,38,0.25); color:#fff7ad; font-weight:800; flex-shrink:0;">注意</span>
           </div>
           <div style="height:8px; border-radius:999px; background:rgba(255,255,255,0.08); overflow:hidden; margin-bottom:8px;">
-            <div style="width:42%; height:100%; background:linear-gradient(90deg,var(--green),var(--yellow)); border-radius:999px;"></div>
+            <div style="width:75%; height:100%; background:linear-gradient(90deg,var(--green),var(--yellow)); border-radius:999px;"></div>
           </div>
           <div style="display:flex; justify-content:space-between; gap:8px; font-size:0.78rem; color:var(--soft); margin-bottom:10px;">
-            <span>使用中 6.3 GB / 15 GB</span>
-            <strong>残り 8.7 GB</strong>
+            <span>使用中 11.2 GB / 15 GB</span>
+            <strong>残り 3.8 GB</strong>
           </div>
-          <div style="font-size:0.72rem; color:var(--muted); margin-bottom:6px;">退避候補</div>
+          <div style="font-size:0.72rem; color:var(--muted); margin-bottom:6px;">退避候補（合計 1.4 GB）</div>
           <div style="display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center; padding:8px 10px; border-radius:10px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.06);">
             <div>
               <div style="font-size:0.68rem; color:var(--yellow); font-weight:800;">展示会</div>
               <div style="font-size:0.76rem; font-weight:700;">夏展2024</div>
-              <div style="font-size:0.68rem; color:var(--muted);">2024.08.10 / 非公開</div>
+              <div style="font-size:0.68rem; color:var(--muted);">2024.08.10 / 非公開 / 1.4 GB</div>
             </div>
             <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 8px;">Driveで開く</button>
           </div>
+          <div style="font-size:0.72rem; color:var(--muted); margin-top:6px;">すべて退避した場合の見込み残量: 5.2 GB</div>
         </div>
 
         <!-- 概要 KPI（4項目） -->
@@ -1286,7 +1287,7 @@ img { max-width: 100%; display: block; }
   <table class="m-table" style="margin-top:20px;">
     <thead><tr><th>項目</th><th>説明</th></tr></thead>
     <tbody>
-      <tr><td>Drive容量（最上部）</td><td>画像などを保存する Google Drive アカウント全体の使用状況です。残量に応じてバッジが「余裕があります」→「注意」（黄）→「警告」（濃い黄）→「強い警告」（赤）に変わります。容量が逼迫すると、Drive へ退避してよさそうな古いコンテンツが「退避候補」として提案されます。</td></tr>
+      <tr><td>Drive容量（最上部）</td><td>画像などを保存する Google Drive アカウント全体の使用状況です。残量に応じてバッジが「余裕があります」→「注意」（黄）→「警告」（濃い黄）→「強い警告」（赤）に変わります。「注意」以上になると、十分な空き容量へ戻すために必要な分だけ、古いコンテンツから「退避候補」として提案されます。</td></tr>
       <tr><td>概要 KPI（4項目）</td><td>公開中の活動記録・告知件数 / 展示会件数 / 取り組み事例件数（いずれも非公開は含みません）と、サイトの「UPDATE LOG」に載っている更新履歴の件数です。</td></tr>
       <tr><td>下書き一覧</td><td>過去に「下書き保存」した内容。「読み込む」で編集を再開できます。公開が完了すると全員分の下書きが自動クリアされます。</td></tr>
       <tr><td>公開履歴（右カード）</td><td>誰がいつ「公開する」を実行し、何を変更したか（例:「展示会「第XX回凌美会展」を公開」）の管理ログ。ダッシュボードのこのカードでのみ確認できます。</td></tr>
@@ -1664,7 +1665,10 @@ img { max-width: 100%; display: block; }
                       <div style="font-size:0.72rem; color:var(--muted); margin-top:2px;">作品目録をAI解析して作品情報を自動抽出します。</div>
                       <div style="font-size:0.72rem; color:var(--muted);">現在使用中モデル：gemini-3.1-flash-lite</div>
                     </div>
-                    <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 8px; flex-shrink:0;">抽出結果を消去</button>
+                    <div style="display:flex; justify-content:flex-end; flex-wrap:wrap; gap:6px;">
+                      <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 8px;">作品番号順に並べる</button>
+                      <button class="m-btn subtle" style="font-size:0.68rem; padding:4px 8px;">抽出結果を消去</button>
+                    </div>
                   </div>
                   <div style="display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center;">
                     <div>
@@ -1761,6 +1765,7 @@ img { max-width: 100%; display: block; }
           <li>展示会の作品目録PDF（10MB以下）を「読み込む」と、AIが作品名・作者名の一覧を抽出します</li>
           <li>読み込み結果は「<strong style="color:#fff;">mokuroku_2026.pdf から 25件を読み込みました。 未使用: 23件</strong>」のように表示され、「抽出結果を表示」で一覧を確認、「抽出結果を消去」でやり直せます</li>
           <li>抽出後、各作品カードに「目録項目」の選択欄が現れます。該当作品を選ぶと作品名・作者名が自動入力されます（同じ目録項目を複数の画像に紐づけることはできません）</li>
+          <li>2件以上を紐づけると「作品番号順に並べる」が使えます。目録に紐づけた作品が作品番号順に並び、その後ろに展示風景など紐づけていない画像が現在の順番で並びます</li>
         </ul>
       </div>
       <div class="m-card">
@@ -1773,11 +1778,6 @@ img { max-width: 100%; display: block; }
           <li>「下書き保存」または「公開する」を実行すると、表示順と作品情報が保存されます</li>
         </ul>
       </div>
-    </div>
-
-    <div class="callout warn" style="margin-top:16px;">
-      <i class="fa-solid fa-triangle-exclamation"></i>
-      <div>目録PDFから読み込んだ抽出結果は<strong>一時データ</strong>です。作品カードに紐づけないままこの画面を閉じようとすると「目録PDFから読み込んだ一時データは、画面を閉じると消えます。閉じますか？」と確認されます。紐づけを済ませてから閉じてください。</div>
     </div>
 
     <div class="callout tip" style="margin-top:12px;">

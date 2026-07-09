@@ -98,9 +98,20 @@ function saveMediaSettings(sessionToken, request) {
 }
 
 function getDriveMaintenanceSummary_(state) {
+  const storage = getDriveStorageSummary_();
+  if (!storage.available || storage.level === 'ok') {
+    return {
+      storage,
+      recommendations: []
+    };
+  }
+  const plan = buildStorageRecommendations_(state || {}, storage);
+  storage.recommendationBytes = plan.totalBytes;
+  storage.projectedRemaining = plan.projectedRemaining;
+  storage.recommendationSufficient = plan.sufficient;
   return {
-    storage: getDriveStorageSummary_(),
-    recommendations: buildStorageRecommendations_(state || {})
+    storage,
+    recommendations: plan.items
   };
 }
 
@@ -471,17 +482,18 @@ function getDriveStorageSummary_() {
   };
 }
 
-function buildStorageRecommendations_(state) {
+function buildStorageRecommendations_(state, storage) {
   const items = [];
+  const seenFolderIds = {};
   function push(kind, label, title, dateValue, folderId, published) {
-    if (!folderId) return;
+    if (!folderId || seenFolderIds[folderId]) return;
+    seenFolderIds[folderId] = true;
     items.push({
       kind,
       label,
       title: title || '(タイトル未入力)',
       date: String(dateValue || ''),
       folderId,
-      folderUrl: folderUrlSafe_(folderId),
       published: published !== false
     });
   }
@@ -493,15 +505,59 @@ function buildStorageRecommendations_(state) {
   items.sort((a, b) => {
     return String(a.date || '9999').localeCompare(String(b.date || '9999'));
   });
-  return items.slice(0, 10);
+  const requiredBytes = requiredStorageReleaseBytes_(storage);
+  const selected = [];
+  let totalBytes = 0;
+
+  for (let index = 0; index < items.length && totalBytes < requiredBytes; index++) {
+    const details = getRecommendationFolderDetails_(items[index].folderId);
+    if (!details || details.size <= 0) continue;
+    selected.push(Object.assign({}, items[index], {
+      folderUrl: details.url,
+      size: details.size
+    }));
+    totalBytes += details.size;
+  }
+
+  return {
+    items: selected,
+    totalBytes,
+    projectedRemaining: Math.min(storage.limit, storage.remaining + totalBytes),
+    sufficient: totalBytes >= requiredBytes
+  };
 }
 
-function folderUrlSafe_(folderId) {
+function requiredStorageReleaseBytes_(storage) {
+  const comfortableRemaining = 5 * 1024 * 1024 * 1024;
+  const remainingShortfall = Math.max(0, comfortableRemaining - storage.remaining);
+  const usageShortfall = Math.max(0, storage.used - storage.limit * 0.8 + 1);
+  return Math.ceil(Math.max(remainingShortfall, usageShortfall));
+}
+
+function getRecommendationFolderDetails_(folderId) {
   try {
-    return getDriveFolderWithRetry_(folderId, '候補フォルダ取得').getUrl();
+    const folder = getDriveFolderWithRetry_(folderId, '候補フォルダ取得');
+    return {
+      url: retryDriveOperation_(() => folder.getUrl(), '候補フォルダURL取得'),
+      size: getFolderSize_(folder)
+    };
   } catch (error) {
-    return 'https://drive.google.com/drive/folders/' + encodeURIComponent(folderId);
+    return null;
   }
+}
+
+function getFolderSize_(folder) {
+  let total = 0;
+  const files = retryDriveOperation_(() => folder.getFiles(), '候補ファイル一覧取得');
+  while (files.hasNext()) {
+    const file = files.next();
+    total += Number(retryDriveOperation_(() => file.getSize(), '候補ファイルサイズ取得') || 0);
+  }
+  const folders = retryDriveOperation_(() => folder.getFolders(), '候補サブフォルダ一覧取得');
+  while (folders.hasNext()) {
+    total += getFolderSize_(folders.next());
+  }
+  return total;
 }
 
 function getFolderSummary_(folderId) {
