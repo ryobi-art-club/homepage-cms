@@ -79,6 +79,7 @@ function publishState(sessionToken, payload) {
     clearDrafts_();
     cleanupUnreferencedDraftFolders_(normalized);
     appendAdminLog_(session.name || session.email, session.email, 'published', buildAdminDiffSummary_(publishedInfo.payload, publicSnapshot, normalized.manualChangeNote));
+    compactContentSheetGrids_();
     const dispatchInfo = dispatchGithubWorkflow_();
     return {
       ok: true,
@@ -342,41 +343,78 @@ function validateBusinessRules_(state) {
 
 function writeStateToSheets_(state, actorName, actorEmail, touchPublishState) {
   const spreadsheet = SpreadsheetApp.openById(getConfig_().CONTENT_SPREADSHEET_ID);
-  writeSheet_(spreadsheet, CONTENT_SHEETS.recruit, [
+  const tables = [];
+  function collect(sheetName, values) { tables.push({ sheetName, values }); }
+  collect(CONTENT_SHEETS.recruit, [
     ['year', 'media_folder_id', 'media_file_ids', 'published', 'updated_at']
   ].concat((state.recruitCalendars || []).map((item) => [
     item.year, item.mediaFolderId, JSON.stringify(item.mediaFileIds || []), item.published ? 'TRUE' : 'FALSE', item.updatedAt || isoNow_()
   ])));
 
-  writeSheet_(spreadsheet, CONTENT_SHEETS.activityArticles, [
+  collect(CONTENT_SHEETS.activityArticles, [
     ['article_id', 'title', 'category', 'body', 'media_folder_id', 'media_file_ids', 'published', 'created_at', 'updated_at']
   ].concat(state.activityArticles.map((item) => [
     item.articleId, item.title, item.category, item.body, item.mediaFolderId, JSON.stringify(item.mediaFileIds || []), item.published ? 'TRUE' : 'FALSE', item.createdAt, item.updatedAt
   ])));
 
-  writeSheet_(spreadsheet, CONTENT_SHEETS.exhibitions, [
+  collect(CONTENT_SHEETS.exhibitions, [
     ['exhibition_id', 'title', 'subtitle', 'theme', 'venue_name', 'venue_address', 'date_line', 'time_line', 'map_embed_url', 'display_bucket', 'media_folder_id', 'dm_file_ids', 'work_files', 'published', 'start_date', 'updated_at']
   ].concat(state.exhibitions.map((item) => [
     item.exhibitionId, item.title, item.subtitle || '', item.theme, item.venueName, item.venueAddress, item.dateLine, item.timeLine, item.mapEmbedUrl,
     item.displayBucket, item.mediaFolderId, JSON.stringify(item.dmFileIds || []), JSON.stringify(serializeWorkFiles_(item.workFiles || item.works || [])), item.published ? 'TRUE' : 'FALSE', item.startDate, item.updatedAt
   ])));
 
-  writeSheet_(spreadsheet, CONTENT_SHEETS.requestCases, [
+  collect(CONTENT_SHEETS.requestCases, [
     ['case_id', 'title', 'body', 'media_folder_id', 'media_file_ids', 'sort_order', 'published', 'updated_at']
   ].concat(state.requestCases.map((item) => [
     item.caseId, item.title, item.body, item.mediaFolderId, JSON.stringify(item.mediaFileIds || []), String(item.sortOrder), item.published ? 'TRUE' : 'FALSE', item.updatedAt
   ])));
 
+  tables.forEach((table) => validateSheetCellLengths_(table.sheetName, table.values));
+  tables.forEach((table) => writeSheet_(spreadsheet, table.sheetName, table.values));
   if (touchPublishState) {
     SpreadsheetApp.flush();
   }
 }
 
 function writeSheet_(spreadsheet, sheetName, values) {
+  validateSheetCellLengths_(sheetName, values);
   let sheet = spreadsheet.getSheetByName(sheetName);
   if (!sheet) sheet = spreadsheet.insertSheet(sheetName);
-  sheet.clearContents();
-  sheet.getRange(1, 1, values.length, values[0].length).setValues(values);
+  const rows = Math.max(values.length, sheet.getLastRow());
+  const columns = Math.max(values[0].length, sheet.getLastColumn());
+  ensureSheetSize_(sheet, rows, columns);
+  // Replace data and obsolete cells together, without clearing the old data first.
+  const padded = Array.from({ length: rows }, (_, r) =>
+    Array.from({ length: columns }, (_, c) => values[r] && c < values[r].length ? values[r][c] : '')
+  );
+  sheet.getRange(1, 1, rows, columns).setValues(padded);
+}
+
+function validateSheetCellLengths_(sheetName, values) {
+  values.forEach((row, r) => row.forEach((value, c) => {
+    if (typeof value === 'string' && value.length > 50000) {
+      throw new Error(sheetName + ' の ' + (r + 1) + '行目・' + values[0][c] + ' が50,000文字を超えています。');
+    }
+  }));
+}
+
+function ensureSheetSize_(sheet, rows, columns) {
+  if (sheet.getMaxRows() < rows) sheet.insertRowsAfter(sheet.getMaxRows(), rows - sheet.getMaxRows());
+  if (sheet.getMaxColumns() < columns) sheet.insertColumnsAfter(sheet.getMaxColumns(), columns - sheet.getMaxColumns());
+}
+
+function compactContentSheetGrids_() {
+  const spreadsheet = SpreadsheetApp.openById(getConfig_().CONTENT_SPREADSHEET_ID);
+  Object.keys(CONTENT_SHEETS).forEach((key) => {
+    const sheet = spreadsheet.getSheetByName(CONTENT_SHEETS[key]);
+    if (!sheet) return;
+    // Keep an unfrozen row/column so frozen headers do not prevent deletion.
+    const rows = Math.max(2, sheet.getLastRow(), sheet.getFrozenRows() + 1);
+    const columns = Math.max(1, sheet.getLastColumn(), sheet.getFrozenColumns() + 1);
+    if (sheet.getMaxRows() > rows) sheet.deleteRows(rows + 1, sheet.getMaxRows() - rows);
+    if (sheet.getMaxColumns() > columns) sheet.deleteColumns(columns + 1, sheet.getMaxColumns() - columns);
+  });
 }
 
 function readRecruitCalendars_(spreadsheet) {
@@ -470,7 +508,7 @@ function readPublishedState_() {
   const rows = readSheetObjects_(spreadsheet, CONTENT_SHEETS.publishedState);
   const row = rows[0] || {};
   return {
-    payload: parseJson_(row.payload_json, {}),
+    payload: restoreStoredPayload_(readPayloadCells_(row), false),
     sha256: String(row.sha256 || ''),
     revision: Number(row.revision || 0)
   };
@@ -479,9 +517,10 @@ function readPublishedState_() {
 function writePublishedState_(payloadJson, sha256) {
   const spreadsheet = SpreadsheetApp.openById(getConfig_().CONTENT_SPREADSHEET_ID);
   const current = readPublishedState_();
+  const cells = buildPayloadCells_(JSON.parse(payloadJson));
   writeSheet_(spreadsheet, CONTENT_SHEETS.publishedState, [
-    ['updated_at', 'revision', 'sha256', 'payload_json'],
-    [isoNow_(), String(current.revision + 1), sha256, payloadJson]
+    ['updated_at', 'revision', 'sha256'].concat(payloadCellHeaders_(cells.length)),
+    [isoNow_(), String(current.revision + 1), sha256].concat(cells)
   ]);
 }
 
@@ -724,23 +763,31 @@ function appendAdminLog_(actorName, actorEmail, action, detail) {
 }
 
 function saveDraftRecord_(state, actorName, actorEmail) {
+  const cells = buildPayloadCells_(state);
+  const header = ['draft_id', 'saved_at', 'saved_by_name', 'saved_by_email'].concat(payloadCellHeaders_(cells.length));
+  const values = [Utilities.getUuid(), isoNow_(), actorName, actorEmail].concat(cells);
+  validateSheetCellLengths_(CONTENT_SHEETS.drafts, [header, values]);
   const spreadsheet = SpreadsheetApp.openById(getConfig_().CONTENT_SPREADSHEET_ID);
   const sheet = spreadsheet.getSheetByName(CONTENT_SHEETS.drafts) || spreadsheet.insertSheet(CONTENT_SHEETS.drafts);
-  if (sheet.getLastRow() === 0) {
-    sheet.appendRow(['draft_id', 'saved_at', 'saved_by_name', 'saved_by_email', 'payload_json']);
-  }
+  ensureSheetSize_(sheet, 2, header.length);
+  sheet.getRange(1, 1, 1, header.length).setValues([header]);
   sheet.insertRowAfter(1);
-  sheet.getRange(2, 1, 1, 5).setValues([[Utilities.getUuid(), isoNow_(), actorName, actorEmail, stableStringify_(state)]]);
+  try {
+    sheet.getRange(2, 1, 1, values.length).setValues([values]);
+  } catch (error) {
+    sheet.deleteRow(2);
+    throw error;
+  }
 }
 
 function readDrafts_() {
   const spreadsheet = SpreadsheetApp.openById(getConfig_().CONTENT_SPREADSHEET_ID);
-  return readSheetObjects_(spreadsheet, CONTENT_SHEETS.drafts).map((row) => ({
+  return readSheetObjects_(spreadsheet, CONTENT_SHEETS.drafts).filter((row) => row.draft_id && row.payload_json).map((row) => ({
     draftId: row.draft_id,
     savedAt: row.saved_at,
     savedByName: row.saved_by_name,
     savedByEmail: row.saved_by_email,
-    payload: parseJson_(row.payload_json, {})
+    payload: restoreStoredPayload_(readPayloadCells_(row), true)
   })).sort((a, b) => String(b.savedAt).localeCompare(String(a.savedAt)));
 }
 
@@ -748,9 +795,9 @@ function clearDrafts_() {
   const spreadsheet = SpreadsheetApp.openById(getConfig_().CONTENT_SPREADSHEET_ID);
   const sheet = spreadsheet.getSheetByName(CONTENT_SHEETS.drafts);
   if (!sheet) return;
-  if (sheet.getLastRow() > 1) {
-    sheet.getRange(2, 1, sheet.getLastRow() - 1, Math.max(1, sheet.getLastColumn())).clearContent();
-  }
+  writeSheet_(spreadsheet, CONTENT_SHEETS.drafts, [
+    ['draft_id', 'saved_at', 'saved_by_name', 'saved_by_email', 'payload_json']
+  ]);
 }
 
 function readAdminLog_() {
@@ -822,6 +869,70 @@ function serializeWorkFiles_(items) {
     title: String(work.title || work.workTitle || '').trim(),
     artist: String(work.artist || work.artistName || '').trim()
   })).filter((work) => work.file_id);
+}
+
+function compactStoredPayload_(state) {
+  const result = Object.assign({}, state);
+  if (Array.isArray(state.exhibitions)) {
+    result.exhibitions = state.exhibitions.map((item) => {
+      const exhibition = Object.assign({}, item, { workFiles: serializeWorkFiles_(item.workFiles || item.works || []) });
+      delete exhibition.works;
+      return exhibition;
+    });
+  }
+  return result;
+}
+
+function restoreStoredPayload_(state, isDraft) {
+  const result = Object.assign({}, state);
+  if (Array.isArray(state.exhibitions)) {
+    result.exhibitions = state.exhibitions.map((item) => {
+      const source = item.workFiles || item.works || [];
+      const works = isDraft ? normalizeExhibitionWorkFiles_(source) : serializeWorkFiles_(source);
+      return Object.assign({}, item, { workFiles: works, works });
+    });
+  }
+  return result;
+}
+
+function payloadCellHeaders_(count) {
+  return Array.from({ length: count }, (_, index) => index === 0 ? 'payload_json' : 'payload_json_' + (index + 1));
+}
+
+function buildPayloadCells_(state) {
+  const json = stableStringify_(compactStoredPayload_(state));
+  if (json.length <= 45000) return [json];
+  const chunks = [];
+  for (let offset = 0; offset < json.length;) {
+    let end = Math.min(offset + 20000, json.length);
+    if (end < json.length && /[\uD800-\uDBFF]/.test(json.charAt(end - 1))) end -= 1;
+    // Quoting keeps fragments textual even when they start with '=' or a digit.
+    chunks.push(JSON.stringify(json.slice(offset, end)));
+    offset = end;
+  }
+  return [JSON.stringify({ storage_format: 'chunked-json-v1', chunk_count: chunks.length })].concat(chunks);
+}
+
+function readPayloadCells_(row) {
+  if (!row.payload_json) return {};
+  try {
+    let payload = JSON.parse(row.payload_json);
+    if (payload.storage_format === 'chunked-json-v1') {
+      const count = payload.chunk_count;
+      if (!Number.isInteger(count) || count < 1 || count > Object.keys(row).length) throw new Error('Invalid chunk count');
+      const chunks = [];
+      for (let i = 0; i < count; i++) {
+        const chunk = JSON.parse(row['payload_json_' + (i + 2)]);
+        if (typeof chunk !== 'string') throw new Error('Invalid chunk');
+        chunks.push(chunk);
+      }
+      payload = JSON.parse(chunks.join(''));
+    }
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('Invalid payload');
+    return payload;
+  } catch (error) {
+    throw new Error('保存データのJSONを復元できません。' + (row.draft_id ? '下書きID: ' + row.draft_id : '公開状態') + 'の payload_json 列と分割列を確認してください。');
+  }
 }
 
 function buildPublicSnapshot_(state) {

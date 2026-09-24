@@ -819,16 +819,17 @@ p.preview-exhibition-overview { margin: 0 0 10px; }
   content: none;
   display: none;
 }
+/* 公開サイトの額縁なし作品表示に合わせる */
 .preview-work-card {
   width: 100%;
   max-width: 100%;
   min-width: 0;
   flex: 0 0 auto;
-  padding: 10px;
-  border-radius: 16px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
-  overflow: hidden;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  border: 0;
+  overflow: visible;
 }
 .preview-work-card img {
   display: block;
@@ -837,8 +838,8 @@ p.preview-exhibition-overview { margin: 0 0 10px; }
   height: auto;
   margin: 0 0 8px;
   object-fit: contain;
-  background: rgba(255,255,255,0.04);
-  border-radius: 0;
+  background: transparent;
+  border-radius: 12px;
 }
 
 /* アーカイブ */
