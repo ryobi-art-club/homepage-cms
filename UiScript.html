@@ -1065,7 +1065,6 @@ async function onMediaUpload(uploadRole) {
     setMediaStatus('ファイルをアップロードしています…');
     setStatus('ファイルをアップロードしています…');
     const files = await Promise.all(selected.map(readFilePayload));
-    const beforeIds = new Set(((context.folderId && appState.mediaCache[context.folderId]) || []).map((file) => file.id));
     const result = await serverCall('uploadManagedFiles', appState.sessionToken, {
       kind: context.kind,
       role,
@@ -1074,7 +1073,7 @@ async function onMediaUpload(uploadRole) {
       draft: true,
       files
     });
-    const newIds = (result.files || []).filter((file) => !beforeIds.has(file.id)).map((file) => file.id);
+    const newIds = result.uploadedFileIds || [];
     applyMediaResult(result, { type: 'upload', role, newIds });
     renderMediaDialog(result.files || []);
     setMediaStatus('アップロードしました。', 'success');
@@ -1100,8 +1099,10 @@ async function onMediaDelete(fileId, name) {
     });
     applyMediaResult(result);
     renderMediaDialog(result.files || []);
-    setMediaStatus(result.folderTrashed ? '最後のファイルを削除したため、空のフォルダも削除しました。' : 'ファイルを削除しました。', 'success');
-    setStatus(result.folderTrashed ? '最後のファイルを削除したため、空のフォルダも削除しました。' : 'ファイルを削除しました。', 'success');
+    const message = result.deferred ? '画像を一覧から外しました。公開すると反映されます。'
+      : result.folderTrashed ? '最後のファイルを削除したため、空のフォルダも削除しました。' : 'ファイルを削除しました。';
+    setMediaStatus(message, 'success');
+    setStatus(message, 'success');
   } catch (error) {
     setMediaStatus(error.message, 'error');
     setStatus(error.message, 'error');

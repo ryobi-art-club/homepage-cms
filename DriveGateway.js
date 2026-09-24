@@ -29,23 +29,35 @@ function uploadManagedFiles(sessionToken, request) {
 
   const kind = requireManagedKind_(request.kind);
   const role = String(request.role || 'image').trim().toLowerCase();
-  const folder = ensureManagedFolder_(kind, request.folderId, request.title, request.draft !== false);
-
-  files.forEach((file) => {
+  const uploads = files.map((file) => {
     const originalName = requireString_(file && file.name, 'ファイル名', 180);
     const mimeType = String((file && file.mimeType) || '').trim() || 'application/octet-stream';
     const base64 = String((file && file.data) || '').trim();
     if (!base64) throw new Error(originalName + ' のデータが空です。');
     validateUploadMime_(kind, role, mimeType, originalName);
-    const bytes = Utilities.base64Decode(base64);
-    const name = buildUploadFileName_(folder, kind, role, originalName, mimeType);
-    retryDriveOperation_(
-      () => folder.createFile(Utilities.newBlob(bytes, mimeType, name)),
-      'ファイルアップロード'
-    );
+    return { originalName, mimeType, bytes: Utilities.base64Decode(base64) };
   });
 
-  return buildFolderMediaResponse_(folder);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const folder = ensureManagedFolder_(kind, request.folderId, request.title, request.draft !== false);
+    if (kind === 'exhibition') requireExhibitionMediaFolder_(folder);
+    const destination = kind === 'exhibition'
+      ? getExhibitionAuxFolder_(folder.getId(), 'staging', true)
+      : folder;
+    const uploadedFileIds = uploads.map((upload) => {
+      const name = buildUploadFileName_(destination, kind, role, upload.originalName, upload.mimeType);
+      const file = retryDriveOperation_(
+        () => destination.createFile(Utilities.newBlob(upload.bytes, upload.mimeType, name)),
+        'ファイルアップロード'
+      );
+      return file.getId();
+    });
+    return Object.assign(buildFolderMediaResponse_(folder), { uploadedFileIds });
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function renameManagedFile(sessionToken, request) {
@@ -56,6 +68,9 @@ function renameManagedFile(sessionToken, request) {
   const fileId = requireString_(request.fileId, 'ファイルID', 200);
   const file = retryDriveOperation_(() => DriveApp.getFileById(fileId), 'ファイル取得');
   const folder = folderId ? getDriveFolderWithRetry_(folderId, '画像フォルダ取得') : null;
+  if (folder && isExhibitionMediaFolder_(folder)) {
+    throw new Error('展示会のファイル名は、公開時に作品情報から自動設定されます。');
+  }
   const newName = buildRenameFileName_(folder, file, request.name);
 
   retryDriveOperation_(() => file.setName(newName), 'ファイル名変更');
@@ -70,6 +85,14 @@ function trashManagedFile(sessionToken, request) {
 
   const folderId = String(request.folderId || '').trim();
   const fileId = requireString_(request.fileId, 'ファイルID', 200);
+  const folder = folderId ? getDriveFolderWithRetry_(folderId, '画像フォルダ取得') : null;
+  if (folder && isExhibitionMediaFolder_(folder)) {
+    // Keep files for the published site and other saved drafts until publication.
+    const result = buildFolderMediaResponse_(folder);
+    result.files = result.files.filter((file) => file.id !== fileId);
+    result.deferred = true;
+    return result;
+  }
   const file = retryDriveOperation_(() => DriveApp.getFileById(fileId), 'ファイル取得');
   retryDriveOperation_(() => file.setTrashed(true), 'ファイル削除');
 
@@ -85,15 +108,11 @@ function saveMediaSettings(sessionToken, request) {
   requireSession_(sessionToken);
   if (!request || typeof request !== 'object') throw new Error('画像設定が不正です。');
 
-  const kind = requireManagedKind_(request.kind);
+  requireManagedKind_(request.kind);
   const folderId = String(request.folderId || '').trim();
   if (!folderId) return { folderId: '', files: [] };
 
   const folder = getDriveFolderWithRetry_(folderId, '画像フォルダ取得');
-  if (kind === 'exhibition') {
-    renameExhibitionMediaFiles_(folder, request.dmFileIds || [], request.workFiles || []);
-  }
-
   return buildFolderMediaResponse_(folder);
 }
 
@@ -116,6 +135,9 @@ function getDriveMaintenanceSummary_(state) {
 }
 
 function finalizeManagedFolders_(state) {
+  // Validate every exhibition before moving any files.
+  const exhibitionPlans = buildExhibitionMediaPlans_(state);
+  const emptyExhibitionFolders = [];
   (state.recruitCalendars || []).forEach((item) => {
     renameFolderIfPresent_(item.mediaFolderId || item.folderId, item.label, false);
   });
@@ -128,7 +150,18 @@ function finalizeManagedFolders_(state) {
     renameFolderIfPresent_(item.mediaFolderId || item.photoFolderId, item.title, false);
   });
 
-  (state.exhibitions || []).forEach((item) => {
+  exhibitionPlans.forEach((plan) => {
+    const item = plan.item;
+    reconcileExhibitionMedia_(plan);
+    if (!plan.keepIds.size) {
+      applyPrivateFolderSharing_(plan.folder);
+      if (!plan.folder.getFiles().hasNext() && !plan.folder.getFolders().hasNext()) {
+        emptyExhibitionFolders.push(plan.folder.getId());
+        item.mediaFolderId = '';
+        item.driveFolderId = '';
+      }
+      return;
+    }
     const folder = renameFolderIfPresent_(item.mediaFolderId || item.driveFolderId, item.title, false);
     if (folder) {
       renameExhibitionMediaFiles_(folder, item.dmFileIds || [], item.workFiles || item.works || []);
@@ -139,15 +172,7 @@ function finalizeManagedFolders_(state) {
       }
     }
   });
-}
-
-function finalizeManagedMedia_(state) {
-  (state.exhibitions || []).forEach((item) => {
-    const folderId = item.mediaFolderId || item.driveFolderId;
-    if (!folderId) return;
-    const folder = getDriveFolderWithRetry_(folderId, '展示会素材フォルダ取得');
-    renameExhibitionMediaFiles_(folder, item.dmFileIds || [], item.workFiles || item.works || []);
-  });
+  return emptyExhibitionFolders;
 }
 
 function cleanupUnreferencedDraftFolders_(state) {
@@ -190,18 +215,18 @@ function getFolderMedia_(folderId) {
   if (!folderId) return [];
 
   const folder = getDriveFolderWithRetry_(folderId, '素材フォルダ取得');
-  const iterator = retryDriveOperation_(
-    () => folder.getFiles(),
-    'Drive素材一覧取得'
-  );
-
   const files = [];
-
-  while (iterator.hasNext()) {
-    const file = iterator.next();
+  const sources = [folder];
+  if (isExhibitionMediaFolder_(folder)) {
+    ['staging', 'recovery'].forEach((type) => {
+      const auxiliary = getExhibitionAuxFolder_(folderId, type, false);
+      if (auxiliary) sources.push(auxiliary);
+    });
+  }
+  sources.forEach((source) => listFolderFiles_(source).forEach((file) => {
     const mimeType = retryDriveOperation_(() => file.getMimeType(), '素材mimeType取得');
     const kind = mediaKindFromMime_(mimeType);
-    if (!kind) continue;
+    if (!kind) return;
     const id = retryDriveOperation_(() => file.getId(), '素材ID取得');
     const name = retryDriveOperation_(() => file.getName(), '素材名取得');
     const size = retryDriveOperation_(() => file.getSize(), '素材サイズ取得');
@@ -214,10 +239,97 @@ function getFolderMedia_(folderId) {
       url: retryDriveOperation_(() => file.getUrl(), '素材URL取得'),
       thumbnailUrl: kind === 'image' ? 'https://drive.google.com/thumbnail?id=' + id + '&sz=w1000' : ''
     });
-  }
+  }));
 
   files.sort((a, b) => compareNamesNatural_(a.name, b.name));
   return files;
+}
+
+function listFolderFiles_(folder) {
+  const iterator = retryDriveOperation_(() => folder.getFiles(), 'Drive素材一覧取得');
+  const files = [];
+  while (iterator.hasNext()) files.push(iterator.next());
+  return files;
+}
+
+function isExhibitionMediaFolder_(folder) {
+  if (/^CMS_(下書き|未登録)_/.test(folder.getName())) return false;
+  const rootId = getConfig_().ROOT_EXHIBITION_FOLDER_ID;
+  const parents = folder.getParents();
+  while (parents.hasNext()) {
+    if (parents.next().getId() === rootId) return true;
+  }
+  return false;
+}
+
+function requireExhibitionMediaFolder_(folder) {
+  if (folder.isTrashed() || !isExhibitionMediaFolder_(folder)) {
+    throw new Error('展示会の素材フォルダが見つかりません。最新のデータを読み込んでください。');
+  }
+}
+
+function getExhibitionAuxFolder_(folderId, type, create) {
+  const root = getDriveFolderWithRetry_(getConfig_().ROOT_EXHIBITION_FOLDER_ID, '展示会素材親フォルダ取得');
+  const name = 'CMS_' + (type === 'staging' ? '下書き' : '未登録') + '_' + folderId;
+  const folders = root.getFoldersByName(name);
+  const folder = folders.hasNext() ? folders.next() : null;
+  if (!create) return folder;
+  if (root.getSharingAccess() !== DriveApp.Access.PRIVATE) {
+    throw new Error('下書き画像を非公開で保管するため、展示会の親フォルダの共有設定を「制限付き」にしてください。');
+  }
+  const result = folder || root.createFolder(name);
+  applyPrivateFolderSharing_(result);
+  return result;
+}
+
+function exhibitionMediaIds_(item) {
+  return (item.dmFileIds || []).concat((item.workFiles || item.works || [])
+    .map((work) => work.fileId || work.file_id)).map((id) => String(id || '').trim()).filter(Boolean);
+}
+
+function buildExhibitionMediaPlans_(state) {
+  const seenFolders = new Set();
+  return (state.exhibitions || []).map((item) => {
+    const folderId = item.mediaFolderId || item.driveFolderId;
+    const keepIds = new Set(exhibitionMediaIds_(item));
+    if (!folderId && !keepIds.size) return null;
+    if (!folderId || seenFolders.has(folderId)) {
+      throw new Error('展示会「' + item.title + '」の素材フォルダが未設定、または他の展示会と重複しています。');
+    }
+    seenFolders.add(folderId);
+    const folder = getDriveFolderWithRetry_(folderId, '展示会素材フォルダ取得');
+    requireExhibitionMediaFolder_(folder);
+    const staging = getExhibitionAuxFolder_(folderId, 'staging', false);
+    const recovery = getExhibitionAuxFolder_(folderId, 'recovery', false);
+    const entries = [folder, staging, recovery].filter(Boolean).flatMap((source) =>
+      listFolderFiles_(source).map((file) => ({ file, source })));
+    const available = new Set(entries.map((entry) => entry.file.getId()));
+    keepIds.forEach((id) => {
+      if (!available.has(id)) {
+        throw new Error('展示会「' + item.title + '」の登録画像が見つかりません: ' + id);
+      }
+    });
+    return { item, folder, staging, recovery, entries, keepIds };
+  }).filter(Boolean);
+}
+
+function reconcileExhibitionMedia_(plan) {
+  const folderId = plan.folder.getId();
+  const unregistered = plan.entries.filter((entry) => !plan.keepIds.has(entry.file.getId()));
+  const recovery = unregistered.length ? getExhibitionAuxFolder_(folderId, 'recovery', true) : plan.recovery;
+  // Move unregistered files aside first, without destroying older draft references.
+  unregistered.forEach((entry) => {
+    if (entry.source.getId() !== recovery.getId()) {
+      retryDriveOperation_(() => entry.file.moveTo(recovery), '未登録画像の退避');
+    }
+    if (entry.file.getSharingAccess() !== DriveApp.Access.PRIVATE) {
+      retryDriveOperation_(() => entry.file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE), '未登録画像の非公開設定');
+    }
+  });
+  plan.entries.filter((entry) => plan.keepIds.has(entry.file.getId()) && entry.source !== plan.folder).forEach((entry) => {
+    retryDriveOperation_(() => entry.file.moveTo(plan.folder), '展示会画像の公開フォルダへの移動');
+  });
+  if (plan.staging) trashFolderIfEmpty_(plan.staging.getId());
 }
 
 function buildFolderMediaResponse_(folder) {
@@ -442,6 +554,7 @@ function trashFolderIfEmpty_(folderId) {
   const folder = getDriveFolderWithRetry_(folderId, '素材フォルダ取得');
   const files = retryDriveOperation_(() => folder.getFiles(), '素材フォルダ空チェック');
   if (files.hasNext()) return false;
+  if (folder.getFolders().hasNext()) return false;
   retryDriveOperation_(() => folder.setTrashed(true), '空フォルダ削除');
   return true;
 }

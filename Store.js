@@ -21,7 +21,6 @@ function saveDraft(sessionToken, payload) {
   lock.waitLock(10000);
   try {
     const normalized = normalizePayload_(payload, readContentState_(), { allowIncomplete: true });
-    finalizeManagedMedia_(normalized);
     saveDraftRecord_(normalized, session.name || session.email, session.email);
     return {
       ok: true,
@@ -58,10 +57,9 @@ function publishState(sessionToken, payload) {
     const currentState = readContentState_();
     const normalized = normalizePayload_(payload, currentState);
     const publishedInfo = readPublishedState_();
+    const emptyExhibitionFolders = finalizeManagedFolders_(normalized);
     const currentPayloadJson = stableStringify_(buildPublicSnapshot_(normalized));
     const currentHash = sha256Hex_(currentPayloadJson);
-
-    finalizeManagedFolders_(normalized);
     writeStateToSheets_(normalized, session.name || session.email, session.email, true);
 
     let changeSummary = '内容を更新しました。';
@@ -76,6 +74,7 @@ function publishState(sessionToken, payload) {
       writePublishedState_(currentPayloadJson, currentHash);
     }
 
+    emptyExhibitionFolders.forEach(trashFolderIfEmpty_);
     clearDrafts_();
     cleanupUnreferencedDraftFolders_(normalized);
     appendAdminLog_(session.name || session.email, session.email, 'published', buildAdminDiffSummary_(publishedInfo.payload, publicSnapshot, normalized.manualChangeNote));

@@ -200,12 +200,12 @@ payload 受信
 | 関数 | 役割 |
 |------|------|
 | `listDriveFolders(sessionToken)` | 各コンテンツ種別のルートフォルダ配下のフォルダ一覧を返す |
-| `getFolderImages(sessionToken, folderId)` | フォルダ内の画像ファイル一覧を返す |
-| `getFolderMedia(sessionToken, folderId)` | フォルダ内のすべてのメディア（画像・PDF）一覧を返す |
+| `getFolderImages(sessionToken, folderId)` | 画像ファイル一覧を返す（展示会は一時保存・退避先も含む。表示対象は登録済みIDで選択）|
+| `getFolderMedia(sessionToken, folderId)` | メディア一覧を返す（展示会は一時保存・退避先も含む）|
 | `uploadManagedFiles(sessionToken, request)` | ブラウザからのファイルアップロードを受け付け Drive に保存 |
 | `renameManagedFile(sessionToken, request)` | ファイル名を変更 |
-| `trashManagedFile(sessionToken, request)` | ファイルをゴミ箱に移動（フォルダが空になれば自動削除）|
-| `saveMediaSettings(sessionToken, request)` | 展示会の DM 画像・作品ファイルの整理順を保存 |
+| `trashManagedFile(sessionToken, request)` | 展示会は一覧から除外する結果を返し、実ファイルの移動は公開時に実行。他の種別は即時ゴミ箱へ移動 |
+| `saveMediaSettings(sessionToken, request)` | メディア一覧を取得する互換用API（作品情報による命名は公開時のみ）|
 
 ### `Gemini.js` — 目録PDFの作品情報抽出
 
@@ -225,6 +225,17 @@ PDF本体は Drive やスプレッドシートには保存しません。管理�
 **フォルダ共有設定（展示会のみ）：**
 - 公開状態：リンクを知っている全員が閲覧可（アーカイブページからリンク）
 - 非公開状態：プライベート（URL 直接アクセス不可）
+
+**展示会画像の保存・公開：**
+
+- 追加画像は展示会ルート直下の非公開フォルダ `CMS_下書き_{media_folder_id}` に保存します。公開済みのフォルダには直接追加しません。同じ展示会への追加では一時保存先を再利用します。
+- 編集中の画像削除は登録一覧からの除外のみです。下書き保存ではDriveの公開内容やファイル名を変更しないため、別の保存済み下書きからも元の画像を参照できます。
+- 公開時に `dm_file_ids` / `work_files` を照合し、登録画像だけを展示会フォルダに移動して命名・共有設定します。ファイルIDと既存の公開フォルダIDは維持します（画像がなくなり、フォルダが空になった場合を除く）。スプレッドシートの列変更は不要です。
+- 未登録ファイルは、既存の公開フォルダに残っていたものも含め、非公開の `CMS_未登録_{media_folder_id}` へ退避します。自動削除はしません。復旧用のため容量を消費します。不要と確認できたものはDriveから手動で削除してください。
+- 一時保存先・退避先は公開フォルダの外に作成します。展示会ルートの一般的なアクセスは「制限付き」にしてください。個別に付与した共同管理者のアクセス権は取り消しません。
+- 公開前に全展示会の登録画像の所在を検証します。途中でDriveやシートへの書き込みに失敗した場合でも、退避済みファイルをIDで再参照して再実行できます。ただしDriveとSheetsの更新全体は単一トランザクションではありません。
+
+回帰テスト: `node --test tests/drive-media.test.cjs`（実際のDriveには接続しません）。
 
 **Drive API のリトライ：**  
 `retryDriveOperation_()` により最大 4 回、指数バックオフでリトライします（Drive API のレート制限対策）。
