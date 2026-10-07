@@ -61,6 +61,8 @@ homepage-cms/
 ├── Store.js          コンテンツ CRUD・下書き・変更ログ・公開処理
 ├── DriveGateway.js   Google Drive 操作（ファイル・フォルダ管理）
 ├── Github.js         GitHub Actions ワークフロー起動
+├── Gemini.js         Gemini API 呼び出し・目録PDFの作品情報抽出
+├── Proofread.js      公開前の誤字脱字チェック（Gemini）
 │
 ├── Ui.html           メイン HTML テンプレート（GAS テンプレート形式）
 ├── UiScript.html     フロントエンド JavaScript
@@ -104,7 +106,8 @@ const CONTENT_SHEETS = {
   changeLog:      'ChangeLog',
   publishedState: '_PublishedState',
   drafts:         '_Drafts',
-  adminLog:       '_AdminLog'
+  adminLog:       '_AdminLog',
+  proofreadChecked: '_ProofreadChecked'
 };
 ```
 
@@ -216,6 +219,33 @@ payload 受信
 | `extractExhibitionCatalog(sessionToken, request)` | 展示会の目録PDFをGemini APIに一時的に渡し、作品番号・作品名・作者名などをJSONで返す |
 
 PDF本体は Drive やスプレッドシートには保存しません。管理画面では抽出結果を一時的な入力候補として表示し、各作品画像カードに反映された作品名・作者名だけが既存の `work_files` に保存されます。
+
+### `Proofread.js` — 公開前の誤字脱字チェック
+
+**公開 API（フロントエンドから呼び出される関数）：**
+
+| 関数 | 役割 |
+|------|------|
+| `proofreadForPublish(sessionToken, fields)` | `[{id, label, text}]` のうち未記録の文章だけを Gemini に送り、指摘 `issues: [{fieldId, label, original, suggestion, reason}]` と指摘のなかった欄 `cleanFieldIds` を返す。記録は追加しない（公開対象から外れた文章の記録の削除のみ行う） |
+| `markProofreadChecked(sessionToken, texts)` | 公開成功後に呼ばれ、渡された文章をチェック済みとして記録する。記録を追加するのはこの関数だけ |
+
+**原則：**
+
+1. チェック済みとして記録するのは「Gemini が指摘しなかった文章」と「指摘を見たうえで利用者が『この内容で問題ない』とした文章」だけ。
+2. 記録は公開が成功した後にだけ行う。キャンセル・公開失敗・Gemini の失敗時は何も記録しない。
+
+**流れ：**
+
+- 「公開する」→ 確認ダイアログの後、公開中の欄のうち未記録の文章だけをチェックします。指摘がなければそのまま公開します。
+- 指摘があれば、欄ごとに指摘一覧（「誤りの箇所」→「修正案」？）・全文の編集欄・「この内容で問題ない（今後この文章は指摘しない）」チェックボックス（初期値オフ）を表示します。自動置換は行いません。
+- 「この内容で公開」で、編集欄の内容を編集画面に反映して公開します。チェックボックスを入れなかった欄（うっかり公開した・直して公開した欄を含む）は記録されず、次回の公開で再チェックされます。
+- 記録は欄ごとの全文の SHA-256 を `_ProofreadChecked` に保存します。導入直後は記録が空のため、最初の公開で公開中の全文章がチェックされます。
+- 対象は公開中の項目の、展示会名・サブタイトル・テーマ、記事・事例のタイトルと本文、更新履歴メモです。会場名・住所・日時・URL・作品情報は対象外です。
+- 約6,000文字ごとに分割して送り、1回あたり2分を超えた分は次回の公開時に持ち越します。
+- Gemini API の失敗や API キー未設定の場合も公開は止めません。
+- 指摘の `original` は前後の数文字を含めて返させ、本文中で目視で探しやすくしています。本文に見つからない指摘は捨てます。
+
+回帰テスト: `node --test tests/proofread.test.cjs`
 
 **フォルダ命名規則：**
 
@@ -365,7 +395,7 @@ GAS スクリプトエディタの「プロジェクトの設定」→「スク�
 | プロパティ名 | 説明 |
 |------------|------|
 | `SITE_PREVIEW_URL` | 「サイトを見る」ボタンのURL。未設定時は `GH_OWNER` と `GH_REPO` から GitHub Pages URL を推定 |
-| `GEMINI_API_KEY` | 目録PDFから作品情報を抽出する場合に設定する Gemini API キー |
+| `GEMINI_API_KEY` | 目録PDFからの作品情報抽出と、公開前の誤字脱字チェックに使う Gemini API キー（未設定の場合、誤字脱字チェックは行わずに公開します） |
 | `GEMINI_MODEL` | 目録PDF抽出に使うモデル名。未設定時は `gemini-3.1-flash-lite` |
 
 ### 認証モード別の追加プロパティ
@@ -497,6 +527,15 @@ GAS スクリプトエディタの「プロジェクトの設定」→「スク�
 - 公開処理では、下書きをクリアして分割列の見出しをリセットした後、`CONTENT_SHEETS` に登録された各シートの末尾の空行・空列を自動削除します。公開履歴・操作ログの内容や途中の空行は残します。最低2行と固定表示領域の外側1行・1列は確保し、必要な行・列は次の書き込み時に自動追加します。登録外のシートは整理しません。
 
 保存形式の回帰テスト: `node --test tests/sheet-storage.test.cjs`（Node.js標準機能のみ、GASや実シートへは接続しません）。
+
+#### `_ProofreadChecked` — 誤字脱字チェック済みの記録（内部管理）
+
+| カラム | 型 | 説明 |
+|-------|---|------|
+| `sha256` | 文字列 | チェック済み文章の SHA-256 |
+| `checked_at` | ISO 日時 | 記録日時 |
+
+公開中の文章に含まれなくなった記録は、次回のチェック時に削除されます。シートを削除すると、全文章が未チェックに戻ります。
 
 #### `_AdminLog` — 操作ログ（内部管理）
 

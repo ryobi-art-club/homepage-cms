@@ -1298,6 +1298,80 @@ p.preview-exhibition-overview { margin: 0 0 10px; }
   .grid-2 { grid-template-columns: 1fr; }
 }
 
+/* ---------- 誤字脱字チェックモーダル ---------- */
+.proofread-panel {
+  width: min(760px, 100%);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+.proofread-list { gap: 12px; }
+.proofread-item {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.08);
+}
+.proofread-issues {
+  margin: 0;
+  padding-left: 1.2em;
+  display: grid;
+  gap: 4px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.proofread-issues del {
+  text-decoration: none;
+  color: #ffb3b3;
+  background: rgba(243,108,108,.18);
+}
+.proofread-issues ins {
+  text-decoration: none;
+  color: #d9ffe5;
+  background: rgba(77,199,124,.22);
+}
+.proofread-reason {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(246,217,38,.16);
+  color: var(--yellow);
+  font-size: 12px;
+  font-weight: 700;
+}
+.proofread-item textarea {
+  width: 100%;
+  min-height: 0;
+  resize: vertical;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 12px;
+  background: rgba(255,255,255,0.05);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.7;
+  padding: 10px 12px;
+}
+.proofread-approve {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  color: var(--soft);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.proofread-approve input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+}
+.proofread-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 22px;
+  border-top: 1px solid rgba(255,255,255,.08);
+}
+
 @media (max-width: 720px) {
   .content { padding: 18px 16px 80px; }
   .topbar {

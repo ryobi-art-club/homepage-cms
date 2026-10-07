@@ -54,7 +54,6 @@ function extractCatalogWithRetry_(apiKey, model, pdfBase64) {
 }
 
 function callGeminiCatalogExtractor_(apiKey, model, pdfBase64, attempt) {
-  const endpoint = 'https://generativelanguage.googleapis.com/v1beta/interactions';
   const schema = {
     type: 'object',
     properties: {
@@ -101,6 +100,11 @@ function callGeminiCatalogExtractor_(apiKey, model, pdfBase64, attempt) {
     }
   };
 
+  return postGeminiInteraction_(apiKey, payload, attempt);
+}
+
+function postGeminiInteraction_(apiKey, payload, attempt) {
+  const endpoint = 'https://generativelanguage.googleapis.com/v1beta/interactions';
   const response = UrlFetchApp.fetch(endpoint, {
     method: 'post',
     contentType: 'application/json',

@@ -7,7 +7,8 @@ const CONTENT_SHEETS = {
   changeLog: 'ChangeLog',
   publishedState: '_PublishedState',
   drafts: '_Drafts',
-  adminLog: '_AdminLog'
+  adminLog: '_AdminLog',
+  proofreadChecked: '_ProofreadChecked'
 };
 const ALLOWLIST_SHEET_NAME = 'allowlist';
 
