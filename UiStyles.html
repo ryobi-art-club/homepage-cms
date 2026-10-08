@@ -531,17 +531,18 @@ select {
 
 /* ==========================================================================
    サイトプレビュー
-   公開サイトの見た目をプレビューペイン内で再現する。
+   公開サイトの見た目をプレビューペイン内で再現する(homepage の stylesheet.css に合わせる)。
+   情報のまとまりは枠で囲まず、太線と余白で区切る。
    ペインはコンテナクエリ(760px)でモバイル表示に切り替わる。
    ========================================================================== */
 .preview-frame {
   border-radius: 20px;
   border: 1px solid rgba(255,255,255,0.08);
   overflow: hidden;
-  background: rgba(255,255,255,0.03);
+  background: #0a0a0a;
 }
 .preview-pane {
-  padding: 18px;
+  padding: 22px;
   min-height: 240px;
   min-width: 0;
   container-type: inline-size;
@@ -549,105 +550,116 @@ select {
 .preview-pane img { max-width: 100%; }
 .preview-site {
   display: grid;
-  gap: 14px;
   min-width: 0;
 }
+/* カードは枠なし。カード同士は太線で区切る */
 .preview-site-card {
-  display: grid;
-  gap: 14px;
-  padding: 16px;
-  border-radius: 18px;
-  background: linear-gradient(180deg, rgba(255,255,255,0.07), rgba(255,255,255,0.03));
-  border: 1px solid rgba(255,255,255,0.08);
+  display: block;
+  padding: 24px 0;
+  border-top: 2px solid rgba(255,255,255,0.26);
   min-width: 0;
-  overflow: hidden;
 }
+.preview-site-card:first-child { border-top: 0; padding-top: 0; }
+.preview-site-card:last-child { padding-bottom: 0; }
 .preview-site-card h4 {
   margin: 0 0 8px;
-  font-size: 1.05rem;
+  font-size: 1.12rem;
 }
 .preview-site-card p {
   margin: 0;
   color: var(--soft);
   white-space: pre-wrap;
 }
-.preview-site-card a {
-  color: var(--green);
-  font-weight: 700;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
 .preview-site-kicker {
-  display: inline-block;
-  margin-bottom: 10px;
+  display: block;
+  margin-bottom: 12px;
   color: var(--yellow);
-  font-size: 0.76rem;
-  letter-spacing: 0.18em;
+  font-size: 0.72rem;
+  letter-spacing: 0.22em;
+  line-height: 1;
   font-weight: 700;
 }
 .preview-exhibition-subtitle {
-  margin: -2px 0 6px;
+  margin: -2px 0 4px;
   color: var(--soft);
   font-size: 0.86rem;
   font-weight: 700;
 }
 .preview-inline-meta {
   display: flex;
+  justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
   color: var(--muted);
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   margin-bottom: 8px;
 }
 .preview-empty { color: var(--muted); }
-.preview-drive-wrap {
-  margin-top: 42px;
-  text-align: center;
+
+/* 記事(活動記録・取り組み事例): 写真があれば文章は左、写真は右。縦方向は中央揃え */
+.preview-article-images .preview-carousel { margin-top: 0; }
+.preview-article.has-images .preview-article-images { margin-top: 14px; }
+@container (min-width: 761px) {
+  .preview-article.has-images {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    gap: 22px;
+    align-items: center;
+  }
+  .preview-article.has-images .preview-article-images { margin-top: 0; }
+  .preview-article.has-images .warning-note { grid-column: 1 / -1; }
 }
 
-/* 展示会レイアウト(本文 + DMポスター) */
+/* 展示会レイアウト(本文 + DMポスター)。DMは縦方向の中央 */
 .preview-exhibition-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(160px, 220px);
-  gap: 14px;
-  align-items: start;
+  grid-template-columns: minmax(0, 1fr) minmax(140px, 200px);
+  gap: 18px;
+  align-items: center;
 }
+.preview-exhibition-layout.no-poster { grid-template-columns: 1fr; }
 .preview-exhibition-copy { min-width: 0; }
+.preview-exhibition-heading { margin-bottom: 10px; }
+.preview-exhibition-heading.is-narrow { display: none; }
 /* p.〜 にして .preview-site-card p の margin:0 より優先させる */
-p.preview-exhibition-overview { margin: 0 0 10px; }
+p.preview-exhibition-overview { margin: 0 0 12px; }
 .preview-dm-slot {
   display: flex;
   justify-content: flex-end;
   width: 100%;
 }
-
-/* 会期・会場メタ */
-.preview-meta-list {
-  display: grid;
-  gap: 8px;
-  margin-top: 14px;
+/* アーカイブの「Google Driveで作品を観る」は文字リンク */
+.preview-drive-link {
+  display: inline-block;
+  margin-bottom: 4px;
+  padding-bottom: 2px;
+  color: var(--text);
+  font-weight: 700;
+  font-size: 0.88rem;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(255,255,255,0.4);
 }
+.preview-drive-link:hover { color: var(--yellow); border-color: var(--yellow); }
+
+/* 会期・会場メタ: 行を細線で区切る */
+.preview-meta-list { margin-top: 8px; }
 .preview-meta-row {
   display: grid;
   grid-template-columns: 40px 1fr;
   gap: 8px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
-}
-.preview-meta-row:last-child {
-  border-bottom: 0;
-  padding-bottom: 0;
+  padding: 10px 0;
+  border-top: 1px solid rgba(255,255,255,0.08);
 }
 .preview-meta-label {
   color: var(--muted);
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   white-space: nowrap;
 }
 .preview-meta-value { color: var(--text); }
 .preview-meta-value .address {
   display: block;
   color: var(--soft);
-  margin-top: 4px;
+  margin-top: 2px;
 }
 
 /* 画像カルーセル(X風コラージュ: 枚数別) */
@@ -671,51 +683,28 @@ p.preview-exhibition-overview { margin: 0 0 10px; }
   place-items: center;
   background: rgba(0,0,0,0.48);
   color: white;
-  font-size: 1.65rem;
+  font-size: 1.5rem;
   font-weight: 800;
 }
-.preview-carousel.count-1 {
-  display: block;
-  grid-template-columns: 1fr;
-  max-width: none;
-  aspect-ratio: auto;
-  overflow: visible;
-  border-radius: 0;
-  padding: 0;
-  gap: 0;
-  align-items: center;
-  justify-content: center;
-  justify-items: center;
-}
+.preview-carousel.count-1 { display: block; }
 .preview-carousel.count-1 .preview-thumb {
   display: block;
   width: 100%;
-  height: auto;
-  min-height: 0;
-  max-width: 100%;
-  background: transparent;
-  overflow: hidden;
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 16px;
-}
-@container (min-width: 761px) {
-  .preview-carousel.count-1 .preview-thumb { place-items: center; }
+  border-radius: 14px;
 }
 .preview-carousel.count-1 .preview-thumb img {
   display: block;
   width: 100%;
   height: auto;
-  max-width: 100%;
   object-fit: contain;
-  border-radius: 16px;
 }
 .preview-carousel.count-2,
 .preview-carousel.count-3,
 .preview-carousel.count-4 {
   aspect-ratio: 16 / 9;
-  gap: 4px;
+  gap: 3px;
   overflow: hidden;
-  border-radius: 16px;
+  border-radius: 14px;
 }
 .preview-carousel.count-2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -737,9 +726,6 @@ p.preview-exhibition-overview { margin: 0 0 10px; }
   width: 100%;
   height: 100%;
   min-height: 0;
-  border-radius: 0;
-  background: transparent;
-  overflow: hidden;
 }
 .preview-carousel.count-2 .preview-thumb img,
 .preview-carousel.count-3 .preview-thumb img,
@@ -747,46 +733,28 @@ p.preview-exhibition-overview { margin: 0 0 10px; }
   display: block;
   width: 100%;
   height: 100%;
-  aspect-ratio: 4 / 3;
   object-fit: cover;
-  border-radius: 0;
 }
 
 /* DMポスターカルーセル(100:148カード + ドット) */
 .preview-carousel.poster.is-poster-carousel {
   width: 100%;
-  max-width: 100%;
   display: grid;
-  grid-template-columns: 1fr;
   gap: 8px;
   justify-items: center;
-  justify-content: stretch;
-  justify-self: center;
-  background: transparent;
-  border: 0;
-  border-radius: 12px;
-  overflow: hidden;
-  padding: 0;
-  margin: 0 auto;
+  margin: 0;
 }
 .preview-carousel.poster.is-poster-carousel .preview-thumb {
-  width: min(100%, 260px);
-  max-width: 100%;
+  width: 100%;
   aspect-ratio: 100 / 148;
-  object-fit: cover;
-  overflow: hidden;
-  border-radius: 16px;
+  border-radius: 12px;
   background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
 }
 .preview-carousel.poster.is-poster-carousel .preview-thumb img {
   width: 100%;
   height: 100%;
-  aspect-ratio: 100 / 148;
   object-fit: cover;
   display: block;
-  border-radius: 0;
-  background: rgba(255,255,255,0.03);
 }
 .preview-poster-dots {
   display: flex;
@@ -801,97 +769,70 @@ p.preview-exhibition-overview { margin: 0 0 10px; }
 }
 .preview-poster-dots span.is-active { background: var(--yellow); }
 
-/* 作品ギャラリー */
+/* 出展作品: 行方式(行内で高さを揃え、幅は縦横比 --ratio に比例)。目安の行の高さ 96px */
+.preview-work-label {
+  margin-top: 20px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  color: var(--muted);
+  font-size: 0.76rem;
+  letter-spacing: 0.08em;
+}
+.preview-work-label span { margin-left: 8px; }
 .preview-work-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  width: 100%;
-  max-width: 100%;
-  min-width: 0;
-  gap: 14px;
-  margin-top: 14px;
-  align-items: flex-start;
-  justify-content: stretch;
+  display: flex;
   flex-wrap: wrap;
+  gap: 14px 10px;
+  margin-top: 10px;
 }
-.preview-work-grid::before,
-.preview-work-grid::after {
-  content: none;
-  display: none;
-}
-/* 公開サイトの額縁なし作品表示に合わせる */
+.preview-work-grid::after { content: ""; flex-grow: 999; }
+.preview-work-grid.is-collapsed .preview-work-card:nth-child(n + 13) { display: none; }
 .preview-work-card {
-  width: 100%;
-  max-width: 100%;
+  --ratio: 1;
+  flex: var(--ratio) 1 calc(var(--ratio) * 96px);
   min-width: 0;
-  flex: 0 0 auto;
-  padding: 0;
-  border-radius: 0;
-  background: transparent;
-  border: 0;
-  overflow: visible;
 }
 .preview-work-card img {
   display: block;
   width: 100%;
-  max-width: 100%;
   height: auto;
-  margin: 0 0 8px;
+  aspect-ratio: var(--ratio);
   object-fit: contain;
+  border-radius: 8px;
+  margin-bottom: 4px;
+}
+.preview-work-title { font-size: 0.78rem; font-weight: 700; line-height: 1.4; }
+.preview-work-artist { font-size: 0.72rem; color: var(--muted); }
+.preview-work-more {
+  margin-top: 14px;
+  padding: 0 0 2px;
+  border: 0;
+  border-bottom: 1px solid rgba(255,255,255,0.4);
   background: transparent;
-  border-radius: 12px;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 700;
+  cursor: pointer;
 }
+.preview-work-more:hover { color: var(--yellow); border-color: var(--yellow); }
 
-/* アーカイブ */
-.preview-archive-list {
-  display: grid;
-  gap: 12px;
-  width: 100%;
-  max-width: 100%;
-  min-width: 0;
-}
-.preview-archive-item {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 168px);
-  gap: 16px;
-  align-items: start;
-  padding: 14px;
-  border-radius: 16px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
-}
-.preview-archive-body { min-width: 0; }
-.preview-archive-body .preview-dm-slot {
-  width: 100%;
-  margin: 10px 0 12px;
-}
-.preview-archive-body .preview-carousel.poster.is-poster-carousel {
-  justify-items: start;
-}
-.preview-archive-body .preview-carousel.poster.is-poster-carousel .preview-thumb {
-  width: min(100%, 210px);
-}
-
-/* 新歓カレンダー */
+/* 新歓カレンダー: 文字が欠けないよう切り抜かずに全体を収める */
 .preview-recruit-carousel {
   display: block;
   width: 100%;
-  max-width: 100%;
-  min-width: 0;
   aspect-ratio: 16 / 9;
-  border-radius: 16px;
+  border-radius: 14px;
   overflow: hidden;
-  background: rgba(255,255,255,0.04);
+  background: #000;
   margin-top: 14px;
   position: relative;
 }
 .preview-recruit-carousel img {
   display: block;
   width: 100%;
-  height: auto;
-  aspect-ratio: 16 / 9;
-  object-fit: cover;
-  border-radius: 16px;
+  height: 100%;
+  object-fit: contain;
 }
 .preview-recruit-dots {
   position: absolute;
@@ -969,31 +910,19 @@ p.preview-exhibition-overview { margin: 0 0 10px; }
 .preview-sim-bullets li.is-added .preview-sim-text { color: #f5fff1; }
 .preview-sim-bullets li.is-unchanged .preview-sim-text { color: var(--text); }
 
-/* プレビューペインが狭いとき(公開サイトのモバイル表示相当) */
+/* プレビューペインが狭いとき(公開サイトのモバイル表示相当): 見出し→DM→本文の縦並び */
 @container (max-width: 760px) {
-  .preview-exhibition-layout,
-  .preview-archive-item {
+  .preview-exhibition-layout {
     grid-template-columns: 1fr;
     gap: 14px;
   }
+  .preview-exhibition-heading.is-narrow { display: block; }
+  .preview-exhibition-heading.is-wide { display: none; }
   .preview-dm-slot {
-    order: 1;
+    order: -1;
     justify-content: center;
   }
-  .preview-exhibition-copy { order: 2; }
-  .preview-exhibition-overview { order: 3; }
-  .preview-exhibition-meta { order: 4; }
-  .preview-carousel.poster { order: -1; }
-  .preview-dm-slot,
-  .preview-dm-slot .preview-carousel.poster,
-  .preview-carousel.poster.is-poster-carousel,
-  .preview-carousel.poster.is-poster-carousel .preview-thumb {
-    width: 100%;
-    max-width: 100%;
-  }
-  .preview-archive-body .preview-carousel.poster.is-poster-carousel {
-    justify-items: center;
-  }
+  .preview-dm-slot .preview-carousel.poster.is-poster-carousel { width: min(100%, 200px); }
   .preview-meta-row {
     grid-template-columns: 1fr;
     gap: 4px;
