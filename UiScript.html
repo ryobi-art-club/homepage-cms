@@ -500,7 +500,18 @@ const FILE_WARN_SIZE = 5 * 1024 * 1024;
 const FILE_STRONG_WARN_SIZE = 10 * 1024 * 1024;
 const FILE_MAX_SIZE = 20 * 1024 * 1024;
 const FILE_TOTAL_WARN_SIZE = 50 * 1024 * 1024;
-const CATALOG_PDF_MAX_SIZE = 10 * 1024 * 1024;
+const CATALOG_MAX_SIZE = 10 * 1024 * 1024;
+const CATALOG_MAX_IMAGES = 20;
+const CATALOG_TEXT_EXTENSIONS = ['txt', 'md', 'markdown', 'csv', 'tsv', 'json'];
+const CATALOG_EXCEL_EXTENSIONS = ['xlsx', 'xls'];
+const CATALOG_IMAGE_TYPES = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', heic: 'image/heic', heif: 'image/heif' };
+const CATALOG_ACCEPT = [
+  '.pdf', 'application/' + 'pdf',
+  '.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif',
+  '.txt', '.md', '.markdown', '.csv', '.tsv', '.json',
+  '.xlsx', '.xls'
+].join(',');
+const SHEETJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
 const TRASH_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:block"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M9 6V4h6v2"></path></svg>';
 const URL_PROTOCOL = 'https:' + String.fromCharCode(47, 47);
 
@@ -748,14 +759,13 @@ function renderExhibitionMediaSettings(files, context) {
     renderMediaUploadBox('work', '作品画像を追加', 'exhibition'),
     '<div class="small-note">表示順は、スマートフォン表示と拡大表示時のスライド順に反映されます。PCでは画像の縦横比に合わせて、見やすい配置に自動調整されます。</div>',
     '<div class="media-file-grid media-work-grid">',
-    works.length ? works.map((work, index) => renderExhibitionWorkRow(fileById(files, work.fileId), work, index, works.length, catalog, works)).join('') : '<div class="preview-empty">作品画像は未設定です。目録PDFを先に読み込んだ場合は、作品画像をアップロードすると各画像に紐づけできます。</div>',
+    works.length ? works.map((work, index) => renderExhibitionWorkRow(fileById(files, work.fileId), work, index, works.length, catalog, works)).join('') : '<div class="preview-empty">作品画像は未設定です。目録を先に読み込んだ場合は、作品画像をアップロードすると各画像に紐づけできます。</div>',
     '</div>',
     '</div>'
   ].join('');
 }
 
 function renderCatalogImportPanel(catalog, works) {
-  const pdfAccept = 'application/' + 'pdf';
   const items = catalog && Array.isArray(catalog.items) ? catalog.items : [];
   const usedKeys = selectedCatalogKeysFromWorks(works || []);
   const linkedCount = usedKeys.length;
@@ -764,8 +774,8 @@ function renderCatalogImportPanel(catalog, works) {
     '<div class="media-upload-box catalog-import-section">',
     '<div class="catalog-import-head">',
     '<div>',
-    '<h3>目録PDFから作品情報を自動入力</h3>',
-    '<div class="small-note">作品目録をAI解析して作品情報を自動抽出します。</div>',
+    '<h3>目録から作品情報を自動入力</h3>',
+    '<div class="small-note">作品目録をAI解析して作品情報を自動抽出します。PDF・画像（複数枚可）・Excel・テキスト（.txt / .md / .csv / .json）に対応しています。</div>',
     '<div class="small-note">現在使用中モデル：' + escapeHtml((appState.options && appState.options.geminiModel) || 'GEMINI_MODEL') + '</div>',
     '</div>',
     items.length ? [
@@ -777,14 +787,14 @@ function renderCatalogImportPanel(catalog, works) {
     '</div>',
     '<div class="media-upload-row">',
     '<div class="field media-file-field">',
-    '<label>目録PDF</label>',
-    '<input id="catalogPdfInput" type="file" accept="' + escapeHtml(pdfAccept) + '">',
+    '<label>目録ファイル</label>',
+    '<input id="catalogFileInput" type="file" multiple accept="' + escapeHtml(CATALOG_ACCEPT) + '">',
     '</div>',
-    '<button class="button success" type="button" onclick="onCatalogPdfExtract()">読み込む</button>',
+    '<button class="button success" type="button" onclick="onCatalogFileExtract()">読み込む</button>',
     '</div>',
     items.length ? [
       '<div class="catalog-summary">',
-      '<strong>' + escapeHtml(catalog.sourceName || '目録PDF') + '</strong> から ' + items.length + '件を読み込みました。',
+      '<strong>' + escapeHtml(catalog.sourceName || '目録') + '</strong> から ' + items.length + '件を読み込みました。',
       unusedCount ? ' 未使用: ' + unusedCount + '件' : ' すべて選択済みです。',
       '</div>',
       renderCatalogExtractedList(items, usedKeys)
@@ -929,11 +939,99 @@ function readFilePayload(file) {
   });
 }
 
-function validateCatalogPdf(file) {
-  if (!file) throw new Error('目録PDFを選択してください。');
-  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
-  if (!isPdf) throw new Error('PDFファイルを選択してください。');
-  if (file.size > CATALOG_PDF_MAX_SIZE) throw new Error('目録PDFは10MB以下にしてください。');
+function catalogFileExtension(file) {
+  const match = String(file && file.name || '').toLowerCase().match(/\.([a-z0-9]+)$/);
+  return match ? match[1] : '';
+}
+
+function catalogFileKind(file) {
+  const ext = catalogFileExtension(file);
+  if (file.type === 'application/pdf' || ext === 'pdf') return 'pdf';
+  if (CATALOG_IMAGE_TYPES[ext] || /^image\/(jpeg|png|webp|heic|heif)$/.test(file.type)) return 'image';
+  if (CATALOG_EXCEL_EXTENSIONS.indexOf(ext) !== -1) return 'excel';
+  if (CATALOG_TEXT_EXTENSIONS.indexOf(ext) !== -1) return 'text';
+  return '';
+}
+
+function validateCatalogFiles(files) {
+  if (!files.length) throw new Error('目録ファイルを選択してください。');
+  const kinds = files.map(catalogFileKind);
+  if (kinds.indexOf('') !== -1) {
+    throw new Error('対応していないファイルです。PDF・画像・Excel・テキスト（.txt / .md / .csv / .json）を選択してください。');
+  }
+  if (files.length > 1 && kinds.some((kind) => kind !== 'image')) {
+    throw new Error('複数のファイルを選べるのは画像だけです。PDF・Excel・テキストは1つずつ読み込んでください。');
+  }
+  if (files.length > CATALOG_MAX_IMAGES) throw new Error('画像は' + CATALOG_MAX_IMAGES + '枚以下にしてください。');
+  const total = files.reduce((sum, file) => sum + (file.size || 0), 0);
+  if (total > CATALOG_MAX_SIZE) throw new Error('目録ファイルは合計10MB以下にしてください。');
+}
+
+function readFileAsText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('ファイルの読み込みに失敗しました。'));
+    reader.readAsText(file);
+  });
+}
+
+function readFileAsArrayBuffer(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error || new Error('ファイルの読み込みに失敗しました。'));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+// SheetJS は Excel を読み込むときだけ読み込む。
+let sheetJsPromise = null;
+function loadSheetJs() {
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+  if (!sheetJsPromise) {
+    sheetJsPromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = SHEETJS_URL;
+      script.onload = () => window.XLSX ? resolve(window.XLSX) : reject(new Error('Excel 読み込み用ライブラリを利用できません。'));
+      script.onerror = () => {
+        sheetJsPromise = null;
+        reject(new Error('Excel 読み込み用ライブラリを取得できませんでした。'));
+      };
+      document.head.appendChild(script);
+    });
+  }
+  return sheetJsPromise;
+}
+
+async function excelFileToCsvText(file) {
+  const XLSX = await loadSheetJs();
+  const workbook = XLSX.read(new Uint8Array(await readFileAsArrayBuffer(file)), { type: 'array' });
+  const sheets = workbook.SheetNames.map((name) => {
+    const csv = XLSX.utils.sheet_to_csv(workbook.Sheets[name], { blankrows: false }).trim();
+    return csv ? '## シート: ' + name + '\n' + csv : '';
+  }).filter(Boolean);
+  if (!sheets.length) throw new Error('Excel ファイルにデータがありません。');
+  return sheets.join('\n\n');
+}
+
+async function buildCatalogRequest(files) {
+  const kind = catalogFileKind(files[0]);
+  const name = files.length > 1 ? files[0].name + ' ほか' + (files.length - 1) + '枚' : files[0].name;
+  if (kind === 'text' || kind === 'excel') {
+    const text = kind === 'excel' ? await excelFileToCsvText(files[0]) : await readFileAsText(files[0]);
+    if (!text.trim()) throw new Error('目録ファイルの内容が空です。');
+    return { name, parts: [{ kind: 'text', name: files[0].name, text }] };
+  }
+  const parts = await Promise.all(files.map(async (file) => {
+    const payload = await readFilePayload(file);
+    return {
+      kind,
+      mimeType: kind === 'pdf' ? 'application/pdf' : (CATALOG_IMAGE_TYPES[catalogFileExtension(file)] || file.type),
+      data: payload.data
+    };
+  }));
+  return { name, parts };
 }
 
 function normalizeCatalogDraft(result) {
@@ -953,24 +1051,24 @@ function normalizeCatalogDraft(result) {
   };
 }
 
-async function onCatalogPdfExtract() {
+async function onCatalogFileExtract() {
   const context = currentMediaContext();
   if (context.kind !== 'exhibition') return;
-  const input = document.getElementById('catalogPdfInput');
-  const file = input && input.files && input.files[0] ? input.files[0] : null;
+  const input = document.getElementById('catalogFileInput');
+  const files = input && input.files ? Array.from(input.files) : [];
   try {
-    validateCatalogPdf(file);
+    validateCatalogFiles(files);
     syncMediaEditorRowsToState();
     document.getElementById('mediaDialogBody').classList.add('is-loading');
-    setMediaStatus('目録PDFを読み込んでいます…');
-    setStatus('目録PDFを読み込んでいます…');
-    const payload = await readFilePayload(file);
+    setMediaStatus('目録を読み込んでいます…');
+    setStatus('目録を読み込んでいます…');
+    const payload = await buildCatalogRequest(files);
     const result = await serverCall('extractExhibitionCatalog', appState.sessionToken, payload);
     const draft = normalizeCatalogDraft(result);
     if (!draft.items.length) throw new Error('目録から作品情報を抽出できませんでした。');
     setCatalogDraft(context, draft);
     renderMediaDialog(context.folderId ? (appState.mediaCache[context.folderId] || []) : []);
-    const message = '目録PDFから' + draft.items.length + '件の作品情報を読み込みました。各作品画像カードで目録項目を選択してください。';
+    const message = '目録から' + draft.items.length + '件の作品情報を読み込みました。各作品画像カードで目録項目を選択してください。';
     setMediaStatus(message, 'success');
     setStatus(message, 'success');
   } catch (error) {
@@ -1049,7 +1147,7 @@ function clearCatalogDraftAndRender() {
   const context = currentMediaContext();
   clearCatalogDraft(context);
   renderMediaDialog(context.folderId ? (appState.mediaCache[context.folderId] || []) : []);
-  setMediaStatus('目録PDFの抽出結果を消去しました。', 'success');
+  setMediaStatus('目録の抽出結果を消去しました。', 'success');
 }
 
 async function onMediaUpload(uploadRole) {

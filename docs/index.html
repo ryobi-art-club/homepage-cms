@@ -1661,8 +1661,8 @@ img { max-width: 100%; display: block; }
                 <div style="padding:10px; border-radius:12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); margin-bottom:8px;">
                   <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:6px;">
                     <div>
-                      <div style="font-size:0.8rem; font-weight:800;">目録PDFから作品情報を自動入力</div>
-                      <div style="font-size:0.72rem; color:var(--muted); margin-top:2px;">作品目録をAI解析して作品情報を自動抽出します。</div>
+                      <div style="font-size:0.8rem; font-weight:800;">目録から作品情報を自動入力</div>
+                      <div style="font-size:0.72rem; color:var(--muted); margin-top:2px;">作品目録をAI解析して作品情報を自動抽出します。PDF・画像（複数枚可）・Excel・テキスト（.txt / .md / .csv / .json）に対応しています。</div>
                       <div style="font-size:0.72rem; color:var(--muted);">現在使用中モデル：gemini-3.1-flash-lite</div>
                     </div>
                     <div style="display:flex; justify-content:flex-end; flex-wrap:wrap; gap:6px;">
@@ -1672,7 +1672,7 @@ img { max-width: 100%; display: block; }
                   </div>
                   <div style="display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center;">
                     <div>
-                      <div style="font-size:0.78rem; font-weight:700; margin-bottom:4px;">目録PDF</div>
+                      <div style="font-size:0.78rem; font-weight:700; margin-bottom:4px;">目録ファイル</div>
                       <input type="file" style="font-size:0.72rem; color:var(--muted);" disabled>
                     </div>
                     <button class="m-btn success" style="font-size:0.74rem;">読み込む</button>
@@ -1760,9 +1760,10 @@ img { max-width: 100%; display: block; }
         </ul>
       </div>
       <div class="m-card">
-        <h3 style="font-size:0.9rem; margin-bottom:10px;">目録PDFの読み込み（任意）</h3>
+        <h3 style="font-size:0.9rem; margin-bottom:10px;">目録の読み込み（任意）</h3>
         <ul style="color:var(--soft); font-size:0.84rem; padding-left:18px; display:grid; gap:6px;">
-          <li>展示会の作品目録PDF（10MB以下）を「読み込む」と、AIが作品名・作者名の一覧を抽出します</li>
+          <li>展示会の作品目録（10MB以下）を「読み込む」と、AIが作品名・作者名の一覧を抽出します</li>
+          <li>読み込めるのは PDF・画像（JPEG / PNG / WebP / HEIC）・Excel（.xlsx / .xls）・テキスト（.txt / .md / .csv / .json）です。目録をスマホで撮影した場合は、全ページの画像をまとめて選択してください（最大20枚）。PDF・Excel・テキストは1ファイルずつ読み込みます</li>
           <li>読み込み結果は「<strong style="color:#fff;">mokuroku_2026.pdf から 25件を読み込みました。 未使用: 23件</strong>」のように表示され、「抽出結果を表示」で一覧を確認、「抽出結果を消去」でやり直せます</li>
           <li>抽出後、各作品カードに「目録項目」の選択欄が現れます。該当作品を選ぶと作品名・作者名が自動入力されます（同じ目録項目を複数の画像に紐づけることはできません）</li>
           <li>2件以上を紐づけると「作品番号順に並べる」が使えます。目録に紐づけた作品が作品番号順に並び、その後ろに展示風景など紐づけていない画像が現在の順番で並びます</li>

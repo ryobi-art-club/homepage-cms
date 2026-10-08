@@ -61,7 +61,7 @@ homepage-cms/
 ├── Store.js          コンテンツ CRUD・下書き・変更ログ・公開処理
 ├── DriveGateway.js   Google Drive 操作（ファイル・フォルダ管理）
 ├── Github.js         GitHub Actions ワークフロー起動
-├── Gemini.js         Gemini API 呼び出し・目録PDFの作品情報抽出
+├── Gemini.js         Gemini API 呼び出し・目録ファイルの作品情報抽出
 ├── Proofread.js      公開前の誤字脱字チェック（Gemini）
 │
 ├── Ui.html           メイン HTML テンプレート（GAS テンプレート形式）
@@ -210,15 +210,26 @@ payload 受信
 | `trashManagedFile(sessionToken, request)` | 展示会は一覧から除外する結果を返し、実ファイルの移動は公開時に実行。他の種別は即時ゴミ箱へ移動 |
 | `saveMediaSettings(sessionToken, request)` | メディア一覧を取得する互換用API（作品情報による命名は公開時のみ）|
 
-### `Gemini.js` — 目録PDFの作品情報抽出
+### `Gemini.js` — 目録ファイルの作品情報抽出
 
 **公開 API（フロントエンドから呼び出される関数）：**
 
 | 関数 | 役割 |
 |------|------|
-| `extractExhibitionCatalog(sessionToken, request)` | 展示会の目録PDFをGemini APIに一時的に渡し、作品番号・作品名・作者名などをJSONで返す |
+| `extractExhibitionCatalog(sessionToken, request)` | 展示会の目録ファイルをGemini APIに一時的に渡し、作品番号・作品名・作者名などをJSONで返す |
 
-PDF本体は Drive やスプレッドシートには保存しません。管理画面では抽出結果を一時的な入力候補として表示し、各作品画像カードに反映された作品名・作者名だけが既存の `work_files` に保存されます。
+対応形式と Gemini への渡し方：
+
+| 形式 | 渡し方 |
+|------|--------|
+| PDF | `document` として渡す |
+| 画像（JPEG / PNG / WebP / HEIC、最大20枚） | `image` として渡す。複数枚は同じ目録の別ページとして扱う |
+| テキスト（.txt / .md / .csv / .tsv / .json） | ブラウザで文字として読み、`text` として渡す |
+| Excel（.xlsx / .xls） | ブラウザで SheetJS（cdnjs から Excel 選択時のみ読み込み）によりシートごとの CSV に変換し、`text` として渡す |
+
+リクエストは `{ name, parts: [{ kind: 'pdf' | 'image', mimeType, data }, { kind: 'text', name, text }] }` の形式です（旧形式 `{ name, mimeType, data }` の PDF も受け付けます）。複数選択できるのは画像のみで、合計10MBまでです。
+
+目録ファイル本体は Drive やスプレッドシートには保存しません。管理画面では抽出結果を一時的な入力候補として表示し、各作品画像カードに反映された作品名・作者名だけが既存の `work_files` に保存されます。
 
 ### `Proofread.js` — 公開前の誤字脱字チェック
 
@@ -395,8 +406,8 @@ GAS スクリプトエディタの「プロジェクトの設定」→「スク�
 | プロパティ名 | 説明 |
 |------------|------|
 | `SITE_PREVIEW_URL` | 「サイトを見る」ボタンのURL。未設定時は `GH_OWNER` と `GH_REPO` から GitHub Pages URL を推定 |
-| `GEMINI_API_KEY` | 目録PDFからの作品情報抽出と、公開前の誤字脱字チェックに使う Gemini API キー（未設定の場合、誤字脱字チェックは行わずに公開します） |
-| `GEMINI_MODEL` | 目録PDF抽出に使うモデル名。未設定時は `gemini-3.1-flash-lite` |
+| `GEMINI_API_KEY` | 目録ファイルからの作品情報抽出と、公開前の誤字脱字チェックに使う Gemini API キー（未設定の場合、誤字脱字チェックは行わずに公開します） |
+| `GEMINI_MODEL` | 目録の抽出と誤字脱字チェックに使うモデル名。未設定時は `gemini-3.1-flash-lite` |
 
 ### 認証モード別の追加プロパティ
 
