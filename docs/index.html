@@ -436,7 +436,11 @@ img { max-width: 100%; display: block; }
 .m-editor-grid { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 10px; align-items: start; }
 .m-editor-grid .m-form-grid { grid-template-columns: 1fr; }
 .m-kicker { display: inline-block; color: var(--yellow); font-size: 0.6rem; letter-spacing: 0.18em; font-weight: 700; margin-bottom: 6px; text-transform: uppercase; }
-.m-psite-card { padding: 10px 12px; border-radius: 12px; background: linear-gradient(180deg, rgba(255,255,255,0.07), rgba(255,255,255,0.03)); border: 1px solid rgba(255,255,255,0.08); margin-bottom: 8px; }
+/* プレビューの模式図。「どこに何が出るか」を伝えるためのもので、見た目の細部までは再現しない。
+   サイトやCMSプレビューの色・余白を調整しただけなら直さず、構成(何がどこに並ぶか)が変わったときだけ直す。
+   カードは公開サイトと同じく枠で囲まず、太線で区切る */
+.m-psite-card { padding: 10px 0; border-top: 2px solid rgba(255,255,255,0.26); }
+.m-psite-card:first-of-type { border-top: 0; padding-top: 0; }
 .m-psite-card h5 { font-size: 0.82rem; margin: 0 0 4px; }
 .m-psite-card p { font-size: 0.7rem; color: var(--soft); margin: 0; }
 .m-pmeta { display: grid; gap: 4px; margin-top: 8px; }
@@ -444,8 +448,12 @@ img { max-width: 100%; display: block; }
 .m-pmeta-row:last-child { border-bottom: 0; padding-bottom: 0; }
 .m-pmeta-row .lbl { color: var(--muted); white-space: nowrap; }
 .m-pthumb-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
-.m-pthumb { aspect-ratio: 1/1; border-radius: 8px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); display: grid; place-items: center; font-size: 0.95rem; }
-.m-pposter { width: 56px; aspect-ratio: 100/148; border-radius: 8px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.08); display: grid; place-items: center; font-size: 1rem; flex-shrink: 0; }
+.m-pthumb { aspect-ratio: 1/1; border-radius: 8px; background: rgba(255,255,255,0.06); display: grid; place-items: center; font-size: 0.95rem; }
+.m-pposter { width: 56px; aspect-ratio: 100/148; border-radius: 8px; background: rgba(255,255,255,0.08); display: grid; place-items: center; font-size: 1rem; flex-shrink: 0; }
+/* 出展作品: 行内で高さを揃え、幅は縦横比に比例(行方式) */
+.m-pwork-label { margin-top: 8px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.08); font-size: 0.58rem; color: var(--muted); }
+.m-pwork-row { display: flex; gap: 6px; margin-top: 6px; }
+.m-pwork-row > div { min-width: 0; }
 .m-pdots { display: flex; justify-content: center; gap: 4px; margin-top: 6px; }
 .m-pdots span { width: 5px; height: 5px; border-radius: 999px; background: rgba(255,255,255,0.35); }
 .m-pdots span.act { background: var(--yellow); }
@@ -1475,10 +1483,10 @@ img { max-width: 100%; display: block; }
           <div class="m-card" style="margin-bottom:0;">
             <h4>プレビュー</h4>
             <div class="m-psite-card">
-              <span class="m-kicker">Next Exhibition</span>
-              <h5>第XX回凌美会展</h5>
-              <div style="display:flex; gap:8px; align-items:flex-start;">
+              <div style="display:flex; gap:8px; align-items:center;">
                 <div style="flex:1; min-width:0;">
+                  <span class="m-kicker">Next Exhibition</span>
+                  <h5>第XX回凌美会展</h5>
                   <div class="m-pmeta">
                     <div class="m-pmeta-row"><span class="lbl">会期</span><span>2026年8月1日（土）〜8月8日（土）<br><span style="color:var(--muted);">11:00〜18:00（最終日17:00まで）</span></span></div>
                     <div class="m-pmeta-row"><span class="lbl">会場</span><span>ギャラリー〇〇<br><span style="color:var(--muted);">神戸市中央区〇〇1-2-3</span></span></div>
@@ -1495,22 +1503,21 @@ img { max-width: 100%; display: block; }
               <div style="font-size:0.62rem; color:var(--muted);">〜夏の記憶〜</div>
               <h5>夏展2025</h5>
               <p>夏の作品展です。</p>
-              <div class="m-pthumb-row" style="grid-template-columns:repeat(2,1fr);">
-                <div>
+              <div class="m-pwork-label">出展作品　2点</div>
+              <div class="m-pwork-row">
+                <div style="flex:1.33;">
                   <div class="m-pthumb" style="aspect-ratio:4/3;">🖼️</div>
                   <div style="font-size:0.6rem; font-weight:700; margin-top:2px;">秋の情景</div>
                   <div style="font-size:0.58rem; color:var(--muted);">田中 花子</div>
                 </div>
-                <div>
-                  <div class="m-pthumb" style="aspect-ratio:4/3;">🖼️</div>
+                <div style="flex:0.75;">
+                  <div class="m-pthumb" style="aspect-ratio:3/4;">🖼️</div>
                   <div style="font-size:0.6rem; font-weight:700; margin-top:2px;">海辺にて</div>
                   <div style="font-size:0.58rem; color:var(--muted);">鈴木 二郎</div>
                 </div>
               </div>
             </div>
             <div class="m-psite-card" style="margin-bottom:0;">
-              <span class="m-kicker">Archive</span>
-              <h5>展示会アーカイブ</h5>
               <p style="color:var(--muted);">公開中のアーカイブはありません。</p>
             </div>
           </div>
@@ -1521,7 +1528,7 @@ img { max-width: 100%; display: block; }
 
     <div class="callout tip" style="margin-top:16px;">
       <i class="fa-solid fa-circle-info"></i>
-      <div>右側のプレビューはホームページの展示会ページと同じ構成です。<strong style="color:#fff;">NEXT EXHIBITION</strong> ＝ 開催予定（複数あれば近い順）、<strong style="color:#fff;">RECENT EXHIBITION</strong> ＝ アーカイブの<strong>最新1件</strong>（作品画像もここに表示）、<strong style="color:#fff;">ARCHIVE</strong> ＝ それ以外のアーカイブの一覧です。上のモックではアーカイブが「夏展2025」の1件だけなので、RECENT に表示され、ARCHIVE 一覧は空になっています。</div>
+      <div>右側のプレビューはホームページの展示会ページと同じ構成です。<strong style="color:#fff;">NEXT EXHIBITION</strong> ＝ 開催予定（複数あれば近い順）、<strong style="color:#fff;">RECENT EXHIBITION</strong> ＝ アーカイブの<strong>最新1件</strong>（作品画像もここに表示）、<strong style="color:#fff;">ARCHIVE</strong> ＝ それ以外のアーカイブで、1件ずつ並びます（「Google Driveで作品を観る」リンク付き）。上のモックではアーカイブが「夏展2025」の1件だけなので、RECENT に表示され、その下は「公開中のアーカイブはありません。」になっています。</div>
     </div>
   </div>
 
@@ -1692,7 +1699,7 @@ img { max-width: 100%; display: block; }
                   </div>
                   <div style="font-size:0.72rem; color:var(--muted); margin-top:6px;">推奨ファイルサイズは3MB以下です。</div>
                 </div>
-                <div style="font-size:0.72rem; color:var(--muted); margin-bottom:8px;">表示順は、スマートフォン表示と拡大表示時のスライド順に反映されます。PCでは画像の縦横比に合わせて、見やすい配置に自動調整されます。</div>
+                <div style="font-size:0.72rem; color:var(--muted); margin-bottom:8px;">表示順は、PC・スマートフォンでの並び順と、拡大表示時のスライド順に反映されます。PCでは画像の大きさが縦横比に合わせて自動調整されます。</div>
                 <div class="m-file-grid">
                   <div class="m-file-card">
                     <div class="m-file-thumb">🖼️</div>
@@ -1775,7 +1782,7 @@ img { max-width: 100%; display: block; }
           <li>「作品画像を追加」からアップロード → 自動で作品一覧の末尾に追加</li>
           <li>各作品カードに<strong style="color:#fff;">「作品名」「作者名」</strong>を直接入力できます</li>
           <li>展示風景など目録にない画像は「目録に紐づけない」のまま、必要に応じて手入力します</li>
-          <li><strong style="color:#fff;">「前へ」「次へ」</strong>で表示順を変更（スマートフォンのスライド順 / 拡大表示のスライド順に反映。PCでは縦横比に合わせて自動配置）</li>
+          <li><strong style="color:#fff;">「前へ」「次へ」</strong>で表示順を変更（PC・スマートフォンでの並び順と、拡大表示のスライド順に反映）</li>
           <li>「下書き保存」または「公開する」を実行すると、表示順と作品情報が保存されます</li>
         </ul>
       </div>
