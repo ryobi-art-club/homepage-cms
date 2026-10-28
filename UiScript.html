@@ -94,9 +94,13 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function renderStatusMessage(message, kind = 'default') {
+function renderStatusMessage(message, kind = 'default', report = null) {
   const status = document.getElementById('statusMessage');
-  status.textContent = message;
+  status.textContent = '';
+  const text = document.createElement('span');
+  text.textContent = message;
+  status.appendChild(text);
+  if (report) status.appendChild(createReportCopyButton(report));
   status.setAttribute('data-kind', kind);
   status.style.color = kind === 'error' ? '#ffd5d5' : (kind === 'success' ? '#0a0a0a' : '');
   status.style.background = kind === 'error' ? 'rgba(243,108,108,0.18)' : (kind === 'success' ? 'rgba(136,196,132,0.92)' : 'rgba(255,255,255,0.04)');
@@ -110,10 +114,11 @@ function statusTimeLabel(date) {
   ].join(':');
 }
 
-function pushStatusHistory(message, kind = 'default') {
+function pushStatusHistory(message, kind = 'default', report = null) {
   appState.statusHistory.unshift({
     message: String(message == null ? '' : message),
     kind,
+    report,
     time: statusTimeLabel(new Date())
   });
   appState.statusHistory = appState.statusHistory.slice(0, STATUS_HISTORY_LIMIT);
@@ -127,15 +132,20 @@ function renderStatusHistory() {
     list.innerHTML = '<div class="status-history-empty">まだ履歴はありません。</div>';
     return;
   }
-  list.innerHTML = appState.statusHistory.map((item) => [
+  list.innerHTML = appState.statusHistory.map((item, index) => [
     '<div class="status-history-item is-' + escapeHtml(item.kind || 'default') + '">',
     '<div class="status-history-meta">',
     '<span>' + escapeHtml(item.time || '') + '</span>',
     '<span>' + escapeHtml(item.kind === 'error' ? 'エラー' : (item.kind === 'success' ? '完了' : '情報')) + '</span>',
+    item.report ? '<button class="status-copy-button" type="button" data-history-report="' + index + '">報告用にコピー</button>' : '',
     '</div>',
     '<div class="status-history-message">' + escapeHtml(item.message || '') + '</div>',
     '</div>'
   ].join('')).join('');
+  list.querySelectorAll('[data-history-report]').forEach((button) => {
+    const item = appState.statusHistory[Number(button.getAttribute('data-history-report'))];
+    button.addEventListener('click', () => copyErrorReport(item && item.report, button));
+  });
 }
 
 function toggleStatusHistory(force) {
@@ -170,8 +180,8 @@ async function processStatusQueue() {
 function setStatus(message, kind = 'default', options = {}) {
   if (kind === 'error' || options.immediate) {
     clearStatusQueue();
-    pushStatusHistory(message, kind);
-    renderStatusMessage(message, kind);
+    pushStatusHistory(message, kind, options.report || null);
+    renderStatusMessage(message, kind, options.report || null);
     return;
   }
   pushStatusHistory(message, kind);
@@ -183,9 +193,10 @@ function setStatus(message, kind = 'default', options = {}) {
   processStatusQueue();
 }
 
-function setAuthStatus(message, kind = 'default') {
+function setAuthStatus(message, kind = 'default', report = null) {
   const box = document.getElementById('authStatus');
   box.innerHTML = `<div>${escapeHtml(message)}</div>`;
+  if (report) box.appendChild(createReportCopyButton(report));
   box.style.color = kind === 'error' ? '#ffd5d5' : (kind === 'success' ? '#0a0a0a' : 'rgba(255,255,255,0.82)');
   box.style.background = kind === 'error' ? 'rgba(243,108,108,0.18)' : (kind === 'success' ? 'rgba(136,196,132,0.92)' : 'rgba(255,255,255,0.04)');
 }
@@ -197,6 +208,203 @@ function escapeHtml(value) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+/* ---------- エラー表示と管理者への報告 ----------
+   どの操作で何が起きたかと、利用者がまず試すことを表示する。
+   システム側の問題（important）は管理者へ自動通知し、どのエラーも報告用の文面をコピーできるようにする。
+   報告文にはセッショントークンなどの秘密情報を含めない。 */
+const ERROR_RULES = [
+  { pattern: /セッションが切れています/, important: false, hint: '一定時間操作がなかったため、ログインが切れました。ページを再読み込みして、もう一度ログインしてください。' },
+  { pattern: /Excel 読み込み用ライブラリ/, important: true, hint: 'Excel の目録は今は読み込めません。Excel の「名前を付けて保存」で CSV 形式にして選び直すか、PDF・画像の目録を使ってください。' },
+  { pattern: /Lock timeout/i, important: false, hint: 'ほかの人が保存や公開をしている最中でした。1分ほど待ってから、もう一度お試しください。' },
+  { pattern: /NetworkError|Failed to fetch|network/i, important: false, hint: '通信が途切れた可能性があります。インターネット接続を確認して、もう一度お試しください。' },
+  { pattern: /too many times|quota|Limit Exceeded|Bandwidth/i, important: true, hint: 'Google の1日あたりの利用上限に達した可能性があります。時間をおいて（翌日に）もう一度お試しください。' },
+  { pattern: /Script Properties|allowlist シート|共有設定/, important: true, hint: 'CMS の設定に問題があります。管理者に連絡してください。' },
+  { pattern: /GitHub|GH_|installation token/, important: true, hint: '内容はスプレッドシートに保存済みですが、サイトへの反映を開始できませんでした。しばらくしてから、もう一度「公開」を押してください。' },
+  { pattern: /Gemini API/, important: false, hint: '目録の自動読み取りが一時的に失敗しました。少し待ってもう一度お試しください。作品名・作者名は手入力もできます。' },
+  { pattern: /に失敗しました|復元できません|Invalid (chunk|payload)/, important: true, hint: 'Google Drive やスプレッドシートの操作に失敗しました。少し待ってもう一度お試しください。' }
+];
+const UNEXPECTED_ERROR_HINT = '想定外のエラーです。もう一度お試しいただき、続く場合は管理者に連絡してください。';
+const ERROR_NOTIFY_MESSAGES = {
+  sending: '管理者に通知しています…',
+  sent: '管理者に自動でメール通知しました。急ぎの場合は、下の内容をコピーして直接連絡してください。',
+  duplicate: '同じエラーは少し前に管理者へ通知済みです。',
+  not_configured: '管理者への自動通知は設定されていません。「エラー内容をコピー」を押して、管理者に送ってください。',
+  limit: '本日の自動通知の上限に達しました。「エラー内容をコピー」を押して、管理者に送ってください。',
+  failed: '管理者へ自動で通知できませんでした。「エラー内容をコピー」を押して、管理者に送ってください。',
+  copy_failed: '自動でコピーできませんでした。下の枠内の文章を選択してコピーし、管理者に送ってください。'
+};
+
+function errorMessageText(error) {
+  const raw = error && error.message ? error.message : String(error == null ? '' : error);
+  return raw.replace(/^(Exception|Error|ScriptError):\s*/, '').trim() || '不明なエラー';
+}
+
+function formatReportTime(date) {
+  return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('/') + ' ' + statusTimeLabel(date);
+}
+
+function activePanelLabel() {
+  if (typeof document === 'undefined' || typeof document.querySelector !== 'function') return '';
+  const button = document.querySelector('[data-panel-target].is-active');
+  return button ? String(button.textContent || '').replace(/\s+/g, ' ').trim() : '';
+}
+
+function describeError(error, operation, now = new Date()) {
+  const message = errorMessageText(error);
+  const rule = ERROR_RULES.find((item) => item.pattern.test(message));
+  const unexpected = !rule && !/[ぁ-んァ-ヶ一-龠]/.test(message);
+  const report = {
+    id: 'E-' + now.getTime().toString(36).toUpperCase().slice(-6) + Math.random().toString(36).slice(2, 4).toUpperCase(),
+    time: formatReportTime(now),
+    operation: String(operation || '操作'),
+    message,
+    hint: rule ? rule.hint : (unexpected ? UNEXPECTED_ERROR_HINT : ''),
+    important: rule ? rule.important : unexpected,
+    panel: activePanelLabel(),
+    userAgent: typeof navigator !== 'undefined' ? String(navigator.userAgent || '').slice(0, 300) : ''
+  };
+  report.text = [
+    '【凌美会 管理画面 エラー報告】',
+    'エラーID: ' + report.id,
+    '日時: ' + report.time,
+    '操作: ' + report.operation,
+    '内容: ' + report.message,
+    report.panel ? '画面: ' + report.panel : '',
+    report.userAgent ? 'ブラウザ: ' + report.userAgent : ''
+  ].filter(Boolean).join('\n');
+  return report;
+}
+
+/* catch 節から呼ぶ共通処理。target は 'auth'（ログイン画面）か 'media'（画像設定ダイアログ）、省略時は画面上部のステータス */
+function showError(error, operation, target = '') {
+  const report = describeError(error, operation);
+  const display = report.message + (report.hint ? '\n' + report.hint : '');
+  if (target === 'auth') {
+    setAuthStatus(display, 'error', report);
+  } else {
+    setStatus(display, 'error', { report });
+    if (target === 'media') setMediaStatus(display, 'error', report);
+  }
+  if (report.important) notifyErrorReport(report);
+  return report;
+}
+
+async function notifyErrorReport(report) {
+  if (!appState.sessionToken) {
+    openErrorReportCard(report, 'failed');
+    return;
+  }
+  openErrorReportCard(report, 'sending');
+  try {
+    const result = await serverCall('reportError', appState.sessionToken, {
+      id: report.id,
+      time: report.time,
+      operation: report.operation,
+      message: report.message,
+      panel: report.panel,
+      userAgent: report.userAgent
+    });
+    const state = result && result.notified ? (result.duplicate ? 'duplicate' : 'sent') : (result && result.reason) || 'failed';
+    updateErrorReportCard(report, ERROR_NOTIFY_MESSAGES[state] ? state : 'failed');
+  } catch (error) {
+    console.warn('エラーの自動通知に失敗しました', error);
+    updateErrorReportCard(report, 'failed');
+  }
+}
+
+async function copyText(text) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (error) {
+    /* GAS の iframe ではクリップボード API が使えないことがあるため、下の方法で再試行する */
+  }
+  const area = document.createElement('textarea');
+  area.value = text;
+  area.setAttribute('readonly', '');
+  area.style.position = 'fixed';
+  area.style.opacity = '0';
+  document.body.appendChild(area);
+  area.select();
+  let copied = false;
+  try {
+    copied = document.execCommand('copy');
+  } catch (error) {
+    copied = false;
+  }
+  area.remove();
+  return copied;
+}
+
+async function copyErrorReport(report, button) {
+  if (!report) return;
+  if (!(await copyText(report.text))) {
+    openErrorReportCard(report, 'copy_failed');
+    return;
+  }
+  if (button) {
+    const label = button.textContent;
+    button.textContent = 'コピーしました';
+    button.disabled = true;
+    setTimeout(() => {
+      button.textContent = label;
+      button.disabled = false;
+    }, 2000);
+  }
+}
+
+function createReportCopyButton(report) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'status-copy-button';
+  button.textContent = '報告用にコピー';
+  button.addEventListener('click', () => copyErrorReport(report, button));
+  return button;
+}
+
+/* システム側の問題や、コピーできなかったときに出すカード。操作の邪魔をしないよう画面右下に出す */
+function openErrorReportCard(report, state) {
+  let card = document.getElementById('errorReportCard');
+  if (!card) {
+    card = document.createElement('section');
+    card.id = 'errorReportCard';
+    card.className = 'error-report-card';
+    card.setAttribute('role', 'alert');
+    document.body.appendChild(card);
+  }
+  card.setAttribute('data-report-id', report.id);
+  card.innerHTML = [
+    '<div class="error-report-head">',
+    '<strong>「' + escapeHtml(report.operation) + '」でエラーが発生しました</strong>',
+    '<button class="icon-action-button" type="button" data-error-report-close aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button>',
+    '</div>',
+    '<p class="error-report-message">' + escapeHtml(report.message) + '</p>',
+    report.hint ? '<p class="error-report-hint">' + escapeHtml(report.hint) + '</p>' : '',
+    '<p class="error-report-notify" data-error-report-notify></p>',
+    '<details class="error-report-details"' + (state === 'copy_failed' ? ' open' : '') + '>',
+    '<summary>報告用の内容を表示</summary>',
+    '<textarea readonly rows="6" aria-label="報告用の内容">' + escapeHtml(report.text) + '</textarea>',
+    '</details>',
+    '<div class="error-report-actions">',
+    '<button class="button success" type="button" data-error-report-copy>エラー内容をコピー</button>',
+    '<button class="button ghost" type="button" data-error-report-close>閉じる</button>',
+    '</div>'
+  ].join('');
+  card.querySelectorAll('[data-error-report-close]').forEach((button) => button.addEventListener('click', () => card.remove()));
+  const copyButton = card.querySelector('[data-error-report-copy]');
+  copyButton.addEventListener('click', () => copyErrorReport(report, copyButton));
+  updateErrorReportCard(report, state);
+  if (state === 'copy_failed') card.querySelector('textarea').select();
+}
+
+function updateErrorReportCard(report, state) {
+  const card = document.getElementById('errorReportCard');
+  if (!card || card.getAttribute('data-report-id') !== report.id) return;
+  card.querySelector('[data-error-report-notify]').textContent = ERROR_NOTIFY_MESSAGES[state] || '';
 }
 
 function richTextLinkPattern() {
@@ -530,7 +738,9 @@ const CATALOG_ACCEPT = [
 ].join(',');
 const TRASH_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:block"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M9 6V4h6v2"></path></svg>';
 const URL_PROTOCOL = 'https:' + String.fromCharCode(47, 47);
-const SHEETJS_URL = URL_PROTOCOL + 'cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+/* cdnjs は 0.18.5 で更新が止まり既知の脆弱性が残るため、修正版を公式 CDN から読む。版を上げたら SRI も計算し直す */
+const SHEETJS_URL = URL_PROTOCOL + 'cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
+const SHEETJS_INTEGRITY = 'sha384-EnyY0/GSHQGSxSgMwaIPzSESbqoOLSexfnSMN2AP+39Ckmn92stwABZynq1JyzdT';
 
 /* onclick="...('値')" の値用。JS 文字列としてエスケープした上で、属性の " や & が崩れないよう HTML エスケープもする */
 function escapeJs(value) {
@@ -657,10 +867,11 @@ function closeMediaDialog() {
   document.body.classList.remove('media-modal-open');
 }
 
-function setMediaStatus(message, type) {
+function setMediaStatus(message, type, report = null) {
   const status = document.getElementById('mediaDialogStatus');
   if (!status) return;
   status.textContent = message || '';
+  if (report) status.appendChild(createReportCopyButton(report));
   status.className = 'media-dialog-status' + (message ? ' is-visible' : ' hidden') + (type ? ' is-' + type : '');
 }
 
@@ -1011,6 +1222,8 @@ function loadSheetJs() {
     sheetJsPromise = new Promise((resolve, reject) => {
       const script = document.createElement('script');
       script.src = SHEETJS_URL;
+      script.integrity = SHEETJS_INTEGRITY;
+      script.crossOrigin = 'anonymous';
       script.onload = () => window.XLSX ? resolve(window.XLSX) : reject(new Error('Excel 読み込み用ライブラリを利用できません。'));
       script.onerror = () => {
         sheetJsPromise = null;
@@ -1090,8 +1303,7 @@ async function onCatalogFileExtract() {
     setMediaStatus(message, 'success');
     setStatus(message, 'success');
   } catch (error) {
-    setMediaStatus(error.message || String(error), 'error');
-    setStatus(error.message || String(error), 'error');
+    showError(error, '目録の読み込み', 'media');
   } finally {
     const body = document.getElementById('mediaDialogBody');
     if (body) body.classList.remove('is-loading');
@@ -1195,8 +1407,7 @@ async function onMediaUpload(uploadRole) {
     setMediaStatus('アップロードしました。', 'success');
     setStatus('アップロードしました。', 'success');
   } catch (error) {
-    setMediaStatus(error.message, 'error');
-    setStatus(error.message, 'error');
+    showError(error, '画像のアップロード', 'media');
   } finally {
     const body = document.getElementById('mediaDialogBody');
     if (body) body.classList.remove('is-loading');
@@ -1220,8 +1431,7 @@ async function onMediaDelete(fileId, name) {
     setMediaStatus(message, 'success');
     setStatus(message, 'success');
   } catch (error) {
-    setMediaStatus(error.message, 'error');
-    setStatus(error.message, 'error');
+    showError(error, '画像の削除', 'media');
   }
 }
 
@@ -1394,7 +1604,7 @@ async function onRequestOtp() {
     setAuthStatus(result.email + ' に確認コードを送信しました。', 'success');
     document.getElementById('otpField').classList.remove('hidden');
   } catch (error) {
-    setAuthStatus(error.message, 'error');
+    showError(error, '確認コードの送信', 'auth');
   }
 }
 
@@ -1429,7 +1639,7 @@ async function onVerifyOtp() {
     document.getElementById('authShell').classList.add('hidden');
     document.getElementById('appShell').classList.remove('hidden');
   } catch (error) {
-    setAuthStatus(error.message, 'error');
+    showError(error, 'ログイン', 'auth');
 
     if (!verified) {
       button.disabled = false;
@@ -1458,7 +1668,7 @@ async function loadBootstrap() {
     clearDirty();
     setStatus('読み込み完了');
   } catch (error) {
-    setStatus(error.message, 'error');
+    showError(error, 'データの読み込み');
   }
 }
 
@@ -2424,7 +2634,7 @@ async function loadDraftIntoEditor(draftId) {
     markDirty();
     setStatus('下書きを読み込みました。', 'success');
   } catch (error) {
-    setStatus(error.message, 'error');
+    showError(error, '下書きの読み込み');
   }
 }
 
@@ -2438,7 +2648,7 @@ async function onSaveDraft() {
     await refreshMetaAfterDraftSave(payload);
     clearDirty();
   } catch (error) {
-    setStatus(error.message, 'error');
+    showError(error, '下書きの保存');
   }
 }
 
@@ -2650,7 +2860,7 @@ async function onPublish() {
     setStatus((result.changeSummary ? result.changeSummary + '\n' : '') + '公開処理を完了しました。数分後にサイトに反映されます。', 'success');
     clearDirty();
   } catch (error) {
-    setStatus(error.message, 'error');
+    showError(error, '公開');
   }
 }
 function syncManualChangeNote() {

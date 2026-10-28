@@ -63,6 +63,7 @@ homepage-cms/
 ├── Github.js         GitHub Actions ワークフロー起動
 ├── Gemini.js         Gemini API 呼び出し・目録ファイルの作品情報抽出
 ├── Proofread.js      公開前の誤字脱字チェック（Gemini）
+├── ErrorReport.js    画面で起きたエラーの管理者へのメール通知
 │
 ├── Ui.html           メイン HTML テンプレート（GAS テンプレート形式）
 ├── UiScript.html     フロントエンド JavaScript
@@ -223,7 +224,7 @@ payload 受信
 | PDF | `document` として渡す |
 | 画像（JPEG / PNG / WebP / HEIC、最大20枚） | `image` として渡す。複数枚は同じ目録の別ページとして扱う |
 | テキスト（.txt / .md / .csv / .tsv / .json） | ブラウザで文字として読み、`text` として渡す |
-| Excel（.xlsx / .xls） | ブラウザで SheetJS（cdnjs から Excel 選択時のみ読み込み）によりシートごとの CSV に変換し、`text` として渡す |
+| Excel（.xlsx / .xls） | ブラウザで SheetJS（公式 CDN `cdn.sheetjs.com` から Excel 選択時のみ、SRI 付きで読み込み）によりシートごとの CSV に変換し、`text` として渡す |
 
 リクエストは `{ name, parts: [{ kind: 'pdf' | 'image', mimeType, data }, { kind: 'text', name, text }] }` の形式です（旧形式 `{ name, mimeType, data }` の PDF も受け付けます）。複数選択できるのは画像のみで、合計10MBまでです。
 
@@ -292,6 +293,20 @@ payload 受信
 **認証モード：**
 - `PAT`：`GH_FINE_GRAINED_PAT` に保存した Fine-grained Personal Access Token を使用
 - `APP`（デフォルト）：GitHub App の秘密鍵から JWT を生成し、Installation Access Token を取得して使用
+
+---
+
+### `ErrorReport.js` — エラーの管理者通知
+
+| 関数 | 役割 |
+|------|------|
+| `reportError(sessionToken, report)` | 画面で起きたシステム側のエラーを `ERROR_NOTIFY_EMAIL` にメールする。未設定なら `{ notified: false, reason: 'not_configured' }` を返すだけ |
+
+- 画面側（`UiScript.html` の `showError()`）が、エラーを「利用者側で解決できるもの」と「システム側の問題（important）」に分類し、後者だけを送ります。分類のルールは `ERROR_RULES` にまとめています。
+- 同じ操作・同じ内容のエラーは 6 時間に 1 回、全体で 1 時間に 5 通までに抑えます。また Gmail の残り送信枠が 20 通以下のときは送らず、確認コードのメールを優先します。
+- 設定の不備で `getConfig_()` が失敗していても通知できるよう、Script Properties を直接読みます。
+- 通知の有無にかかわらず、内容は `console.error` で「実行数」画面に記録されます。
+- 報告文（画面でコピーできる文章・メール本文）にセッショントークンは含めません。
 
 ---
 
@@ -406,6 +421,7 @@ GAS スクリプトエディタの「プロジェクトの設定」→「スク�
 | `SITE_PREVIEW_URL` | 「サイトを見る」ボタンのURL。未設定時は `GH_OWNER` と `GH_REPO` から GitHub Pages URL を推定 |
 | `GEMINI_API_KEY` | 目録ファイルからの作品情報抽出と、公開前の誤字脱字チェックに使う Gemini API キー（未設定の場合、誤字脱字チェックは行わずに公開します） |
 | `GEMINI_MODEL` | 目録の抽出と誤字脱字チェックに使うモデル名。未設定時は `gemini-3.1-flash-lite` |
+| `ERROR_NOTIFY_EMAIL` | システム側のエラーを通知するメールアドレス（カンマ区切りで複数可）。未設定の場合は通知せず、画面の「エラー内容をコピー」で利用者から連絡してもらう運用になります |
 
 ### 認証モード別の追加プロパティ
 
@@ -691,6 +707,8 @@ homepage-cms 側の `GH_FINE_GRAINED_PAT` に設定する PAT には以下の権
 ## 10. デプロイ（clasp）
 
 ### コードの変更を GAS に反映する
+
+画面の見た目を変えた場合は、push の前に [`tools/preview/`](tools/preview/README.md) で手元のブラウザに表示して確認できます。
 
 ```bash
 cd homepage-cms

@@ -3,3 +3,6 @@
 *.log
 Thumbs.db
 .DS_Store
+node_modules/
+# Local preview output: contains real member data from fetch_data.py
+tools/preview/out/

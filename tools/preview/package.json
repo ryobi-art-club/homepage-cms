@@ -1,0 +1,8 @@
+{
+  "name": "homepage-cms-preview",
+  "private": true,
+  "description": "Local preview of the CMS UI (not pushed to Apps Script)",
+  "devDependencies": {
+    "puppeteer-core": "23.11.1"
+  }
+}

@@ -7,3 +7,5 @@
 README.md
 docs/**
 tests/**
+tools/**
+node_modules/**
