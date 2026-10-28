@@ -72,10 +72,6 @@ function sha256Hex_(value) {
   }).join('');
 }
 
-function asJson_(value) {
-  return JSON.stringify(value, null, 2);
-}
-
 function parseJson_(value, fallback) {
   if (!value) return fallback;
   try {

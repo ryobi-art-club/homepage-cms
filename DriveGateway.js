@@ -60,25 +60,6 @@ function uploadManagedFiles(sessionToken, request) {
   }
 }
 
-function renameManagedFile(sessionToken, request) {
-  requireSession_(sessionToken);
-  if (!request || typeof request !== 'object') throw new Error('名前変更情報が不正です。');
-
-  const folderId = String(request.folderId || '').trim();
-  const fileId = requireString_(request.fileId, 'ファイルID', 200);
-  const file = retryDriveOperation_(() => DriveApp.getFileById(fileId), 'ファイル取得');
-  const folder = folderId ? getDriveFolderWithRetry_(folderId, '画像フォルダ取得') : null;
-  if (folder && isExhibitionMediaFolder_(folder)) {
-    throw new Error('展示会のファイル名は、公開時に作品情報から自動設定されます。');
-  }
-  const newName = buildRenameFileName_(folder, file, request.name);
-
-  retryDriveOperation_(() => file.setName(newName), 'ファイル名変更');
-
-  if (folder) return buildFolderMediaResponse_(folder);
-  return { folderId: folderId, files: [] };
-}
-
 function trashManagedFile(sessionToken, request) {
   requireSession_(sessionToken);
   if (!request || typeof request !== 'object') throw new Error('削除情報が不正です。');
@@ -102,18 +83,6 @@ function trashManagedFile(sessionToken, request) {
     return { folderId: '', folderUrl: '', files: [], folderTrashed: true };
   }
   return buildFolderMediaResponse_(getDriveFolderWithRetry_(folderId, '画像フォルダ取得'));
-}
-
-function saveMediaSettings(sessionToken, request) {
-  requireSession_(sessionToken);
-  if (!request || typeof request !== 'object') throw new Error('画像設定が不正です。');
-
-  requireManagedKind_(request.kind);
-  const folderId = String(request.folderId || '').trim();
-  if (!folderId) return { folderId: '', files: [] };
-
-  const folder = getDriveFolderWithRetry_(folderId, '画像フォルダ取得');
-  return buildFolderMediaResponse_(folder);
 }
 
 function getDriveMaintenanceSummary_(state) {
@@ -448,17 +417,6 @@ function renameFileUniquely_(folder, file, requestedName, used) {
   }
   used[nextName.toLowerCase()] = fileId;
   if (file.getName() !== nextName) file.setName(nextName);
-}
-
-function buildRenameFileName_(folder, file, requestedName) {
-  const currentName = retryDriveOperation_(() => file.getName(), 'ファイル名取得');
-  const currentDot = currentName.lastIndexOf('.');
-  const ext = currentDot > 0 ? currentName.slice(currentDot) : '';
-  let base = safeFileName_(requestedName);
-  const requestedDot = base.lastIndexOf('.');
-  if (requestedDot > 0) base = base.slice(0, requestedDot);
-  const nextName = safeFileName_(base + ext);
-  return folder ? uniqueFileName_(folder, nextName, retryDriveOperation_(() => file.getId(), 'ファイルID取得')) : nextName;
 }
 
 function uniqueFileName_(folder, name, ignoreFileId) {

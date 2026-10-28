@@ -43,7 +43,11 @@ class Sheet {
   getRange(row, col, rows, cols) {
     assert.ok(row + rows - 1 <= this.maxRows);
     assert.ok(col + cols - 1 <= this.maxColumns);
-    return {
+    const range = {
+      setNumberFormat: format => {
+        this.numberFormat = format;
+        return range;
+      },
       getValues: () => Array.from({length: rows}, (_, r) =>
         Array.from({length: cols}, (_, c) => this.values[row + r - 1]?.[col + c - 1] ?? '')),
       setValues: values => {
@@ -62,6 +66,7 @@ class Sheet {
         }));
       }
     };
+    return range;
   }
 }
 
@@ -131,6 +136,13 @@ test('large JSON with Japanese, emoji, escapes and formula-like text round trips
   const row = asRow(ctx, cells);
   delete row.payload_json_3;
   assert.throws(() => ctx.readPayloadCells_(row), /JSON/);
+});
+
+test('content sheets are written as plain text so formula- and date-like input stays literal', () => {
+  const {ctx, sheets, spreadsheet} = setup();
+  ctx.writeSheet_(spreadsheet, 'ActivityArticles', [['title', 'body'], ['=IMAGE("x")', '10/1']]);
+  assert.equal(sheets.ActivityArticles.numberFormat, '@');
+  assert.deepEqual(sheets.ActivityArticles.values[1], ['=IMAGE("x")', '10/1']);
 });
 
 test('legacy, empty failed rows, large and small drafts coexist', () => {

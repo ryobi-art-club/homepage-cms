@@ -22,7 +22,8 @@ class Sheet {
   insertRowsAfter(_, count) { this.maxRows += count; }
   insertColumnsAfter(_, count) { this.maxColumns += count; }
   getRange(row, col, rows, cols) {
-    return {
+    const range = {
+      setNumberFormat: () => range,
       getValues: () => Array.from({length: rows}, (_, r) =>
         Array.from({length: cols}, (_, c) => this.values[row + r - 1]?.[col + c - 1] ?? '')),
       setValues: values => values.forEach((valuesRow, r) => valuesRow.forEach((value, c) => {
@@ -30,6 +31,7 @@ class Sheet {
         this.values[row + r - 1][col + c - 1] = value;
       }))
     };
+    return range;
   }
 }
 

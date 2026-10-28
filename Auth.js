@@ -119,11 +119,6 @@ function getAllowedUserByEmail_(email) {
   return null;
 }
 
-function isAllowedEmail_(email) {
-  return !!getAllowedUserByEmail_(email);
-}
-
-
 function maskEmail_(email) {
   const parts = String(email).split('@');
   if (parts.length !== 2) return email;

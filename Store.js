@@ -387,7 +387,8 @@ function writeSheet_(spreadsheet, sheetName, values) {
   const padded = Array.from({ length: rows }, (_, r) =>
     Array.from({ length: columns }, (_, c) => values[r] && c < values[r].length ? values[r][c] : '')
   );
-  sheet.getRange(1, 1, rows, columns).setValues(padded);
+  // Store as plain text so input like "=...", "10/1" or "007" is not turned into formulas, dates or numbers.
+  sheet.getRange(1, 1, rows, columns).setNumberFormat('@').setValues(padded);
 }
 
 function validateSheetCellLengths_(sheetName, values) {

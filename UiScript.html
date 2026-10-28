@@ -235,17 +235,6 @@ function formatDate(value) {
   ].join('.');
 }
 
-function optionHtml(options, selectedId, includeBlankLabel) {
-  const rows = [];
-  if (includeBlankLabel) {
-    rows.push(`<option value="">${escapeHtml(includeBlankLabel)}</option>`);
-  }
-  (options || []).forEach((item) => {
-    rows.push(`<option value="${escapeHtml(item.id)}" ${item.id === selectedId ? 'selected' : ''}>${escapeHtml(item.name)}</option>`);
-  });
-  return rows.join('');
-}
-
 function serverCall(functionName, ...args) {
   if (window.MOCK_BACKEND && typeof window.MOCK_BACKEND[functionName] === 'function') {
     return Promise.resolve(window.MOCK_BACKEND[functionName](...args));
@@ -270,10 +259,6 @@ async function getFolderImagesCached(folderId, forceRefresh = false) {
   return appState.imageCache[folderId];
 }
 
-async function getFolderImagesFresh(folderId) {
-  return getFolderImagesCached(folderId, true);
-}
-
 async function getFolderMediaCached(folderId, forceRefresh = false) {
   if (!folderId) return [];
 
@@ -285,10 +270,6 @@ async function getFolderMediaCached(folderId, forceRefresh = false) {
   appState.mediaCache[folderId] = files || [];
   appState.imageCache[folderId] = (files || []).filter((file) => file.kind === 'image');
   return appState.mediaCache[folderId];
-}
-
-async function getFolderMediaFresh(folderId) {
-  return getFolderMediaCached(folderId, true);
 }
 
 function invalidateFolderCache(folderId) {
@@ -329,30 +310,6 @@ function syncCurrentEditorsToState() {
   } catch (error) {
     console.warn('編集中データの同期を一部スキップしました', error);
   }
-}
-
-function collectSelectedDriveFolderIds() {
-  const ids = [];
-
-  const recruit = appState.state.recruitCalendar || {};
-  (appState.state.recruitCalendars || []).forEach((item) => {
-    if (item.mediaFolderId || item.folderId) ids.push(item.mediaFolderId || item.folderId);
-  });
-  if (recruit.mediaFolderId || recruit.folderId) ids.push(recruit.mediaFolderId || recruit.folderId);
-
-  (appState.state.activityArticles || []).forEach((item) => {
-    if (item.mediaFolderId || item.photoFolderId) ids.push(item.mediaFolderId || item.photoFolderId);
-  });
-
-  (appState.state.exhibitions || []).forEach((item) => {
-    if (item.mediaFolderId || item.driveFolderId) ids.push(item.mediaFolderId || item.driveFolderId);
-  });
-
-  (appState.state.requestCases || []).forEach((item) => {
-    if (item.mediaFolderId || item.photoFolderId) ids.push(item.mediaFolderId || item.photoFolderId);
-  });
-
-  return Array.from(new Set(ids.filter(Boolean)));
 }
 
 function sortExhibitions(items) {
@@ -433,12 +390,6 @@ function activityCategoryLabel(category) {
 }
 
 const GENERAL_IMAGE_LIMIT = 10;
-const EXHIBITION_WORK_LIMIT = 200;
-
-function limitFolderImages(images, limit) {
-  const list = Array.isArray(images) ? images : [];
-  return { total: list.length, items: list.slice(0, limit), hidden: Math.max(0, list.length - limit) };
-}
 
 function folderImageWarning(total, limit, label) {
   if (!(total > limit)) return '';
@@ -469,7 +420,7 @@ function buildThumbCarouselHtml(images, poster=false) {
 }
 
 
-// 公開サイトの記事カードに合わせる: 写真があり、ペインが広ければ「文章は左、写真は右」の2列
+/* 公開サイトの記事カードに合わせる: 写真があり、ペインが広ければ「文章は左、写真は右」の2列 */
 function buildArticlePreviewHtml(kicker, metaText, title, body, images, warningHtml) {
   const imagesHtml = buildThumbCarouselHtml(images);
   return `
@@ -485,8 +436,8 @@ function buildArticlePreviewHtml(kicker, metaText, title, body, images, warningH
   `;
 }
 
-// 公開サイトの展示会カードに合わせる: 見出しは本文の列に置いてDMを横に並べる。
-// ペインが狭いとき(サイトのスマホ表示相当)は見出し→DM→本文の順にするため、見出しを2か所に出して CSS で切り替える
+/* 公開サイトの展示会カードに合わせる: 見出しは本文の列に置いてDMを横に並べる。 */
+/* ペインが狭いとき(サイトのスマホ表示相当)は見出し→DM→本文の順にするため、見出しを2か所に出して CSS で切り替える */
 function buildExhibitionPreviewCardHtml(item, kicker, dm, linkHtml = '', extraHtml = '') {
   const heading = (placement) => `
     <div class="preview-exhibition-heading is-${placement}">
@@ -512,9 +463,9 @@ function buildExhibitionPreviewCardHtml(item, kicker, dm, linkHtml = '', extraHt
   `;
 }
 
-// 出展作品: 公開サイトと同じ行方式(行内で高さを揃え、幅は縦横比に比例)を小さめに並べる。
-// 縦横比は画像の読み込み後に分かるので onload で --ratio を入れる。
-// 確認時のスクロールを減らすため、最初の 12 点以外は「すべて表示」で開く
+/* 出展作品: 公開サイトと同じ行方式(行内で高さを揃え、幅は縦横比に比例)を小さめに並べる。 */
+/* 縦横比は画像の読み込み後に分かるので onload で --ratio を入れる。 */
+/* 確認時のスクロールを減らすため、最初の 12 点以外は「すべて表示」で開く */
 const PREVIEW_WORKS_VISIBLE = 12;
 function buildWorkGalleryPreviewHtml(works) {
   if (!works.length) return '';
@@ -577,15 +528,16 @@ const CATALOG_ACCEPT = [
   '.txt', '.md', '.markdown', '.csv', '.tsv', '.json',
   '.xlsx', '.xls'
 ].join(',');
-const SHEETJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
 const TRASH_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:block"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M9 6V4h6v2"></path></svg>';
 const URL_PROTOCOL = 'https:' + String.fromCharCode(47, 47);
+const SHEETJS_URL = URL_PROTOCOL + 'cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
 
+/* onclick="...('値')" の値用。JS 文字列としてエスケープした上で、属性の " や & が崩れないよう HTML エスケープもする */
 function escapeJs(value) {
-  return String(value == null ? '' : value)
+  return escapeHtml(String(value == null ? '' : value)
     .replace(/\\/g, '\\\\')
     .replace(/'/g, "\\'")
-    .replace(/\r?\n/g, '\\n');
+    .replace(/\r?\n/g, '\\n'));
 }
 
 function driveFolderUrl(folderId) {
@@ -1051,7 +1003,7 @@ function readFileAsArrayBuffer(file) {
   });
 }
 
-// SheetJS は Excel を読み込むときだけ読み込む。
+/* SheetJS は Excel を読み込むときだけ読み込む。 */
 let sheetJsPromise = null;
 function loadSheetJs() {
   if (window.XLSX) return Promise.resolve(window.XLSX);
@@ -1433,19 +1385,6 @@ function moveExhibitionWork(fileId, delta) {
   refreshPreviewForKind('exhibition');
 }
 
-
-function rerenderAfterMediaChange(kind) {
-  appState.suppressDirty = true;
-  try {
-    if (kind === 'recruit') renderRecruitEditor();
-    if (kind === 'activity') renderActivitiesEditor();
-    if (kind === 'exhibition') renderExhibitionsEditor();
-    if (kind === 'request') renderRequestsEditor();
-    renderDashboard();
-  } finally {
-    appState.suppressDirty = false;
-  }
-}
 
 async function onRequestOtp() {
   const email = document.getElementById('authEmail').value.trim();
@@ -2561,9 +2500,9 @@ function collectProofreadFields() {
   return fields.filter((field) => String(field.getText() || '').trim());
 }
 
-// 公開前の誤字脱字チェック。キャンセルなら null を返す。
-// 続行するなら、公開成功後にチェック済みとして記録する文章（指摘のなかった文章と、利用者が「問題ない」とした文章）の配列を返す。
-// チェック自体が失敗した場合は公開を止めない。
+/* 公開前の誤字脱字チェック。キャンセルなら null を返す。 */
+/* 続行するなら、公開成功後にチェック済みとして記録する文章（指摘のなかった文章と、利用者が「問題ない」とした文章）の配列を返す。 */
+/* チェック自体が失敗した場合は公開を止めない。 */
 async function runProofreadBeforePublish() {
   const fields = collectProofreadFields();
   if (!fields.length) return [];
@@ -2703,7 +2642,7 @@ async function onPublish() {
     setStatus('公開処理を開始しています…');
     const result = await serverCall('publishState', appState.sessionToken, payload);
     if (proofreadTexts.length) {
-      // チェック済みの記録は公開成功後にだけ行う。失敗しても公開には影響しない。
+      /* チェック済みの記録は公開成功後にだけ行う。失敗しても公開には影響しない。 */
       serverCall('markProofreadChecked', appState.sessionToken, proofreadTexts)
         .catch((error) => console.warn('誤字チェック済みの記録に失敗しました', error));
     }

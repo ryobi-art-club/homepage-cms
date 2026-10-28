@@ -206,9 +206,7 @@ payload 受信
 | `getFolderImages(sessionToken, folderId)` | 画像ファイル一覧を返す（展示会は一時保存・退避先も含む。表示対象は登録済みIDで選択）|
 | `getFolderMedia(sessionToken, folderId)` | メディア一覧を返す（展示会は一時保存・退避先も含む）|
 | `uploadManagedFiles(sessionToken, request)` | ブラウザからのファイルアップロードを受け付け Drive に保存 |
-| `renameManagedFile(sessionToken, request)` | ファイル名を変更 |
 | `trashManagedFile(sessionToken, request)` | 展示会は一覧から除外する結果を返し、実ファイルの移動は公開時に実行。他の種別は即時ゴミ箱へ移動 |
-| `saveMediaSettings(sessionToken, request)` | メディア一覧を取得する互換用API（作品情報による命名は公開時のみ）|
 
 ### `Gemini.js` — 目録ファイルの作品情報抽出
 
