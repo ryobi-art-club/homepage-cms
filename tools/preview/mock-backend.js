@@ -4,7 +4,11 @@
 (function () {
   const data = window.PREVIEW_DATA;
   const clone = (value) => JSON.parse(JSON.stringify(value));
-  const media = (folderId) => clone(data.folders[folderId] || []);
+  /* Folders anyone with the link can view (published items). Images elsewhere, and exhibition images
+     added before publishing (staged), are private: the screen asks getMediaThumbnails for them. */
+  const publicFolders = new Set(data.publicFolders || []);
+  const media = (folderId) => clone(data.folders[folderId] || []).map((file) =>
+    Object.assign(file, { public: publicFolders.has(folderId) && !file.staged, folderId }));
   const folderResponse = (folderId) => ({ folderId, folderName: folderId, folderUrl: '#', files: media(folderId) });
   let counter = 0;
   const nextId = (prefix) => prefix + '-' + Date.now().toString(36) + '-' + (++counter);
@@ -21,6 +25,17 @@
     getBootstrapData: () => clone(data.bootstrap),
     getFolderMedia: (_, folderId) => media(folderId),
     getFolderImages: (_, folderId) => media(folderId).filter((file) => file.kind === 'image'),
+    thumbnailRequests: 0,
+    getMediaThumbnails: (_, folderId, fileIds) => {
+      window.MOCK_BACKEND.thumbnailRequests += 1;
+      const files = data.folders[folderId] || [];
+      const result = {};
+      fileIds.slice(0, 10).forEach((id) => {
+        const file = files.find((item) => item.id === id);
+        result[id] = file && file.kind === 'image' ? file.thumbnailUrl : '';
+      });
+      return result;
+    },
     loadDraft: (_, draftId) => {
       const draft = (data.bootstrap.drafts || []).find((item) => item.draftId === draftId);
       if (!draft) throw new Error('指定した下書きが見つかりません。');
@@ -45,6 +60,16 @@
       data.bootstrap.state = Object.assign({}, data.bootstrap.state, clone(payload));
       data.bootstrap.state.changeLog = [{ timestamp: new Date().toISOString(), summary, actorName: data.bootstrap.viewerName, revision: '' }].concat(data.bootstrap.state.changeLog || []);
       data.bootstrap.drafts = [];
+      /* published items' folders become viewable by link, like the real publish */
+      const state = data.bootstrap.state;
+      publicFolders.clear();
+      (state.exhibitions || []).filter((item) => item.published !== false).forEach((item) => {
+        publicFolders.add(item.mediaFolderId);
+        (data.folders[item.mediaFolderId] || []).forEach((file) => { file.staged = false; });
+      });
+      (state.activityArticles || []).concat(state.requestCases || []).filter((item) => item.published !== false)
+        .forEach((item) => publicFolders.add(item.mediaFolderId));
+      (state.recruitCalendars || []).filter((item) => item.published === true).forEach((item) => publicFolders.add(item.mediaFolderId));
       return { ok: true, message: '公開を開始しました。', changeSummary: summary, actionsUrl: '#' };
     },
     uploadManagedFiles: (_, request) => {
@@ -54,7 +79,8 @@
         const id = nextId('upload');
         const kind = /^image\//.test(file.mimeType) ? 'image' : 'file';
         const src = 'data:' + file.mimeType + ';base64,' + file.data;
-        data.folders[folderId] = (data.folders[folderId] || []).concat({ id, name: file.name, mimeType: file.mimeType, kind, size: file.data.length, url: '#', thumbnailUrl: kind === 'image' ? src : '' });
+        /* exhibition uploads go to the private staging folder until publishing */
+        data.folders[folderId] = (data.folders[folderId] || []).concat({ id, name: file.name, mimeType: file.mimeType, kind, size: file.data.length, url: '#', thumbnailUrl: kind === 'image' ? src : '', staged: request.kind === 'exhibition' });
         return id;
       });
       return Object.assign(folderResponse(folderId), { uploadedFileIds });

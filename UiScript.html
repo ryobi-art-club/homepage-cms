@@ -25,6 +25,8 @@ const appState = {
   },
   imageCache: {},
   mediaCache: {},
+  thumbnailCache: {},
+  previewOpen: {},
   catalogDrafts: {},
   statusHistory: [],
   dirty: false,
@@ -668,6 +670,75 @@ function normalizeIdList(value) {
   return out;
 }
 
+/* ---------- 画像の表示 ----------
+   誰でも見られる画像（公開中の項目のフォルダにあるもの）は、ブラウザが Drive の URL から直接読む。
+   見られない画像（非公開・下書き）は、表示したあとでサーバーに10枚ずつ頼み、データで埋める（hydrateThumbnails）。
+   一度受け取った画像は thumbnailCache に覚えておく */
+const THUMBNAIL_BATCH_SIZE = 10;
+const thumbnailRequests = {};
+
+function mediaImageHtml(file, attributes = '') {
+  if (!file) return '';
+  if (typeof file === 'string') return '<img src="' + escapeHtml(file) + '" alt=""' + attributes + '>';
+  const cached = appState.thumbnailCache[file.id];
+  const src = file.public === true && file.thumbnailUrl ? file.thumbnailUrl : cached;
+  if (src) return '<img src="' + escapeHtml(src) + '" alt=""' + attributes + '>';
+  return '<img data-thumb-id="' + escapeHtml(file.id) + '" data-thumb-folder="' + escapeHtml(file.folderId || '') + '" alt=""' + attributes + '>';
+}
+
+function applyThumbnail(fileId, dataUrl) {
+  document.querySelectorAll('img[data-thumb-id]:not([src])').forEach((img) => {
+    if (img.getAttribute('data-thumb-id') !== fileId) return;
+    if (dataUrl) {
+      img.src = dataUrl;
+      return;
+    }
+    const note = document.createElement('span');
+    note.className = 'thumb-unavailable';
+    note.textContent = '画像を表示できません';
+    img.replaceWith(note);
+  });
+}
+
+async function hydrateThumbnails(root) {
+  if (!root) return;
+  const byFolder = {};
+  root.querySelectorAll('img[data-thumb-id]:not([src])').forEach((img) => {
+    const id = img.getAttribute('data-thumb-id');
+    if (appState.thumbnailCache[id]) {
+      img.src = appState.thumbnailCache[id];
+      return;
+    }
+    if (thumbnailRequests[id]) return;
+    const folderId = img.getAttribute('data-thumb-folder');
+    if (!folderId) {
+      applyThumbnail(id, '');
+      return;
+    }
+    byFolder[folderId] = byFolder[folderId] || [];
+    if (byFolder[folderId].indexOf(id) === -1) byFolder[folderId].push(id);
+  });
+  /* 同時にたくさん頼まないよう、1回ずつ順番に頼む */
+  for (const folderId of Object.keys(byFolder)) {
+    const ids = byFolder[folderId];
+    for (let start = 0; start < ids.length; start += THUMBNAIL_BATCH_SIZE) {
+      const batch = ids.slice(start, start + THUMBNAIL_BATCH_SIZE);
+      batch.forEach((id) => { thumbnailRequests[id] = true; });
+      let result = {};
+      try {
+        result = (await serverCall('getMediaThumbnails', appState.sessionToken, folderId, batch)) || {};
+      } catch (error) {
+        console.warn('画像を読み込めませんでした', error);
+      }
+      batch.forEach((id) => {
+        delete thumbnailRequests[id];
+        if (result[id]) appState.thumbnailCache[id] = result[id];
+        applyThumbnail(id, result[id] || '');
+      });
+    }
+  }
+}
+
 function fileById(files, id) {
   return (files || []).find((file) => file.id === id) || null;
 }
@@ -724,11 +795,10 @@ function buildThumbCarouselHtml(images, poster=false) {
   if (!source.length) return '';
   if (poster) {
     const first = source[0];
-    const firstUrl = escapeHtml(first.thumbnailUrl || first.image || first);
     const dots = source.length > 1 ? `<div class="preview-poster-dots">${source.slice(0, 2).map((_, index) => `<span class="${index === 0 ? 'is-active' : ''}"></span>`).join('')}</div>` : '';
     return `
       <div class="preview-carousel poster is-poster-carousel">
-        <div class="preview-thumb"><img src="${firstUrl}" alt=""></div>
+        <div class="preview-thumb">${mediaImageHtml(first)}</div>
         ${dots}
       </div>`;
   }
@@ -736,9 +806,8 @@ function buildThumbCarouselHtml(images, poster=false) {
   const extra = Math.max(0, source.length - visible.length);
   const countClass = `count-${Math.min(source.length, 4)}`;
   return `<div class="preview-carousel ${countClass}">${visible.map((img, index) => {
-    const url = escapeHtml(img.thumbnailUrl || img.image || img);
     const more = (extra && index === visible.length - 1) ? `<span class="preview-more">+${extra}</span>` : '';
-    return `<div class="preview-thumb"><img src="${url}" alt="">${more}</div>`;
+    return `<div class="preview-thumb">${mediaImageHtml(img)}${more}</div>`;
   }).join('')}</div>`;
 }
 
@@ -794,7 +863,7 @@ function buildWorkGalleryPreviewHtml(works) {
   if (!works.length) return '';
   const cards = works.map((work) => `
     <div class="preview-work-card">
-      <img src="${escapeHtml(work.thumbnailUrl)}" alt="" onload="this.parentElement.style.setProperty('--ratio', Math.min(Math.max(this.naturalWidth / this.naturalHeight, 0.4), 3).toFixed(3))">
+      ${mediaImageHtml(work.file, ` onload="this.parentElement.style.setProperty('--ratio', Math.min(Math.max(this.naturalWidth / this.naturalHeight, 0.4), 3).toFixed(3))"`)}
       <div class="preview-work-title">${escapeHtml(work.title || '')}</div>
       <div class="preview-work-artist">${escapeHtml(work.artist || '')}</div>
     </div>`).join('');
@@ -813,11 +882,10 @@ function buildRecruitPreviewHtml(images) {
   const source = (images || []).slice(0, 10);
   if (!source.length) return '';
   const first = source[0];
-  const url = escapeHtml(first.thumbnailUrl || first.image || first);
   const dots = source.length > 1 ? `<div class="preview-recruit-dots">${source.map((_, index) => `<span class="${index === 0 ? 'is-active' : ''}"></span>`).join('')}</div>` : '';
   return `
     <div class="preview-recruit-carousel">
-      <img src="${url}" alt="新歓イベントカレンダー">
+      ${mediaImageHtml(first)}
       ${dots}
     </div>
   `;
@@ -1051,10 +1119,12 @@ function renderMediaDialog(files) {
     ? renderExhibitionMediaSettings(imageFiles, context)
     : renderGenericMediaSettings(imageFiles, context);
 
-  document.getElementById('mediaDialogBody').innerHTML = [
+  const body = document.getElementById('mediaDialogBody');
+  body.innerHTML = [
     uploadHtml,
     sectionsHtml
   ].join('');
+  hydrateThumbnails(body);
 }
 
 function renderMediaUploadBox(role, label, kind) {
@@ -1097,7 +1167,7 @@ function renderGenericMediaCard(file, index, count) {
   const thumbClass = context.kind === 'recruit' ? 'media-file-thumb media-file-thumb-calendar' : 'media-file-thumb';
   return [
     '<article class="media-file-card">',
-    '<div class="' + thumbClass + '"><img src="' + escapeHtml(file.thumbnailUrl) + '" alt=""></div>',
+    '<div class="' + thumbClass + '">' + mediaImageHtml(file) + '</div>',
     '<div class="small-note">表示順 ' + (index + 1) + ' / ' + formatBytes(file.size || 0) + '</div>',
     '<div class="media-file-actions">',
     '<button class="button subtle" type="button" onclick="moveMediaFile(\'' + escapeJs(file.id) + '\', -1)" ' + (index === 0 ? 'disabled' : '') + '>前へ</button>',
@@ -1201,7 +1271,7 @@ function renderExhibitionDmList(files, dmIds) {
     '<div class="media-file-grid">',
     dmFiles.map((file, index) => [
       '<article class="media-file-card" data-exhibition-dm-row data-file-id="' + escapeHtml(file.id) + '">',
-      '<div class="media-file-thumb media-file-thumb-dm"><img src="' + escapeHtml(file.thumbnailUrl) + '" alt=""></div>',
+      '<div class="media-file-thumb media-file-thumb-dm">' + mediaImageHtml(file) + '</div>',
       '<div class="small-note">DM ' + (index === 0 ? '表' : '裏') + '</div>',
       '<div class="media-file-actions">',
       '<button class="button subtle" type="button" onclick="moveExhibitionDm(\'' + escapeJs(file.id) + '\', -1)" ' + (index === 0 ? 'disabled' : '') + '>表へ</button>',
@@ -1217,7 +1287,7 @@ function renderExhibitionDmList(files, dmIds) {
 function renderExhibitionWorkRow(file, work, index, count, catalog, works) {
   return [
     '<article class="media-file-card media-work-card" data-exhibition-media-row data-file-id="' + escapeHtml(file.id) + '" data-catalog-key="' + escapeHtml(work.catalogKey || '') + '">',
-    '<div class="media-file-thumb media-file-thumb-work"><img src="' + escapeHtml(file.thumbnailUrl) + '" alt=""></div>',
+    '<div class="media-file-thumb media-file-thumb-work">' + mediaImageHtml(file) + '</div>',
     '<div class="small-note">表示順 ' + (index + 1) + ' / ' + formatBytes(file.size || 0) + '</div>',
     '<div class="form-grid compact-media-grid">',
     renderCatalogSelect(work, catalog, works),
@@ -1692,6 +1762,36 @@ function syncActiveMediaHiddenFields() {
   if (mediaInput) mediaInput.value = JSON.stringify(normalizeIdList(context.item.mediaFileIds));
 }
 
+/* ---------- 右側のプレビュー ----------
+   ボタンを押したときだけ作る（画像の一覧もそのとき初めて取りに行く）。
+   一度表示したら、ページを読み込み直すまで入力に合わせて作り直す（画像の一覧は覚えているのでサーバーには頼まない） */
+function isPreviewOpen(kind) {
+  return !!appState.previewOpen[kind];
+}
+
+function previewPlaceholderHtml(kind) {
+  return '<div class="preview-placeholder"><button class="button subtle" type="button" onclick="openPreview(\'' + kind + '\')">プレビューを表示</button></div>';
+}
+
+/* 閉じているときはボタンを出して false を返す */
+function ensurePreviewOpen(kind, element) {
+  if (isPreviewOpen(kind)) return true;
+  if (element && !element.querySelector('.preview-placeholder')) element.innerHTML = previewPlaceholderHtml(kind);
+  return false;
+}
+
+function openPreview(kind) {
+  appState.previewOpen[kind] = true;
+  if (kind === 'logs') renderLogsPreviewContent();
+  else refreshPreviewForKind(kind);
+}
+
+async function showPreviewHtml(element, html) {
+  if (!element) return;
+  element.innerHTML = html;
+  hydrateThumbnails(element);
+}
+
 function refreshPreviewForKind(kind) {
   if (kind === 'recruit') loadRecruitPreview();
   if (kind === 'activity') refreshActivityPreview();
@@ -2012,7 +2112,7 @@ function renderRecruitEditor() {
       </div>
       <div class="card">
         <h3>プレビュー</h3>
-        <div id="recruitPreview" class="preview-pane preview-frame"><div class="preview-empty">画像なしでも公開できます。</div></div>
+        <div id="recruitPreview" class="preview-pane preview-frame">${previewPlaceholderHtml('recruit')}</div>
       </div>
     </div>
   `;
@@ -2056,7 +2156,7 @@ async function loadRecruitPreview(forceRefresh = false) {
   const recruit = items.find((item) => item.published !== false) || items[0] || {};
   const preview = document.getElementById('recruitPreview');
 
-  if (!preview) return;
+  if (!preview || !ensurePreviewOpen('recruit', preview)) return;
   const folderId = recruit.mediaFolderId || recruit.folderId || '';
   if (!folderId) {
     preview.innerHTML = '<div class="preview-empty">画像は未設定です。</div>';
@@ -2069,7 +2169,7 @@ async function loadRecruitPreview(forceRefresh = false) {
   try {
     const files = await getFolderImagesCached(folderId, forceRefresh);
     const images = orderedFilesByIds(files, mediaIdsForItem(recruit)).slice(0, GENERAL_IMAGE_LIMIT);
-    preview.innerHTML = `
+    showPreviewHtml(preview, `
       <div class="preview-site">
         <article class="preview-site-card">
           <span class="preview-site-kicker">WELCOME CALENDAR</span>
@@ -2078,7 +2178,7 @@ async function loadRecruitPreview(forceRefresh = false) {
           ${folderImageWarning(files.length, GENERAL_IMAGE_LIMIT, '画像')}
         </article>
       </div>
-    `;
+    `);
   } catch (error) {
     preview.innerHTML = `<div class="preview-empty">${escapeHtml(error.message || String(error))}</div>`;
   }
@@ -2145,7 +2245,7 @@ function renderActivitiesEditor() {
       </div>
       <div class="card">
         <h3>プレビュー</h3>
-        <div id="activityPreview" class="preview-pane preview-frame"><div class="preview-empty">読み込み中…</div></div>
+        <div id="activityPreview" class="preview-pane preview-frame">${previewPlaceholderHtml('activity')}</div>
       </div>
     </div>
   `;
@@ -2239,8 +2339,9 @@ function removeActivityArticle(index) {
 }
 
 async function refreshActivityPreview() {
-  const html = await renderActivityPreview(readActivitiesFromDom());
-  document.getElementById('activityPreview').innerHTML = html;
+  const preview = document.getElementById('activityPreview');
+  if (!preview || !ensurePreviewOpen('activity', preview)) return;
+  showPreviewHtml(preview, await renderActivityPreview(readActivitiesFromDom()));
 }
 
 function renderExhibitionsEditor() {
@@ -2267,7 +2368,7 @@ function renderExhibitionsEditor() {
       </div>
       <div class="card">
         <h3>プレビュー</h3>
-        <div id="exhibitionPreview" class="preview-pane preview-frame"><div class="preview-empty">読み込み中…</div></div>
+        <div id="exhibitionPreview" class="preview-pane preview-frame">${previewPlaceholderHtml('exhibition')}</div>
       </div>
     </div>
   `;
@@ -2363,7 +2464,7 @@ async function renderExhibitionPreview(items) {
     const dm = normalizeIdList(recent.dmFileIds).map((id) => fileById(images, id)).filter(Boolean);
     const workImages = (recent.workFiles || recent.works || []).map((work) => {
       const found = fileById(images, work.fileId || work.file_id);
-      return found ? { thumbnailUrl: found.thumbnailUrl, title: work.title || work.workTitle, artist: work.artist || work.artistName } : null;
+      return found ? { file: found, title: work.title || work.workTitle, artist: work.artist || work.artistName } : null;
     }).filter(Boolean);
     sections.push(buildExhibitionPreviewCardHtml(recent, 'RECENT EXHIBITION', dm, '', buildWorkGalleryPreviewHtml(workImages)));
   }
@@ -2533,8 +2634,9 @@ function onExhibitionDateChange(input) {
 }
 
 async function refreshExhibitionPreview() {
-  const html = await renderExhibitionPreview(readExhibitionsFromDom());
-  document.getElementById('exhibitionPreview').innerHTML = html;
+  const preview = document.getElementById('exhibitionPreview');
+  if (!preview || !ensurePreviewOpen('exhibition', preview)) return;
+  showPreviewHtml(preview, await renderExhibitionPreview(readExhibitionsFromDom()));
 }
 
 function renderRequestsEditor() {
@@ -2561,7 +2663,7 @@ function renderRequestsEditor() {
       </div>
       <div class="card">
         <h3>プレビュー</h3>
-        <div id="requestPreview" class="preview-pane preview-frame"><div class="preview-empty">読み込み中…</div></div>
+        <div id="requestPreview" class="preview-pane preview-frame">${previewPlaceholderHtml('request')}</div>
       </div>
     </div>
   `;
@@ -2660,14 +2762,16 @@ function removeRequestCase(index) {
 }
 
 async function refreshRequestPreview() {
-  const html = await renderRequestPreview(readRequestsFromDom());
-  document.getElementById('requestPreview').innerHTML = html;
+  const preview = document.getElementById('requestPreview');
+  if (!preview || !ensurePreviewOpen('request', preview)) return;
+  showPreviewHtml(preview, await renderRequestPreview(readRequestsFromDom()));
 }
 
 let logsPreviewTimer = 0;
 let logsPreviewRequestSeq = 0;
 
 function scheduleLogsPreviewRefresh() {
+  if (!isPreviewOpen('logs')) return;
   if (logsPreviewTimer) clearTimeout(logsPreviewTimer);
   logsPreviewTimer = setTimeout(() => {
     logsPreviewTimer = 0;
@@ -2675,8 +2779,16 @@ function scheduleLogsPreviewRefresh() {
   }, 350);
 }
 
-function buildLogsPreviewCardHtml(compared, noteHtml, isLoading) {
+function buildLogsPreviewCardHtml(compared, noteHtml, isLoading, closed = false) {
   const items = compared || [];
+  if (closed) {
+    return `
+      <div class="card">
+        <h2>サイトの更新履歴プレビュー</h2>
+        ${previewPlaceholderHtml('logs')}
+      </div>
+    `;
+  }
   return `
       <div class="card">
         <div data-help>
@@ -2703,6 +2815,10 @@ function buildLogsPreviewCardHtml(compared, noteHtml, isLoading) {
 async function renderLogsPreviewContent() {
   const wrap = document.getElementById('logsPreviewContent');
   if (!wrap) return;
+  if (!isPreviewOpen('logs')) {
+    wrap.innerHTML = buildLogsPreviewCardHtml([], '', false, true);
+    return;
+  }
   const requestSeq = ++logsPreviewRequestSeq;
   wrap.innerHTML = buildLogsPreviewCardHtml([], '<div class="small-note" style="margin-bottom:12px;">公開後の履歴を確認しています...</div>', true);
   try {

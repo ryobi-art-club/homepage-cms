@@ -76,6 +76,9 @@ module.exports = {
     maintenance: { storage: { available: true, level: 'notice', used: 12.4e9, limit: 15e9, remaining: 2.6e9, usageRatio: 0.83, message: 'Drive の空き容量が少なくなっています。' }, recommendations: [] }
   },
   folders,
+  /* Drive folders anyone with the link can view: only the published exhibitions, as right after this
+     version is deployed (other kinds become viewable at the next publish) */
+  publicFolders: ['f-ex-1', 'f-ex-2'],
   /* result of reading an exhibition catalog (returned whatever file is chosen) */
   catalog: {
     sourceName: '秋季展覧会_出品目録.xlsx',

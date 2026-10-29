@@ -109,8 +109,38 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
     for (const [index, panel] of panels.entries()) {
       await page.evaluate((id) => activatePanel(id), panel);
       await wait(400);
+      /* previews are built only when asked; open them so the screenshots show the preview */
+      if (label === 'desktop' && panel === 'exhibitions') await shot('desktop-preview-button');
+      const opened = await page.evaluate((id) => {
+        const button = document.querySelector('#panel-' + id + ' [onclick^="openPreview"]');
+        if (button) button.click();
+        return !!button;
+      }, panel);
+      if (opened) await wait(700);
+      const pending = await page.evaluate((id) => document.querySelectorAll('#panel-' + id + ' img[data-thumb-id]:not([src]), #panel-' + id + ' .thumb-unavailable').length, panel);
+      if (pending) problems.push(`${label} ${panel}: 表示されない画像が ${pending} 枚あります`);
       await shot(`${label}-${index + 1}-${panel}`, label === 'desktop');
     }
+    /* published exhibitions are read straight from Drive; private images come through the server */
+    const imageRoutes = await page.evaluate(() => ({
+      exhibitionViaServer: document.querySelectorAll('#exhibitionPreview img[data-thumb-id]').length,
+      activityViaServer: document.querySelectorAll('#activityPreview img[data-thumb-id]').length,
+      requests: window.MOCK_BACKEND.thumbnailRequests
+    }));
+    if (imageRoutes.exhibitionViaServer || !imageRoutes.activityViaServer || !imageRoutes.requests) {
+      problems.push(`${label}: 画像の読み込み方が想定と違います ` + JSON.stringify(imageRoutes));
+    }
+    /* an image the server cannot return turns into a short message instead of an empty box */
+    const unavailableShown = await page.evaluate(async () => {
+      const box = document.createElement('div');
+      box.innerHTML = mediaImageHtml({ id: 'missing-image', folderId: 'f-act-1' });
+      document.body.appendChild(box);
+      await hydrateThumbnails(box);
+      const shown = !!box.querySelector('.thumb-unavailable');
+      box.remove();
+      return shown;
+    });
+    if (!unavailableShown) problems.push(`${label}: 取得できない画像に「画像を表示できません」が出ません`);
     if (label === 'mobile') {
       /* the tabs hide while scrolling down, come back under the status when scrolling up,
          and choosing a tab starts it from the top */

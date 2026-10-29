@@ -60,6 +60,8 @@ function setup() {
     getMimeType() { return this.mimeType; }
     getSize() { return 100; }
     getUrl() { return 'https://drive.test/' + this.id; }
+    getThumbnail() { return { getContentType: () => 'image/png', getBytes: () => [1, 2, 3] }; }
+    getBlob() { return { getContentType: () => this.mimeType, getBytes: () => [4, 5] }; }
     setName(name) { this.name = name; return this; }
     setTrashed(value) { this.trashed = value; return this; }
     moveTo(folder) { this.parent = folder; return this; }
@@ -91,6 +93,7 @@ function setup() {
     }) },
     Utilities: {
       base64Decode: value => Buffer.from(value, 'base64'),
+      base64Encode: bytes => Buffer.from(bytes).toString('base64'),
       newBlob: (bytes, mimeType, name) => ({ bytes, mimeType, name }),
       formatDate: (_, __, format) => format === 'yyyyMMdd' ? '20260925' : '20260925_1200',
       sleep() {}
@@ -98,7 +101,8 @@ function setup() {
     Session: { getScriptTimeZone: () => 'Asia/Tokyo' },
     requireSession_: () => ({ name: 'Editor', email: 'editor@example.test' }),
     requireString_: value => String(value || ''),
-    getConfig_: () => config
+    getConfig_: () => config,
+    console: { warn() {} }
   });
   for (const name of ['DriveGateway.js', 'Store.js']) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '..', name), 'utf8'), ctx);
@@ -118,7 +122,7 @@ function setup() {
       files: names.map(name => ({ name, mimeType: 'image/jpeg', data: 'eA==' })), ...extra
     });
   }
-  return { ctx, root, folder, image, item, state, folders, files, File, activityRoot, upload,
+  return { ctx, root, folder, image, item, state, folders, files, File, Folder, activityRoot, recruitRoot, upload,
     failUpload: name => { failingName = name; }, isLocked: () => locked };
 }
 
@@ -344,4 +348,50 @@ test('client retains only explicitly uploaded IDs and preserves removals on the 
     { type: 'upload', role: 'work', newIds: ['added'] });
   assert.deepEqual(Array.from(item.workFiles, work => work.fileId), ['kept', 'added']);
   assert.equal(item.workFiles[0].title, 'Title');
+});
+
+test('media lists say which images the browser can load from Drive by itself', () => {
+  const { ctx, folder, image, upload } = setup();
+  const staged = upload().uploadedFileIds[0];
+  const media = ctx.getFolderMedia_(folder.id);
+  assert.equal(media.find(file => file.id === image.id).public, true);
+  assert.equal(media.find(file => file.id === staged).public, false);
+  assert.ok(media.every(file => file.folderId === folder.id));
+});
+
+test('thumbnails are served only from managed folders, at most ten at a time', () => {
+  const { ctx, activityRoot, File, Folder } = setup();
+  const articleFolder = activityRoot.createFolder('Article_20260925');
+  const photo = new File('photo.jpg', articleFolder);
+  const result = ctx.getMediaThumbnails('session', articleFolder.id, [photo.id, 'missing']);
+  assert.equal(result[photo.id], 'data:image/png;base64,' + Buffer.from([1, 2, 3]).toString('base64'));
+  assert.equal(result.missing, '');
+  photo.getThumbnail = () => null;
+  assert.equal(ctx.getMediaThumbnails('session', articleFolder.id, [photo.id])[photo.id], 'data:image/jpeg;base64,' + Buffer.from([4, 5]).toString('base64'));
+  const outside = new Folder('Personal');
+  const secret = new File('secret.jpg', outside);
+  assert.throws(() => ctx.getMediaThumbnails('session', outside.id, [secret.id]), /管理している画像フォルダではありません/);
+  const many = Array.from({ length: 12 }, (_, i) => new File('p' + i + '.jpg', articleFolder).id);
+  assert.equal(Object.keys(ctx.getMediaThumbnails('session', articleFolder.id, many)).length, 10);
+});
+
+test('publishing opens the folders of published recruit, activity and request items to link viewers', () => {
+  const { ctx, activityRoot, recruitRoot } = setup();
+  const published = activityRoot.createFolder('Published_20260925');
+  const hidden = activityRoot.createFolder('Hidden_20260925');
+  hidden.setSharing('ANYONE_WITH_LINK');
+  const thisYear = recruitRoot.createFolder('2026_20260925');
+  const lastYear = recruitRoot.createFolder('2025_20250401');
+  ctx.finalizeManagedFolders_({
+    exhibitions: [],
+    activityArticles: [{ title: 'Published', mediaFolderId: published.id, published: true },
+      { title: 'Hidden', mediaFolderId: hidden.id, published: false }],
+    recruitCalendars: [{ label: '2026', mediaFolderId: thisYear.id, published: true },
+      { label: '2025', mediaFolderId: lastYear.id, published: false }],
+    requestCases: []
+  });
+  assert.equal(published.access, 'ANYONE_WITH_LINK');
+  assert.equal(hidden.access, 'PRIVATE');
+  assert.equal(thisYear.access, 'ANYONE_WITH_LINK');
+  assert.equal(lastYear.access, 'PRIVATE');
 });

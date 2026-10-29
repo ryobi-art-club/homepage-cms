@@ -20,6 +20,62 @@ function getFolderMedia(sessionToken, folderId) {
   return getFolderMedia_(folderId);
 }
 
+// Thumbnails for images the browser cannot load from Drive by itself (private folders).
+// The web app runs as the owner, so the server can read them and return them as data URLs.
+// Only folders directly under the four root folders are served.
+const THUMBNAIL_REQUEST_LIMIT = 10;
+const THUMBNAIL_ORIGINAL_MAX_BYTES = 1.5 * 1024 * 1024;
+
+function getMediaThumbnails(sessionToken, folderId, fileIds) {
+  requireSession_(sessionToken);
+  const wanted = new Set((Array.isArray(fileIds) ? fileIds : [])
+    .map((id) => String(id || '').trim()).filter(Boolean).slice(0, THUMBNAIL_REQUEST_LIMIT));
+  const result = {};
+  if (!wanted.size) return result;
+  const folder = getDriveFolderWithRetry_(String(folderId || '').trim(), '素材フォルダ取得');
+  requireManagedMediaFolder_(folder);
+  mediaSourceFolders_(folder).forEach((source) => listFolderFiles_(source).forEach((file) => {
+    const id = retryDriveOperation_(() => file.getId(), '素材ID取得');
+    if (wanted.has(id) && !Object.prototype.hasOwnProperty.call(result, id)) result[id] = thumbnailDataUrl_(file);
+  }));
+  wanted.forEach((id) => {
+    if (!Object.prototype.hasOwnProperty.call(result, id)) result[id] = '';
+  });
+  return result;
+}
+
+function thumbnailDataUrl_(file) {
+  try {
+    const mimeType = retryDriveOperation_(() => file.getMimeType(), '素材mimeType取得');
+    if (mediaKindFromMime_(mimeType) !== 'image') return '';
+    // Drive may not have made a thumbnail yet right after an upload; small originals are sent instead.
+    let blob = retryDriveOperation_(() => file.getThumbnail(), 'サムネイル取得');
+    if (!blob && retryDriveOperation_(() => file.getSize(), '素材サイズ取得') <= THUMBNAIL_ORIGINAL_MAX_BYTES) {
+      blob = retryDriveOperation_(() => file.getBlob(), '画像取得');
+    }
+    if (!blob) return '';
+    return 'data:' + (blob.getContentType() || mimeType) + ';base64,' + Utilities.base64Encode(blob.getBytes());
+  } catch (error) {
+    console.warn('サムネイルを作れませんでした', error);
+    return '';
+  }
+}
+
+function requireManagedMediaFolder_(folder) {
+  const config = getConfig_();
+  const roots = [config.ROOT_RECRUIT_FOLDER_ID, config.ROOT_ACTIVITY_FOLDER_ID, config.ROOT_EXHIBITION_FOLDER_ID, config.ROOT_REQUEST_FOLDER_ID];
+  const parents = retryDriveOperation_(() => folder.getParents(), '素材フォルダの親取得');
+  while (parents.hasNext()) {
+    if (roots.indexOf(parents.next().getId()) !== -1) return;
+  }
+  throw new Error('管理している画像フォルダではありません。');
+}
+
+function isLinkShared_(target) {
+  const access = retryDriveOperation_(() => target.getSharingAccess(), '共有設定取得');
+  return access === DriveApp.Access.ANYONE_WITH_LINK || access === DriveApp.Access.ANYONE;
+}
+
 function uploadManagedFiles(sessionToken, request) {
   requireSession_(sessionToken);
   if (!request || typeof request !== 'object') throw new Error('アップロード情報が不正です。');
@@ -108,15 +164,18 @@ function finalizeManagedFolders_(state) {
   const exhibitionPlans = buildExhibitionMediaPlans_(state);
   const emptyExhibitionFolders = [];
   (state.recruitCalendars || []).forEach((item) => {
-    renameFolderIfPresent_(item.mediaFolderId || item.folderId, item.label, false);
+    const folder = renameFolderIfPresent_(item.mediaFolderId || item.folderId, item.label, false);
+    if (folder) setFolderLinkSharing_(folder, item.published === true);
   });
 
   (state.activityArticles || []).forEach((item) => {
-    renameFolderIfPresent_(item.mediaFolderId || item.photoFolderId, item.title, false);
+    const folder = renameFolderIfPresent_(item.mediaFolderId || item.photoFolderId, item.title, false);
+    if (folder) setFolderLinkSharing_(folder, item.published !== false);
   });
 
   (state.requestCases || []).forEach((item) => {
-    renameFolderIfPresent_(item.mediaFolderId || item.photoFolderId, item.title, false);
+    const folder = renameFolderIfPresent_(item.mediaFolderId || item.photoFolderId, item.title, false);
+    if (folder) setFolderLinkSharing_(folder, item.published !== false);
   });
 
   exhibitionPlans.forEach((plan) => {
@@ -185,33 +244,45 @@ function getFolderMedia_(folderId) {
 
   const folder = getDriveFolderWithRetry_(folderId, '素材フォルダ取得');
   const files = [];
+  mediaSourceFolders_(folder).forEach((source) => {
+    // public: the browser can load the Drive thumbnail URL directly (anyone with the link can view)
+    const isPublic = isLinkShared_(source);
+    listFolderFiles_(source).forEach((file) => {
+      const mimeType = retryDriveOperation_(() => file.getMimeType(), '素材mimeType取得');
+      const kind = mediaKindFromMime_(mimeType);
+      if (!kind) return;
+      const id = retryDriveOperation_(() => file.getId(), '素材ID取得');
+      const name = retryDriveOperation_(() => file.getName(), '素材名取得');
+      const size = retryDriveOperation_(() => file.getSize(), '素材サイズ取得');
+      files.push({
+        id,
+        name,
+        mimeType,
+        kind,
+        size,
+        url: retryDriveOperation_(() => file.getUrl(), '素材URL取得'),
+        thumbnailUrl: kind === 'image' ? 'https://drive.google.com/thumbnail?id=' + id + '&sz=w1000' : '',
+        public: isPublic,
+        folderId
+      });
+    });
+  });
+
+  files.sort((a, b) => compareNamesNatural_(a.name, b.name));
+  return files;
+}
+
+// The item folder, plus the exhibition's private staging and recovery folders.
+function mediaSourceFolders_(folder) {
   const sources = [folder];
   if (isExhibitionMediaFolder_(folder)) {
+    const folderId = retryDriveOperation_(() => folder.getId(), '素材フォルダID取得');
     ['staging', 'recovery'].forEach((type) => {
       const auxiliary = getExhibitionAuxFolder_(folderId, type, false);
       if (auxiliary) sources.push(auxiliary);
     });
   }
-  sources.forEach((source) => listFolderFiles_(source).forEach((file) => {
-    const mimeType = retryDriveOperation_(() => file.getMimeType(), '素材mimeType取得');
-    const kind = mediaKindFromMime_(mimeType);
-    if (!kind) return;
-    const id = retryDriveOperation_(() => file.getId(), '素材ID取得');
-    const name = retryDriveOperation_(() => file.getName(), '素材名取得');
-    const size = retryDriveOperation_(() => file.getSize(), '素材サイズ取得');
-    files.push({
-      id,
-      name,
-      mimeType,
-      kind,
-      size,
-      url: retryDriveOperation_(() => file.getUrl(), '素材URL取得'),
-      thumbnailUrl: kind === 'image' ? 'https://drive.google.com/thumbnail?id=' + id + '&sz=w1000' : ''
-    });
-  }));
-
-  files.sort((a, b) => compareNamesNatural_(a.name, b.name));
-  return files;
+  return sources;
 }
 
 function listFolderFiles_(folder) {
@@ -492,6 +563,14 @@ function sanitizeFolderTitle_(title) {
     .slice(0, 80)
     .trim();
   return normalized || '素材';
+}
+
+// Published items: anyone with the link can view (their images are on the public site anyway).
+// Changes the setting only when it differs, so repeated publishes do not touch every folder.
+function setFolderLinkSharing_(folder, isPublic) {
+  if (isLinkShared_(folder) === isPublic) return;
+  if (isPublic) applyExhibitionFolderSharing_(folder);
+  else applyPrivateFolderSharing_(folder);
 }
 
 function applyExhibitionFolderSharing_(folder) {
