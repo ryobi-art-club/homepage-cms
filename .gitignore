@@ -4,5 +4,5 @@
 Thumbs.db
 .DS_Store
 node_modules/
-# Local preview output: contains real member data from fetch_data.py
+# Local preview output (screenshots and the built page, made from sample data)
 tools/preview/out/

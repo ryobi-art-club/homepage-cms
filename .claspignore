@@ -5,6 +5,8 @@
 .env.*
 *.log
 README.md
+AGENTS.md
+CLAUDE.md
 docs/**
 tests/**
 tools/**
