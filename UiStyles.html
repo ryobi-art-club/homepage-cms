@@ -355,6 +355,25 @@ select {
   background-repeat: no-repeat;
   padding-right: 54px;
 }
+/* 会期表示: 自動のときは読み取り専用の文字として見せ、手入力のときだけ入力欄の見た目にする */
+.date-line-field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.date-line-field input { flex: 1 1 auto; min-width: 0; }
+.field .date-line-field input[readonly] {
+  background: transparent;
+  border-color: transparent;
+  padding-left: 0;
+  color: var(--text);
+}
+.date-line-done { flex: none; }
+/* 自動はペンだけ、編集中は「完了」だけ、手入力はペンと ↺ */
+.date-line-field[data-editing] .date-line-edit,
+.date-line-field:not([data-editing]) .date-line-done,
+.date-line-field:not([data-manual]) .date-line-reset,
+.date-line-field[data-editing] .date-line-reset { display: none; }
 .field-icon-wrap {
   display: flex;
   align-items: center;
@@ -836,6 +855,17 @@ p.preview-exhibition-overview { margin: 0 0 12px; }
   color: var(--soft);
   margin-top: 2px;
 }
+/* 公開サイトと同じく、住所は Google マップへのリンク */
+.preview-meta-value .preview-map-link {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: fit-content;
+  text-decoration: underline;
+  text-decoration-color: rgba(255,255,255,0.4);
+  text-underline-offset: 4px;
+}
+.preview-map-link i { color: var(--yellow); font-size: 0.9em; }
 
 /* 画像カルーセル(X風コラージュ: 枚数別) */
 .preview-carousel {

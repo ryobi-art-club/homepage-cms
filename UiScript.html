@@ -825,7 +825,11 @@ function buildRecruitPreviewHtml(images) {
 
 function buildMetaListHtml(item) {
   const rows = [];
-  const venueValue = `${item.venueName ? escapeHtml(item.venueName) : ''}${item.venueAddress ? `<span class="address">${escapeHtml(item.venueAddress)}</span>` : ''}`;
+  const mapQuery = [item.venueName, item.venueAddress].filter(Boolean).join(' ');
+  const addressHtml = item.venueAddress
+    ? `<a class="address preview-map-link" href="${escapeHtml(googleMapsSearchUrl(mapQuery))}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(item.venueAddress)}（Google マップで開く）"><i class="fa-solid fa-location-dot" aria-hidden="true"></i><span>${escapeHtml(item.venueAddress)}</span></a>`
+    : '';
+  const venueValue = `${item.venueName ? escapeHtml(item.venueName) : ''}${addressHtml}`;
   const dateTimeValue = `${item.dateLine ? `<span>${escapeHtml(item.dateLine)}</span>` : ''}${item.timeLine ? `<span class="address">${escapeHtml(item.timeLine)}</span>` : ''}`;
   if (dateTimeValue) rows.push(`<div class="preview-meta-row"><div class="preview-meta-label">会期</div><div class="preview-meta-value">${dateTimeValue}</div></div>`);
   if (venueValue) rows.push(`<div class="preview-meta-row"><div class="preview-meta-label">会場</div><div class="preview-meta-value">${venueValue}</div></div>`);
@@ -869,8 +873,29 @@ function driveFolderUrl(folderId) {
   return URL_PROTOCOL + 'drive.google.com/drive/folders/' + encodeURIComponent(folderId || '');
 }
 
-function googleMapEmbedUrl(query) {
-  return URL_PROTOCOL + 'www.google.com/maps?q=' + encodeURIComponent(query) + '&output=embed';
+/* 公開サイトと同じく、住所は Google が公式に案内している地図の検索 URL へのリンクにする */
+function googleMapsSearchUrl(query) {
+  return URL_PROTOCOL + 'www.google.com/maps/search/?api=1&query=' + encodeURIComponent(query);
+}
+
+/* 会期表示は開始日・終了日から作る。例: 2026年11月14日(土)〜11月18日(水)（年が変わるときは終了日にも年を付ける） */
+const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
+
+function parseIsoDate(value) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])) : null;
+}
+
+function formatJapaneseDate(date, withYear) {
+  return (withYear ? date.getFullYear() + '年' : '') + (date.getMonth() + 1) + '月' + date.getDate() + '日(' + WEEKDAY_LABELS[date.getDay()] + ')';
+}
+
+function formatExhibitionDateLine(startDate, endDate) {
+  const start = parseIsoDate(startDate);
+  if (!start) return '';
+  const end = parseIsoDate(endDate);
+  if (!end || end.getTime() <= start.getTime()) return formatJapaneseDate(start, true);
+  return formatJapaneseDate(start, true) + '〜' + formatJapaneseDate(end, end.getFullYear() !== start.getFullYear());
 }
 
 function ensureMediaDialog() {
@@ -2274,13 +2299,25 @@ function renderExhibitionEditorItem(item, index) {
           <label>サブタイトル（任意）</label>
           <input data-field="subtitle" value="${escapeHtml(item.subtitle || '')}" placeholder="例: 第〇回 凌美会展" oninput="refreshExhibitionPreview()">
         </div>
-        <div class="field">
-          <label>開始日（自動並び替え用）</label>
-          <input data-field="startDate" type="date" value="${escapeHtml(item.startDate || '')}" onchange="syncExhibitionsFromDomAndRerender()">
-        </div>
         <div class="field full">
           <label>概要</label>
-          <input data-field="theme" value="${escapeHtml(item.theme || '')}" oninput="refreshExhibitionPreview()">
+          <textarea data-field="theme" oninput="refreshExhibitionPreview()">${escapeHtml(item.theme || '')}</textarea>
+        </div>
+        <div class="field">
+          <label>開始日</label>
+          <input data-field="startDate" type="date" value="${escapeHtml(item.startDate || '')}" onchange="onExhibitionDateChange(this)">
+        </div>
+        <div class="field">
+          <label>終了日（1日だけなら空欄）</label>
+          <input data-field="endDate" type="date" value="${escapeHtml(item.endDate || '')}" onchange="onExhibitionDateChange(this)">
+        </div>
+        <div class="field full">
+          <label>会期表示</label>
+          ${renderDateLineField(item)}
+        </div>
+        <div class="field full">
+          <label>時間帯表示</label>
+          <input data-field="timeLine" value="${escapeHtml(item.timeLine || '')}" placeholder="例: 11:00 - 19:00 / 初日 14:00から / 最終日 17:00まで" oninput="refreshExhibitionPreview()">
         </div>
         <div class="field">
           <label>会場名</label>
@@ -2290,26 +2327,12 @@ function renderExhibitionEditorItem(item, index) {
           <label>会場住所</label>
           <input data-field="venueAddress" value="${escapeHtml(item.venueAddress || '')}" oninput="refreshExhibitionPreview()">
         </div>
-        <div class="field">
-          <label>会期表示</label>
-          <input data-field="dateLine" value="${escapeHtml(item.dateLine || '')}" placeholder="例: 2026年5月14日(木) - 5月18日(月)" oninput="refreshExhibitionPreview()">
-        </div>
-        <div class="field">
-          <label>時間帯表示</label>
-          <input data-field="timeLine" value="${escapeHtml(item.timeLine || '')}" placeholder="例: 11:00 - 19:00 / 初日 14:00から / 最終日 17:00まで" oninput="refreshExhibitionPreview()">
-        </div>
-        <div class="field full">
-          <label>Google マップ埋め込み URL（任意）</label>
-          <div class="field-icon-wrap">
-            <input data-field="mapEmbedUrl" value="${escapeHtml(item.mapEmbedUrl || '')}" oninput="refreshExhibitionPreview()">
-            <button class="icon-action-button" type="button" onclick="autofillExhibitionMap(${index})" aria-label="住所から埋め込みURLを生成" title="住所から埋め込みURLを生成"><i class="fa-solid fa-location-dot"></i></button>
-          </div>
-        </div>
         <div class="field full">
           <label>画像・作品情報</label>
           <input data-field="mediaFolderId" type="hidden" value="${escapeHtml(item.mediaFolderId || item.driveFolderId || '')}">
           <input data-field="dmFileIds" type="hidden" value="${escapeHtml(JSON.stringify(normalizeIdList(item.dmFileIds)))}">
           <input data-field="workFiles" type="hidden" value="${escapeHtml(JSON.stringify(item.workFiles || item.works || []))}">
+          <input data-field="mapEmbedUrl" type="hidden" value="${escapeHtml(item.mapEmbedUrl || '')}">
           <button class="button subtle" type="button" onclick="openMediaDialog('exhibition', ${index})">画像・作品情報の設定</button>
         </div>
       </div>
@@ -2373,6 +2396,7 @@ function addExhibition() {
     exhibitionId: '',
     displayBucket: 'upcoming',
     startDate: '',
+    endDate: '',
     title: '',
     subtitle: '',
     theme: '',
@@ -2420,18 +2444,92 @@ function toggleExhibitionBucket(index) {
   renderExhibitionsEditor();
 }
 
-function autofillExhibitionMap(index) {
-  const item = document.querySelector(`[data-exhibition-item][data-index="${index}"]`);
-  if (!item) return;
-  const venueName = item.querySelector('[data-field="venueName"]').value.trim();
-  const venueAddress = item.querySelector('[data-field="venueAddress"]').value.trim();
-  const query = [venueName, venueAddress].filter(Boolean).join(' ');
-  if (!query) {
-    alert('会場名または会場住所を入力してください。');
-    return;
-  }
-  item.querySelector('[data-field="mapEmbedUrl"]').value = googleMapEmbedUrl(query);
+/* 会期表示には3つの状態がある。
+   ① 自動: 日付から作った表示を読み取り専用で見せる（ペンで編集）
+   ② 編集中(data-editing): 入力欄として直せる（「完了」か Enter で確定、Esc で取り消し）
+   ③ 手入力(data-manual): 直した表示を読み取り専用で見せる（ペンで再編集、↺ で自動に戻す）
+   日付を変えたら、どの状態でも日付から作り直して ① に戻す */
+function renderDateLineField(item) {
+  const auto = formatExhibitionDateLine(item.startDate, item.endDate);
+  const manual = !!item.dateLine && item.dateLine !== auto;
+  return [
+    '<div class="date-line-field" data-date-line' + (manual ? ' data-manual' : '') + '>',
+    '<input data-field="dateLine" value="' + escapeHtml(manual ? item.dateLine : auto) + '" placeholder="開始日を選ぶと自動で表示されます" aria-label="会期表示" readonly oninput="refreshExhibitionPreview()" onkeydown="onDateLineKeydown(event)">',
+    '<button class="icon-action-button date-line-edit" type="button" onclick="editExhibitionDateLine(this)" aria-label="会期表示を編集" title="会期表示を編集"><i class="fa-solid fa-pen" aria-hidden="true"></i></button>',
+    '<button class="button success date-line-done" type="button" onclick="finishExhibitionDateLine(this)">完了</button>',
+    '<button class="icon-action-button date-line-reset" type="button" onclick="resetExhibitionDateLine(this)" aria-label="日付からの自動表示に戻す" title="日付からの自動表示に戻す"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i></button>',
+    '</div>'
+  ].join('');
+}
+
+function exhibitionDateLineAuto(box) {
+  const article = box.closest('[data-exhibition-item]');
+  return formatExhibitionDateLine(
+    article.querySelector('[data-field="startDate"]').value,
+    article.querySelector('[data-field="endDate"]').value
+  );
+}
+
+/* editing: 入力欄として直せる状態か。manual: 確定した表示が日付からの自動表示と違うか */
+function setDateLineState(box, editing, manual) {
+  box.toggleAttribute('data-editing', editing);
+  box.toggleAttribute('data-manual', manual);
+  box.querySelector('[data-field="dateLine"]').readOnly = !editing;
+}
+
+function editExhibitionDateLine(button) {
+  const box = button.closest('[data-date-line]');
+  const input = box.querySelector('[data-field="dateLine"]');
+  box.setAttribute('data-previous', input.value);
+  setDateLineState(box, true, box.hasAttribute('data-manual'));
+  input.focus();
+  input.select();
+}
+
+/* 空欄で確定したら自動の表示に戻す（会期が空のまま公開されないように） */
+function finishExhibitionDateLine(button) {
+  const box = button.closest('[data-date-line]');
+  const input = box.querySelector('[data-field="dateLine"]');
+  const auto = exhibitionDateLineAuto(box);
+  input.value = input.value.trim() || auto;
+  setDateLineState(box, false, input.value !== auto);
+  markDirty();
   refreshExhibitionPreview();
+}
+
+function cancelExhibitionDateLine(box) {
+  box.querySelector('[data-field="dateLine"]').value = box.getAttribute('data-previous') || '';
+  setDateLineState(box, false, box.hasAttribute('data-manual'));
+  refreshExhibitionPreview();
+}
+
+function onDateLineKeydown(event) {
+  const box = event.target.closest('[data-date-line]');
+  if (!box || !box.hasAttribute('data-editing')) return;
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    finishExhibitionDateLine(event.target);
+  } else if (event.key === 'Escape') {
+    event.preventDefault();
+    cancelExhibitionDateLine(box);
+  }
+}
+
+function resetExhibitionDateLine(button) {
+  const box = button.closest('[data-date-line]');
+  box.querySelector('[data-field="dateLine"]').value = exhibitionDateLineAuto(box);
+  setDateLineState(box, false, false);
+  markDirty();
+  refreshExhibitionPreview();
+}
+
+function onExhibitionDateChange(input) {
+  const box = input.closest('[data-exhibition-item]').querySelector('[data-date-line]');
+  const wasManual = box.hasAttribute('data-manual') || box.hasAttribute('data-editing');
+  box.querySelector('[data-field="dateLine"]').value = exhibitionDateLineAuto(box);
+  setDateLineState(box, false, false);
+  if (wasManual) setStatus('日付を変更したため、会期表示を日付から作り直しました。');
+  syncExhibitionsFromDomAndRerender();
 }
 
 async function refreshExhibitionPreview() {
@@ -2670,6 +2768,7 @@ function readExhibitionsFromDom() {
     exhibitionId: item.getAttribute('data-id') || '',
     displayBucket: item.getAttribute('data-bucket') || 'archive',
     startDate: item.querySelector('[data-field="startDate"]').value,
+    endDate: item.querySelector('[data-field="endDate"]').value,
     title: item.querySelector('[data-field="title"]').value.trim(),
     subtitle: item.querySelector('[data-field="subtitle"]').value.trim(),
     theme: item.querySelector('[data-field="theme"]').value.trim(),
@@ -2716,6 +2815,7 @@ function validatePayloadForSubmit(payload) {
   (payload.exhibitions || []).forEach((item, index) => {
     const label = '展示会「' + contentTitle(item.title, '新規展示会', index) + '」';
     if (!String(item.title || '').trim()) add(label, '展示会名');
+    if (item.startDate && item.endDate && item.endDate < item.startDate) add(label, '終了日', '開始日より前の日付になっています');
   });
 
   (payload.requestCases || []).forEach((item, index) => {
@@ -2906,7 +3006,7 @@ async function runProofreadBeforePublish() {
 }
 
 function proofreadEditorRows(field) {
-  return /:body$|^manualChangeNote$/.test(field.id) ? 8 : 2;
+  return /:body$|:theme$|^manualChangeNote$/.test(field.id) ? 8 : 2;
 }
 
 function openProofreadDialog(groups) {

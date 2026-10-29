@@ -487,16 +487,17 @@ GAS スクリプトエディタの「プロジェクトの設定」→「スク�
 | `theme` | 文字列 | テーマ・概要テキスト |
 | `venue_name` | 文字列 | 会場名 |
 | `venue_address` | 文字列 | 会場住所 |
-| `date_line` | 文字列 | 会期（例：`2026年8月1日〜8日`）|
+| `date_line` | 文字列 | サイトに表示する会期。ふつうは CMS が開始日・終了日から作る（例：`2026年8月1日(土)〜8月8日(土)`）。日付で書けない会期は手入力 |
 | `time_line` | 文字列 | 開場時間（例：`11:00〜18:00`）|
-| `map_embed_url` | 文字列 | Google マップ埋め込み URL |
+| `map_embed_url` | 文字列 | 使っていない（以前の地図埋め込み URL。サイトでは住所を Google マップへのリンクにしている）|
 | `display_bucket` | 文字列 | `upcoming`（開催予定）/ `archive`（アーカイブ）|
 | `media_folder_id` | 文字列 | 展示会メディアフォルダ ID |
 | `dm_file_ids` | JSON 配列 | DM 画像のファイル ID（最大 2 件）|
 | `work_files` | JSON 配列 | 作品ファイル情報（`file_id`, `title`, `artist`, `sort_order`）|
 | `published` | `TRUE`/`FALSE` | 公開フラグ |
-| `start_date` | `yyyy-MM-dd` | 開始日（ソート用）|
+| `start_date` | `yyyy-MM-dd` | 開始日（並び順と会期表示に使う）|
 | `updated_at` | ISO 日時 | 更新日時 |
+| `end_date` | `yyyy-MM-dd` | 終了日（1日だけの展示は空欄。会期表示に使う）|
 
 #### `RequestCases` — ご依頼事例
 

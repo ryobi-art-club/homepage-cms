@@ -231,6 +231,16 @@ test('publish cleanup removes surplus grids and draft headers; subsequent large 
   assert.equal(ctx.readContentState_().exhibitions.length, 1);
 });
 
+test('exhibition end dates are saved in their own column and read back; bad values are dropped', () => {
+  const {ctx} = setup();
+  const state = sample(ctx);
+  state.exhibitions[0].endDate = '2026-11-18';
+  ctx.writeStateToSheets_(state, '', '', true);
+  assert.equal(ctx.readContentState_().exhibitions[0].endDate, '2026-11-18');
+  const normalized = ctx.normalizePayload_({exhibitions: [{title: 'x', displayBucket: 'archive', endDate: '11/18'}]}, {}, {allowIncomplete: true});
+  assert.equal(normalized.exhibitions[0].endDate, '');
+});
+
 test('grid cleanup preserves active split drafts, frozen regions and empty sheets', () => {
   const {ctx, sheets} = setup();
   const state = {...sample(ctx), manualChangeNote: 'x'.repeat(100000)};

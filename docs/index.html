@@ -1377,7 +1377,11 @@ img { max-width: 100%; display: block; }
                   <div class="m-input-mock" style="color:var(--muted);">例: 第〇回 凌美会展</div>
                 </div>
                 <div class="m-field-group">
-                  <label>開始日（自動並び替え用）</label>
+                  <label>開始日</label>
+                  <div class="m-input-mock filled">2026-08-01</div>
+                </div>
+                <div class="m-field-group">
+                  <label>終了日（1日だけなら空欄）</label>
                   <div class="m-input-mock filled">2026-08-01</div>
                 </div>
                 <div class="m-field-group full">
@@ -1392,20 +1396,13 @@ img { max-width: 100%; display: block; }
                   <label>会場住所</label>
                   <div class="m-input-mock filled">神戸市中央区〇〇1-2-3</div>
                 </div>
-                <div class="m-field-group">
+                <div class="m-field-group full">
                   <label>会期表示</label>
-                  <div class="m-input-mock filled">2026年8月1日（土）〜8月8日（土）</div>
+                  <div style="display:flex; gap:6px; align-items:center;"><div style="flex:1;">2026年8月1日（土）〜8月8日（土）</div><button class="m-btn subtle" style="width:32px; height:32px; padding:0; border-radius:10px; flex:0 0 auto; display:grid; place-items:center;"><i class="fa-solid fa-pen"></i></button></div>
                 </div>
                 <div class="m-field-group">
                   <label>時間帯表示</label>
                   <div class="m-input-mock filled">11:00〜18:00（最終日17:00まで）</div>
-                </div>
-                <div class="m-field-group full">
-                  <label>Google マップ埋め込み URL（任意）</label>
-                  <div style="display:flex; gap:6px; align-items:center;">
-                    <div class="m-input-mock filled" style="flex:1;">https://www.google.com/maps/embed?pb=…</div>
-                    <button class="m-btn subtle" style="width:32px; height:32px; padding:0; border-radius:10px; flex:0 0 auto; display:grid; place-items:center;"><i class="fa-solid fa-location-dot"></i></button>
-                  </div>
                 </div>
                 <div class="m-field-group full">
                   <label>画像・作品情報</label>
@@ -1437,7 +1434,11 @@ img { max-width: 100%; display: block; }
                   <div class="m-input-mock filled">〜夏の記憶〜</div>
                 </div>
                 <div class="m-field-group">
-                  <label>開始日（自動並び替え用）</label>
+                  <label>開始日</label>
+                  <div class="m-input-mock filled">2025-08-10</div>
+                </div>
+                <div class="m-field-group">
+                  <label>終了日（1日だけなら空欄）</label>
                   <div class="m-input-mock filled">2025-08-10</div>
                 </div>
                 <div class="m-field-group full">
@@ -1452,20 +1453,13 @@ img { max-width: 100%; display: block; }
                   <label>会場住所</label>
                   <div class="m-input-mock filled">神戸市灘区〇〇2-3-4</div>
                 </div>
-                <div class="m-field-group">
+                <div class="m-field-group full">
                   <label>会期表示</label>
-                  <div class="m-input-mock filled">2025年8月10日（日）〜8月16日（土）</div>
+                  <div style="display:flex; gap:6px; align-items:center;"><div style="flex:1;">2025年8月10日（日）〜8月16日（土）</div><button class="m-btn subtle" style="width:32px; height:32px; padding:0; border-radius:10px; flex:0 0 auto; display:grid; place-items:center;"><i class="fa-solid fa-pen"></i></button></div>
                 </div>
                 <div class="m-field-group">
                   <label>時間帯表示</label>
                   <div class="m-input-mock filled">11:00〜18:00</div>
-                </div>
-                <div class="m-field-group full">
-                  <label>Google マップ埋め込み URL（任意）</label>
-                  <div style="display:flex; gap:6px; align-items:center;">
-                    <div class="m-input-mock filled" style="flex:1;">https://www.google.com/maps/embed?pb=…</div>
-                    <button class="m-btn subtle" style="width:32px; height:32px; padding:0; border-radius:10px; flex:0 0 auto; display:grid; place-items:center;"><i class="fa-solid fa-location-dot"></i></button>
-                  </div>
                 </div>
                 <div class="m-field-group full">
                   <label>画像・作品情報</label>
@@ -1537,11 +1531,10 @@ img { max-width: 100%; display: block; }
         <tr><td>サブタイトル</td><td></td><td>例：「〜夏の記憶〜」「第〇回 凌美会展」など。ホームページでは展示会名の上に小さく表示されます（任意）</td></tr>
         <tr><td>概要</td><td></td><td>展示会の説明文。改行と <code style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:4px;font-size:0.8em;">[表示テキスト](https://...)</code> 形式のリンクを使用できます。</td></tr>
         <tr><td>会場名</td><td></td><td>例：「ギャラリーマルコ」</td></tr>
-        <tr><td>会場住所</td><td></td><td>例：「神戸市中央区〇〇1-2-3」</td></tr>
-        <tr><td>会期表示</td><td></td><td>例：「2026年8月1日（土）〜8月8日（土）」</td></tr>
+        <tr><td>会場住所</td><td></td><td>例：「神戸市中央区〇〇1-2-3」。ホームページでは住所が <strong>Google マップを開くリンク</strong>になります（会場名と住所で検索します）。プレビューの住所を押すと、正しい場所が出るか確認できます</td></tr>
+        <tr><td>会期表示</td><td></td><td>開始日・終了日から<strong>自動で表示</strong>されます（例：「2026年8月1日(土)〜8月8日(土)」）。「2025年8月」のように日付で書けないときは、右の<i class="fa-solid fa-pen"></i>ボタンで入力欄に切り替えて直し、「完了」を押します（Enter キーでも完了、Esc キーで取り消し）。手入力した会期には<i class="fa-solid fa-rotate-left"></i>ボタンが出て、押すと日付からの自動表示に戻ります。空欄のまま完了すると自動表示に戻ります。<strong>開始日・終了日を変えると、手入力した内容は日付からの表示に作り直されます</strong></td></tr>
         <tr><td>時間帯表示</td><td></td><td>例：「11:00〜18:00（最終日17:00まで）」</td></tr>
-        <tr><td>Google マップ 埋め込み URL</td><td></td><td>Google マップで会場を検索 → 「共有」→「地図を埋め込む」→ 表示された <code style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:4px;font-size:0.8em;">&lt;iframe&gt;</code> の <code style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:4px;font-size:0.8em;">src="https://..."</code> の URL 部分をコピーして貼り付ける。右端の<i class="fa-solid fa-location-dot"></i>ボタンで簡易生成もできますが参考程度に。</td></tr>
-        <tr><td>開始日（自動並び替え用）</td><td></td><td>カレンダーから日付を選択します（例：2026/08/01）。この日付をもとに自動で並び順が決まります</td></tr>
+        <tr><td>開始日 / 終了日</td><td></td><td>カレンダーから日付を選択します（例：2026/08/01）。1日だけの展示は終了日を空欄にします。開始日をもとに自動で並び順が決まります</td></tr>
         <tr><td>画像・作品情報</td><td></td><td>「画像・作品情報の設定」ボタンでDM画像・作品画像を設定します（→ Section 4-3 参照）</td></tr>
         <tr><td>公開 / 非公開</td><td></td><td>「非公開」ボタンで表示をオフにします。「公開する」を実行したときにホームページへ反映されます</td></tr>
         <tr><td>開催予定 / アーカイブ</td><td class="required">◎</td><td>「アーカイブへ」ボタンで切り替え。展示終了後はアーカイブに移してから公開します</td></tr>

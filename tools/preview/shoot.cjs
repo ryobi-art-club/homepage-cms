@@ -259,8 +259,53 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   await checkErrors();
 
   /* --- editing every list: add, publish toggle, move, remove, typing --- */
+  /* period text: edit by hand and finish (button / Enter), cancel with Esc, go back to automatic,
+     and changing a date rebuilds it even while editing */
+  step = '会期表示';
+  await page.evaluate(() => activatePanel('exhibitions'));
+  const dateLine = () => page.evaluate(() => {
+    const box = document.querySelector('[data-exhibition-item] [data-date-line]');
+    const input = box.querySelector('input');
+    return { text: input.value, manual: box.hasAttribute('data-manual'), editing: box.hasAttribute('data-editing'), readOnly: input.readOnly };
+  });
+  const typeDateLine = (text) => page.evaluate((value) => {
+    const input = document.querySelector('[data-exhibition-item] [data-field="dateLine"]');
+    input.value = value;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }, text);
+  const expectDateLine = async (label, expected) => {
+    const actual = await dateLine();
+    if (Object.keys(expected).some((key) => actual[key] !== expected[key])) problems.push(`${step}: ${label} ${JSON.stringify(actual)}`);
+  };
+  await click('editExhibitionDateLine');
+  await expectDateLine('編集を始めても入力欄になりません', { editing: true, readOnly: false });
+  await typeDateLine('2026年11月14日(土)〜18日(水)');
+  await shot('desktop-dateline-editing');
+  await click('finishExhibitionDateLine');
+  await expectDateLine('完了しても手入力として確定しません', { text: '2026年11月14日(土)〜18日(水)', manual: true, editing: false, readOnly: true });
+  await click('editExhibitionDateLine');
+  await typeDateLine('取り消す文字');
+  await page.keyboard.press('Escape');
+  await wait(200);
+  await expectDateLine('Esc で取り消せません', { text: '2026年11月14日(土)〜18日(水)', manual: true, editing: false });
+  await click('resetExhibitionDateLine');
+  await expectDateLine('自動に戻りません', { text: '2026年11月14日(土)〜11月18日(水)', manual: false });
+  await click('editExhibitionDateLine');
+  await typeDateLine('');
+  await page.keyboard.press('Enter');
+  await wait(200);
+  await expectDateLine('空欄で確定しても自動の表示に戻りません', { text: '2026年11月14日(土)〜11月18日(水)', manual: false, editing: false });
+  await click('editExhibitionDateLine');
+  await page.evaluate(() => {
+    const input = document.querySelector('[data-exhibition-item] [data-field="endDate"]');
+    input.value = '2026-11-19';
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await wait(400);
+  await expectDateLine('日付を変えても会期表示が作り直されません', { text: '2026年11月14日(土)〜11月19日(木)', manual: false, editing: false });
+  await checkErrors();
+
   step = '一覧の編集';
-  await click('autofillExhibitionMap');
   for (const name of ['addExhibition', 'addActivityArticle', 'addRecruitYear', 'addRequestCase']) await click(name);
   for (const name of ['toggleExhibitionPublished', 'toggleExhibitionBucket', 'toggleActivityPublished', 'toggleRecruitPublished', 'toggleRequestPublished']) {
     await click(name);

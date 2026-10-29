@@ -91,6 +91,12 @@ function publishState(sessionToken, payload) {
   }
 }
 
+/* 終了日は YYYY-MM-DD だけを受け付ける（シートの日付型は normalizeSheetCellValue_ で文字列になっている） */
+function normalizeIsoDate_(value) {
+  const text = String(value || '').trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : '';
+}
+
 function readContentState_() {
   const spreadsheet = SpreadsheetApp.openById(getConfig_().CONTENT_SPREADSHEET_ID);
   const recruitCalendars = readRecruitCalendars_(spreadsheet);
@@ -245,7 +251,8 @@ function normalizeExhibitions_(items, existingItems, options) {
       exhibitionId: exhibitionId,
       title: requiredOrDraft_(item.title, '展示会名', 140, options),
       subtitle: optionalSingleLine_(item.subtitle, 140),
-      theme: cleanMultiline_(item.theme, 180),
+      /* 概要は数行の文章になることが多いので、記事の本文ほどではないが長めに受け付ける */
+      theme: cleanMultiline_(item.theme, 1000),
       venueName: optionalSingleLine_(item.venueName, 180),
       venueAddress: cleanMultiline_(item.venueAddress, 240),
       dateLine: optionalSingleLine_(item.dateLine, 180),
@@ -257,6 +264,7 @@ function normalizeExhibitions_(items, existingItems, options) {
       dmFileIds: dmFileIds,
       published: item.published === false ? false : parseBool_(item.published, true),
       startDate: String(item.startDate || '').trim(),
+      endDate: normalizeIsoDate_(item.endDate),
       draftCreatedAt: String(item.draftCreatedAt || (existingById[exhibitionId] && existingById[exhibitionId].draftCreatedAt) || isoNow_()),
       updatedAt: isoNow_(),
       workFiles: works,
@@ -357,10 +365,10 @@ function writeStateToSheets_(state, actorName, actorEmail, touchPublishState) {
   ])));
 
   collect(CONTENT_SHEETS.exhibitions, [
-    ['exhibition_id', 'title', 'subtitle', 'theme', 'venue_name', 'venue_address', 'date_line', 'time_line', 'map_embed_url', 'display_bucket', 'media_folder_id', 'dm_file_ids', 'work_files', 'published', 'start_date', 'updated_at']
+    ['exhibition_id', 'title', 'subtitle', 'theme', 'venue_name', 'venue_address', 'date_line', 'time_line', 'map_embed_url', 'display_bucket', 'media_folder_id', 'dm_file_ids', 'work_files', 'published', 'start_date', 'updated_at', 'end_date']
   ].concat(state.exhibitions.map((item) => [
     item.exhibitionId, item.title, item.subtitle || '', item.theme, item.venueName, item.venueAddress, item.dateLine, item.timeLine, item.mapEmbedUrl,
-    item.displayBucket, item.mediaFolderId, JSON.stringify(item.dmFileIds || []), JSON.stringify(serializeWorkFiles_(item.workFiles || item.works || [])), item.published ? 'TRUE' : 'FALSE', item.startDate, item.updatedAt
+    item.displayBucket, item.mediaFolderId, JSON.stringify(item.dmFileIds || []), JSON.stringify(serializeWorkFiles_(item.workFiles || item.works || [])), item.published ? 'TRUE' : 'FALSE', item.startDate, item.updatedAt, item.endDate || ''
   ])));
 
   collect(CONTENT_SHEETS.requestCases, [
@@ -469,6 +477,7 @@ function readExhibitions_(spreadsheet) {
       dmFileIds: normalizeStringList_(row.dm_file_ids),
       published: parseBool_(row.published, true),
       startDate: row.start_date,
+      endDate: normalizeIsoDate_(row.end_date),
       workFiles: works,
       works: works
     };
@@ -966,6 +975,7 @@ function buildPublicSnapshot_(state) {
       dmFileIds: item.dmFileIds || [],
       published: item.published,
       startDate: item.startDate,
+      endDate: item.endDate || '',
       workFiles: serializeWorkFiles_(item.workFiles || item.works || []),
       works: serializeWorkFiles_(item.workFiles || item.works || [])
     })),
@@ -1077,7 +1087,7 @@ function buildAdminDiffSummary_(beforeSnapshot, afterSnapshot, manualNote) {
     return { title: item.title, body: item.body, mediaFolderId: item.mediaFolderId, mediaFileIds: item.mediaFileIds, sortOrder: item.sortOrder, published: item.published };
   });
   compareCollections(beforeSnapshot.exhibitions || [], afterSnapshot.exhibitions || [], 'exhibitionId', '展示会', function(item) {
-    return { title: item.title, subtitle: item.subtitle, theme: item.theme, venueName: item.venueName, venueAddress: item.venueAddress, dateLine: item.dateLine, timeLine: item.timeLine, mapEmbedUrl: item.mapEmbedUrl, mediaFolderId: item.mediaFolderId, dmFileIds: item.dmFileIds, published: item.published, startDate: item.startDate, workFiles: item.workFiles };
+    return { title: item.title, subtitle: item.subtitle, theme: item.theme, venueName: item.venueName, venueAddress: item.venueAddress, dateLine: item.dateLine, timeLine: item.timeLine, mapEmbedUrl: item.mapEmbedUrl, mediaFolderId: item.mediaFolderId, dmFileIds: item.dmFileIds, published: item.published, startDate: item.startDate, endDate: item.endDate || '', workFiles: item.workFiles };
   }, function(before, after) {
     if (before.displayBucket !== after.displayBucket) {
       return after.displayBucket === 'archive' ? '展示会「' + after.title + '」をアーカイブに移動' : '展示会「' + after.title + '」を開催予定に変更';
