@@ -56,8 +56,13 @@ function bindGlobalEvents() {
     event.stopPropagation();
   });
   document.querySelectorAll('[data-panel-target]').forEach((button) => {
-    button.addEventListener('click', () => activatePanel(button.getAttribute('data-panel-target')));
+    button.addEventListener('click', () => {
+      activatePanel(button.getAttribute('data-panel-target'));
+      /* スマホでは切り替えた先のタブを一番上から見せる */
+      if (isNarrowScreen()) window.scrollTo(0, 0);
+    });
   });
+  bindNarrowNavAutoHide();
   document.addEventListener('click', (event) => {
     const area = document.getElementById('statusArea');
     if (area && !area.contains(event.target)) toggleStatusHistory(false);
@@ -76,6 +81,34 @@ function bindGlobalEvents() {
     event.preventDefault();
     event.returnValue = '';
   });
+}
+
+/* スマホ（UiStyles の max-width: 720px と同じ幅）では、タブをステータスの下に固定し、
+   下へスクロールしている間だけ隠す。上へ少し戻すと出てくる */
+const NARROW_SCREEN_QUERY = '(max-width: 720px)';
+const NAV_SCROLL_THRESHOLD = 6;
+
+function isNarrowScreen() {
+  return window.matchMedia(NARROW_SCREEN_QUERY).matches;
+}
+
+function bindNarrowNavAutoHide() {
+  const topbar = document.querySelector('.topbar');
+  if (!topbar) return;
+  /* タブを固定する位置（ボタンとステータスの高さ）。ログイン後に表示されたときや、メッセージで高さが変わったときに合わせる */
+  /* 小数点以下を切り捨て、タブがステータスの下にわずかに潜るようにする（切り上げると、すき間から内容が透けて見える） */
+  const updateOffset = () => document.documentElement.style.setProperty('--topbar-height', Math.floor(topbar.getBoundingClientRect().height) + 'px');
+  updateOffset();
+  window.addEventListener('resize', updateOffset);
+  if (window.ResizeObserver) new ResizeObserver(updateOffset).observe(topbar);
+  let lastY = window.scrollY;
+  window.addEventListener('scroll', () => {
+    const y = window.scrollY;
+    const delta = y - lastY;
+    if (Math.abs(delta) < NAV_SCROLL_THRESHOLD) return;
+    document.body.classList.toggle('is-nav-hidden', isNarrowScreen() && delta > 0 && y > topbar.offsetHeight);
+    lastY = y;
+  }, { passive: true });
 }
 
 function activatePanel(panelId) {
@@ -97,10 +130,7 @@ function sleep(ms) {
 function renderStatusMessage(message, kind = 'default', report = null) {
   const status = document.getElementById('statusMessage');
   status.textContent = '';
-  const text = document.createElement('span');
-  text.textContent = message;
-  status.appendChild(text);
-  if (report) status.appendChild(createReportCopyButton(report));
+  appendStatusContent(status, message, report);
   status.setAttribute('data-kind', kind);
   status.style.color = kind === 'error' ? '#ffd5d5' : (kind === 'success' ? '#0a0a0a' : '');
   status.style.background = kind === 'error' ? 'rgba(243,108,108,0.18)' : (kind === 'success' ? 'rgba(136,196,132,0.92)' : 'rgba(255,255,255,0.04)');
@@ -153,6 +183,8 @@ function toggleStatusHistory(force) {
   const button = document.getElementById('statusHistoryButton');
   if (!panel || !button) return;
   const nextOpen = typeof force === 'boolean' ? force : panel.classList.contains('hidden');
+  /* 履歴とエラーの詳細はどちらもステータスの下に開くので、同時には開かない */
+  if (nextOpen) closeErrorReportCard('');
   panel.classList.toggle('hidden', !nextOpen);
   button.setAttribute('aria-expanded', nextOpen ? 'true' : 'false');
   if (nextOpen) renderStatusHistory();
@@ -180,7 +212,7 @@ async function processStatusQueue() {
 function setStatus(message, kind = 'default', options = {}) {
   if (kind === 'error' || options.immediate) {
     clearStatusQueue();
-    pushStatusHistory(message, kind, options.report || null);
+    pushStatusHistory(options.historyMessage || message, kind, options.report || null);
     renderStatusMessage(message, kind, options.report || null);
     return;
   }
@@ -195,8 +227,8 @@ function setStatus(message, kind = 'default', options = {}) {
 
 function setAuthStatus(message, kind = 'default', report = null) {
   const box = document.getElementById('authStatus');
-  box.innerHTML = `<div>${escapeHtml(message)}</div>`;
-  if (report) box.appendChild(createReportCopyButton(report));
+  box.textContent = '';
+  appendStatusContent(box, message, report);
   box.style.color = kind === 'error' ? '#ffd5d5' : (kind === 'success' ? '#0a0a0a' : 'rgba(255,255,255,0.82)');
   box.style.background = kind === 'error' ? 'rgba(243,108,108,0.18)' : (kind === 'success' ? 'rgba(136,196,132,0.92)' : 'rgba(255,255,255,0.04)');
 }
@@ -228,11 +260,12 @@ const ERROR_RULES = [
 const UNEXPECTED_ERROR_HINT = '想定外のエラーです。もう一度お試しいただき、続く場合は管理者に連絡してください。';
 const ERROR_NOTIFY_MESSAGES = {
   sending: '管理者に通知しています…',
-  sent: '管理者に自動でメール通知しました。急ぎの場合は、下の内容をコピーして直接連絡してください。',
+  sent: '管理者に自動でメール通知しました。急ぎの場合は、「エラー内容をコピー」を押して直接連絡してください。',
   duplicate: '同じエラーは少し前に管理者へ通知済みです。',
   not_configured: '管理者への自動通知は設定されていません。「エラー内容をコピー」を押して、管理者に送ってください。',
   limit: '本日の自動通知の上限に達しました。「エラー内容をコピー」を押して、管理者に送ってください。',
   failed: '管理者へ自動で通知できませんでした。「エラー内容をコピー」を押して、管理者に送ってください。',
+  manual: 'このエラーは管理者に自動で通知していません。解決しない場合は「エラー内容をコピー」を押して、管理者に送ってください。',
   copy_failed: '自動でコピーできませんでした。下の枠内の文章を選択してコピーし、管理者に送ってください。'
 };
 
@@ -248,7 +281,9 @@ function formatReportTime(date) {
 function activePanelLabel() {
   if (typeof document === 'undefined' || typeof document.querySelector !== 'function') return '';
   const button = document.querySelector('[data-panel-target].is-active');
-  return button ? String(button.textContent || '').replace(/\s+/g, ' ').trim() : '';
+  /* スマホ用の短い名前ではなく、正式なタブ名を報告に使う */
+  const label = button && (button.querySelector('.nav-label-full') || button);
+  return label ? String(label.textContent || '').replace(/\s+/g, ' ').trim() : '';
 }
 
 function describeError(error, operation, now = new Date()) {
@@ -277,18 +312,59 @@ function describeError(error, operation, now = new Date()) {
   return report;
 }
 
-/* catch 節から呼ぶ共通処理。target は 'auth'（ログイン画面）か 'media'（画像設定ダイアログ）、省略時は画面上部のステータス */
+/* エラーは3段階で見せる。
+   1. 利用者が見ている場所（ステータス・画像ダイアログ・ログイン画面）のどれか1か所に、1行の要約と「詳細」
+   2. 「詳細」かシステム側の問題（important）で、要約のすぐ下にエラー報告カード（対処・内容・通知状況・コピー）
+   3. カード内の折りたたみに、管理者向けの報告文
+   catch 節から呼ぶ。target は 'auth'（ログイン画面）か 'media'（画像設定ダイアログ）、省略時は画面上部のステータス */
+function errorSummary(report) {
+  return '「' + report.operation + '」ができませんでした。' + (report.hint || report.message);
+}
+
 function showError(error, operation, target = '') {
   const report = describeError(error, operation);
-  const display = report.message + (report.hint ? '\n' + report.hint : '');
+  report.target = target;
+  const summary = errorSummary(report);
+  const full = '「' + report.operation + '」ができませんでした。\n' + report.message + (report.hint ? '\n' + report.hint : '');
   if (target === 'auth') {
-    setAuthStatus(display, 'error', report);
+    setAuthStatus(summary, 'error', report);
+  } else if (target === 'media') {
+    pushStatusHistory(full, 'error', report);
+    setMediaStatus(summary, 'error', report);
   } else {
-    setStatus(display, 'error', { report });
-    if (target === 'media') setMediaStatus(display, 'error', report);
+    setStatus(summary, 'error', { report, historyMessage: full });
   }
   if (report.important) notifyErrorReport(report);
   return report;
+}
+
+/* 要約は1行に収め（はみ出す分は「…」）、全文は title で見られるようにする */
+function appendStatusContent(container, message, report) {
+  const text = document.createElement('span');
+  text.textContent = message || '';
+  container.appendChild(text);
+  if (!report) return;
+  text.className = 'status-summary';
+  text.title = message || '';
+  container.appendChild(createReportDetailButton(report));
+  container.appendChild(createReportCopyButton(report));
+}
+
+function createReportDetailButton(report) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'status-detail-button';
+  button.textContent = '詳細';
+  button.setAttribute('aria-expanded', 'false');
+  button.addEventListener('click', () => {
+    const card = document.getElementById('errorReportCard');
+    if (card && card.getAttribute('data-report-id') === report.id) {
+      closeErrorReportCard();
+      return;
+    }
+    openErrorReportCard(report, report.notifyState || 'manual');
+  });
+  return button;
 }
 
 async function notifyErrorReport(report) {
@@ -375,24 +451,52 @@ function createReportCopyButton(report) {
   return button;
 }
 
-/* システム側の問題や、コピーできなかったときに出すカード。操作の邪魔をしないよう画面右下に出す */
-function openErrorReportCard(report, state) {
-  let card = document.getElementById('errorReportCard');
-  if (!card) {
-    card = document.createElement('section');
-    card.id = 'errorReportCard';
-    card.className = 'error-report-card';
-    card.setAttribute('role', 'alert');
-    document.body.appendChild(card);
+/* エラー報告カード。利用者は要約を見ているので、要約のすぐ下に開く。
+   画面上部のステータスでは履歴パネルと同じく内容に重ねて開き、画像ダイアログとログイン画面では要約の下に差し込む。
+   気づかないうちに消えないよう、閉じるのは「×」「閉じる」か、もう一度「詳細」を押したときだけ */
+function errorReportCardPlace(report) {
+  if (report.target === 'auth') return { parent: document.getElementById('authStatus'), inline: true };
+  if (report.target === 'media') {
+    const dialog = document.getElementById('mediaDialog');
+    if (dialog && !dialog.classList.contains('hidden')) return { parent: document.getElementById('mediaDialogStatus'), inline: true };
   }
+  return { parent: document.getElementById('statusArea'), inline: false };
+}
+
+/* target を指定したときは、その場所に開いているカードだけを閉じる */
+function closeErrorReportCard(target) {
+  const card = document.getElementById('errorReportCard');
+  if (!card) return;
+  if (typeof target === 'string' && card.getAttribute('data-target') !== target) return;
+  card.remove();
+  document.querySelectorAll('.status-detail-button[aria-expanded="true"]').forEach((button) => button.setAttribute('aria-expanded', 'false'));
+}
+
+function openErrorReportCard(report, state) {
+  closeErrorReportCard();
+  const place = errorReportCardPlace(report);
+  if (!place.parent) return;
+  if (!place.inline) toggleStatusHistory(false);
+  const card = document.createElement('section');
+  card.id = 'errorReportCard';
+  card.className = 'error-report-card ' + (place.inline ? 'is-inline' : 'is-dropdown');
+  card.setAttribute('role', 'alert');
+  card.setAttribute('data-target', report.target || '');
+  if (place.inline) {
+    place.parent.insertAdjacentElement('afterend', card);
+  } else {
+    place.parent.appendChild(card);
+  }
+  const detailButton = place.parent.querySelector('.status-detail-button');
+  if (detailButton) detailButton.setAttribute('aria-expanded', 'true');
   card.setAttribute('data-report-id', report.id);
   card.innerHTML = [
     '<div class="error-report-head">',
-    '<strong>「' + escapeHtml(report.operation) + '」でエラーが発生しました</strong>',
+    '<strong>「' + escapeHtml(report.operation) + '」ができませんでした</strong>',
     '<button class="icon-action-button" type="button" data-error-report-close aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button>',
     '</div>',
-    '<p class="error-report-message">' + escapeHtml(report.message) + '</p>',
     report.hint ? '<p class="error-report-hint">' + escapeHtml(report.hint) + '</p>' : '',
+    '<p class="error-report-message"><span>エラーの内容</span>' + escapeHtml(report.message) + '</p>',
     '<p class="error-report-notify" data-error-report-notify></p>',
     '<details class="error-report-details"' + (state === 'copy_failed' ? ' open' : '') + '>',
     '<summary>報告用の内容を表示</summary>',
@@ -403,7 +507,7 @@ function openErrorReportCard(report, state) {
     '<button class="button ghost" type="button" data-error-report-close>閉じる</button>',
     '</div>'
   ].join('');
-  card.querySelectorAll('[data-error-report-close]').forEach((button) => button.addEventListener('click', () => card.remove()));
+  card.querySelectorAll('[data-error-report-close]').forEach((button) => button.addEventListener('click', () => closeErrorReportCard()));
   const copyButton = card.querySelector('[data-error-report-copy]');
   copyButton.addEventListener('click', () => copyErrorReport(report, copyButton));
   updateErrorReportCard(report, state);
@@ -411,6 +515,8 @@ function openErrorReportCard(report, state) {
 }
 
 function updateErrorReportCard(report, state) {
+  /* コピー失敗の表示は通知状況ではないので、あとで「詳細」を開いたときには持ち越さない */
+  if (state !== 'copy_failed') report.notifyState = state;
   const card = document.getElementById('errorReportCard');
   if (!card || card.getAttribute('data-report-id') !== report.id) return;
   card.querySelector('[data-error-report-notify]').textContent = ERROR_NOTIFY_MESSAGES[state] || '';
@@ -874,13 +980,14 @@ function closeMediaDialog() {
   const dialog = document.getElementById('mediaDialog');
   if (dialog) dialog.classList.add('hidden');
   document.body.classList.remove('media-modal-open');
+  closeErrorReportCard('media');
 }
 
 function setMediaStatus(message, type, report = null) {
   const status = document.getElementById('mediaDialogStatus');
   if (!status) return;
-  status.textContent = message || '';
-  if (report) status.appendChild(createReportCopyButton(report));
+  status.textContent = '';
+  appendStatusContent(status, message, report);
   status.className = 'media-dialog-status' + (message ? ' is-visible' : ' hidden') + (type ? ' is-' + type : '');
 }
 
@@ -928,8 +1035,8 @@ function renderMediaDialog(files) {
 function renderMediaUploadBox(role, label, kind) {
   const imageAccept = 'image/' + '*';
   const note = kind === 'recruit'
-    ? '推奨ファイルサイズは3MB以下です。新歓イベントカレンダー画像は16:9で作成してください。'
-    : '推奨ファイルサイズは3MB以下です。';
+    ? '1枚3MB以下を推奨します。カレンダー画像は16:9（横長）で作成してください。'
+    : '1枚3MB以下を推奨します。';
   return [
     '<div class="media-upload-box">',
     '<div class="media-upload-row">',
@@ -953,7 +1060,6 @@ function renderGenericMediaSettings(files, context) {
   return [
     '<div class="media-section">',
     '<h3>画像</h3>',
-    '<div class="small-note">ここで並べた順にサイトへ表示されます。</div>',
     '<div class="media-file-grid">',
     ordered.map((file, index) => renderGenericMediaCard(file, index, ordered.length)).join(''),
     '</div>',
@@ -992,10 +1098,12 @@ function renderExhibitionMediaSettings(files, context) {
     renderExhibitionDmList(files, dmIds),
     '</div>',
     '<div class="media-section">',
-    '<h3>作品画像</h3>',
+    '<div data-help>',
+    '<div class="help-title"><h3>作品画像</h3>' + HELP_BUTTON + '</div>',
+    '<div class="small-note help-text">表示順は、スマートフォン表示と拡大表示のときのスライドの順番になります。パソコンでは、画像の縦横比に合わせて見やすく自動で並べます。</div>',
+    '</div>',
     renderCatalogImportPanel(catalog, works),
     renderMediaUploadBox('work', '作品画像を追加', 'exhibition'),
-    '<div class="small-note">表示順は、スマートフォン表示と拡大表示時のスライド順に反映されます。PCでは画像の縦横比に合わせて、見やすい配置に自動調整されます。</div>',
     '<div class="media-file-grid media-work-grid">',
     works.length ? works.map((work, index) => renderExhibitionWorkRow(fileById(files, work.fileId), work, index, works.length, catalog, works)).join('') : '<div class="preview-empty">作品画像は未設定です。目録を先に読み込んだ場合は、作品画像をアップロードすると各画像に紐づけできます。</div>',
     '</div>',
@@ -1011,10 +1119,9 @@ function renderCatalogImportPanel(catalog, works) {
   return [
     '<div class="media-upload-box catalog-import-section">',
     '<div class="catalog-import-head">',
-    '<div>',
-    '<h3>目録から作品情報を自動入力</h3>',
-    '<div class="small-note">作品目録をAI解析して作品情報を自動抽出します。PDF・画像（複数枚可）・Excel・テキスト（.txt / .md / .csv / .json）に対応しています。</div>',
-    '<div class="small-note">現在使用中モデル：' + escapeHtml((appState.options && appState.options.geminiModel) || 'GEMINI_MODEL') + '</div>',
+    '<div data-help>',
+    '<div class="help-title"><h3>目録から作品情報を自動入力</h3>' + HELP_BUTTON + '</div>',
+    '<div class="small-note help-text">作品目録を AI で読み取り、作品名・作者名を自動で入力します。対応形式：PDF・画像（複数枚可）・Excel・テキスト（.txt / .md / .csv / .json）</div>',
     '</div>',
     items.length ? [
       '<div class="catalog-import-actions">',
@@ -1757,9 +1864,9 @@ function renderStorageCard() {
   return [
     '<div class="card storage-card is-' + escapeHtml(storage.level || 'ok') + '">',
     '<div class="storage-head">',
-    '<div>',
-    '<h3>Drive容量</h3>',
-    '<div class="small-note">ホームページ素材以外も含む、実行アカウント全体の容量です。</div>',
+    '<div data-help>',
+    '<div class="help-title"><h3>Drive容量</h3>' + HELP_BUTTON + '</div>',
+    '<div class="small-note help-text">ホームページ素材以外も含む、実行アカウント全体の容量です。</div>',
     '</div>',
     '<span class="storage-badge">' + escapeHtml(levelText) + '</span>',
     '</div>',
@@ -1791,12 +1898,16 @@ function renderDashboard() {
       <div class="log-date">${formatDate(item.timestamp)} / ${escapeHtml(item.actorName || item.actorEmail || '不明')}</div>
       <div>${escapeHtml(item.detail || item.action || '')}</div>
     </div>`).join('') : '<div class="small-note">まだ公開履歴がありません。</div>';
+  const accountHtml = appState.viewerName || appState.viewerEmail
+    ? '<p class="dashboard-account">ログイン中：<strong>' + escapeHtml(appState.viewerName || appState.viewerEmail) + '</strong>' +
+      (appState.viewerEmail && appState.viewerEmail !== appState.viewerName ? '（' + escapeHtml(appState.viewerEmail) + '）' : '') + '</p>'
+    : '';
   const html = `
     <div class="stack">
+      ${accountHtml}
       ${renderStorageCard()}
       <div class="card">
         <h2>概要</h2>
-        <p class="panel-lead">日常的に触る項目だけを、この画面から編集できます。</p>
         <div class="kpi-grid">
           <div class="kpi"><div class="kpi-label">活動記録・告知</div><div class="kpi-value">${publishedActivities}</div></div>
           <div class="kpi"><div class="kpi-label">展示会</div><div class="kpi-value">${publishedExhibitions}</div></div>
@@ -1817,6 +1928,19 @@ function renderDashboard() {
     </div>
   `;
   document.getElementById('panel-dashboard').innerHTML = html;
+}
+
+/* 毎回は読まない説明はたたんでおき、見出し横の「？」で開く。
+   data-help を付けた要素の中の .help-text が開閉の対象になる */
+const HELP_BUTTON = '<button class="help-button" type="button" onclick="toggleHelp(this)" aria-expanded="false" aria-label="説明を表示" title="説明を表示"><i class="fa-regular fa-circle-question" aria-hidden="true"></i></button>';
+
+function toggleHelp(button) {
+  const box = button.closest('[data-help]');
+  if (!box) return;
+  const open = !box.classList.contains('is-help-open');
+  box.classList.toggle('is-help-open', open);
+  button.setAttribute('aria-expanded', open ? 'true' : 'false');
+  button.setAttribute('aria-label', open ? '説明を閉じる' : '説明を表示');
 }
 
 function updateEditorCardTitle(input, fallback) {
@@ -1845,10 +1969,13 @@ function renderRecruitEditor() {
   panel.innerHTML = `
     <div class="grid-2">
       <div class="card">
-        <div class="panel-head">
+        <div class="panel-head" data-help>
           <div>
-            <h2>入部希望の方</h2>
-            <p class="panel-lead">年度ごとの新歓イベントカレンダー画像を設定します。表示名は年度から自動で作られます。</p>
+            <div class="help-title">
+              <h2>入部希望の方</h2>
+              ${HELP_BUTTON}
+            </div>
+            <p class="panel-lead help-text">年度ごとの新歓イベントカレンダー画像を設定します。表示名は年度から自動で作られます。</p>
           </div>
           <div class="item-actions">
             <button class="button" type="button" onclick="addRecruitYear()">年度を追加</button>
@@ -1875,15 +2002,12 @@ function renderRecruitEditorItem(item, index) {
     <article class="editor-item" data-recruit-item data-index="${index}" data-published="${published ? 'true' : 'false'}">
       <div class="editor-item-head">
         <div>
-          <div class="item-title-line">
-            <div class="item-title" data-live-title>${escapeHtml(label)}</div>
-            ${visibleChipHtml(published)}
-          </div>
-          <div class="editor-item-meta">画像は16:9推奨です。</div>
+          <div class="item-title" data-live-title>${escapeHtml(label)}</div>
+          <div class="editor-item-meta">${visibleChipHtml(published)}</div>
         </div>
         <div class="item-actions">
           ${published ? '' : `<button class="button hidden-toggle is-hidden" type="button" onclick="toggleRecruitPublished(${index})">この年度を公開</button>`}
-          <button class="button danger" type="button" onclick="removeRecruitYear(${index})">削除</button>
+          <button class="button danger icon" type="button" onclick="removeRecruitYear(${index})" aria-label="削除" title="削除">${TRASH_ICON}</button>
         </div>
       </div>
       <div class="form-grid">
@@ -1978,10 +2102,13 @@ function renderActivitiesEditor() {
   panel.innerHTML = `
     <div class="grid-2">
       <div class="card">
-        <div class="panel-head">
+        <div class="panel-head" data-help>
           <div>
-            <h2>活動記録・告知</h2>
-            <p class="panel-lead">公開日が新しい順に表示されます。必要に応じて非公開にできます。</p>
+            <div class="help-title">
+              <h2>活動記録・告知</h2>
+              ${HELP_BUTTON}
+            </div>
+            <p class="panel-lead help-text">公開日が新しい順に表示されます。必要に応じて非公開にできます。</p>
           </div>
           <div class="item-actions">
             <button class="button" type="button" onclick="addActivityArticle()">記事を追加</button>
@@ -2006,15 +2133,12 @@ function renderActivityEditorItem(item, index) {
     <article class="editor-item" data-activity-item data-index="${index}" data-id="${escapeHtml(item.articleId)}" data-created-at="${escapeHtml(item.createdAt || '')}" data-published="${published ? 'true' : 'false'}" data-bucket="${escapeHtml(item.displayBucket || 'archive')}">
       <div class="editor-item-head">
         <div>
-          <div class="item-title-line">
-            <div class="item-title" data-live-title>${escapeHtml(item.title || '新規記事')}</div>
-            ${visibleChipHtml(published)}
-          </div>
-          <div class="editor-item-meta">初回公開日: ${formatDate(item.createdAt)}</div>
+          <div class="item-title" data-live-title>${escapeHtml(item.title || '新規記事')}</div>
+          <div class="editor-item-meta">${visibleChipHtml(published)}<span>初回公開日: ${formatDate(item.createdAt)}</span></div>
         </div>
         <div class="item-actions">
           <button class="button hidden-toggle ${published ? '' : 'is-hidden'}" type="button" onclick="toggleActivityPublished(${index})">${published ? '非公開' : '公開に戻す'}</button>
-          <button class="button danger" type="button" onclick="removeActivityArticle(${index})">削除</button>
+          <button class="button danger icon" type="button" onclick="removeActivityArticle(${index})" aria-label="削除" title="削除">${TRASH_ICON}</button>
         </div>
       </div>
       <div class="form-grid">
@@ -2100,10 +2224,13 @@ function renderExhibitionsEditor() {
   panel.innerHTML = `
     <div class="grid-2">
       <div class="card">
-        <div class="panel-head">
+        <div class="panel-head" data-help>
           <div>
-            <h2>展示会</h2>
-            <p class="panel-lead">開始日をもとに自動で並びます。開催予定は複数設定でき、近い順に表示されます。直近の展示はアーカイブの最新1件から自動で反映されます。</p>
+            <div class="help-title">
+              <h2>展示会</h2>
+              ${HELP_BUTTON}
+            </div>
+            <p class="panel-lead help-text">開始日をもとに自動で並びます。開催予定は複数設定でき、近い順に表示されます。直近の展示はアーカイブの最新1件から自動で反映されます。</p>
           </div>
           <div class="item-actions">
             <button class="button" type="button" onclick="addExhibition()">展示会を追加</button>
@@ -2129,16 +2256,13 @@ function renderExhibitionEditorItem(item, index) {
     <article class="editor-item" data-exhibition-item data-index="${index}" data-id="${escapeHtml(item.exhibitionId || '')}" data-published="${published ? 'true' : 'false'}" data-bucket="${escapeHtml(item.displayBucket || 'archive')}" data-created-order="${escapeHtml(item.draftCreatedAt || '')}">
       <div class="editor-item-head">
         <div>
-          <div class="item-title-line">
-            <div class="item-title" data-live-title>${escapeHtml(item.title || '新規展示会')}</div>
-            ${visibleChipHtml(published)}
-          </div>
-          <div class="editor-item-meta">${bucketLabel}</div>
+          <div class="item-title" data-live-title>${escapeHtml(item.title || '新規展示会')}</div>
+          <div class="editor-item-meta">${visibleChipHtml(published)}<span>${bucketLabel}</span></div>
         </div>
         <div class="item-actions">
-          <button class="button subtle" type="button" onclick="toggleExhibitionBucket(${index})">${item.displayBucket === 'upcoming' ? 'アーカイブに移動' : '開催予定に戻す'}</button>
+          <button class="button subtle" type="button" onclick="toggleExhibitionBucket(${index})">${item.displayBucket === 'upcoming' ? 'アーカイブへ' : '開催予定へ'}</button>
           <button class="button hidden-toggle ${published ? '' : 'is-hidden'}" type="button" onclick="toggleExhibitionPublished(${index})">${published ? '非公開' : '公開に戻す'}</button>
-          <button class="button danger" type="button" onclick="removeExhibition(${index})">削除</button>
+          <button class="button danger icon" type="button" onclick="removeExhibition(${index})" aria-label="削除" title="削除">${TRASH_ICON}</button>
         </div>
       </div>
       <div class="form-grid">
@@ -2189,7 +2313,6 @@ function renderExhibitionEditorItem(item, index) {
           <button class="button subtle" type="button" onclick="openMediaDialog('exhibition', ${index})">画像・作品情報の設定</button>
         </div>
       </div>
-      <div class="confirm-note">DM画像、作品画像、作品名、作者名、表示順は「画像・作品情報の設定」から編集できます。</div>
     </article>
   `;
 }
@@ -2322,10 +2445,13 @@ function renderRequestsEditor() {
   panel.innerHTML = `
     <div class="grid-2">
       <div class="card">
-        <div class="panel-head">
+        <div class="panel-head" data-help>
           <div>
-            <h2>ご依頼の方</h2>
-            <p class="panel-lead">紹介したい取り組み事例を並べます。新しく追加した事例は先頭に配置されます。</p>
+            <div class="help-title">
+              <h2>ご依頼の方</h2>
+              ${HELP_BUTTON}
+            </div>
+            <p class="panel-lead help-text">新しく追加した事例は先頭に配置されます。</p>
           </div>
           <div class="item-actions">
             <button class="button" type="button" onclick="addRequestCase()">取り組み事例を追加</button>
@@ -2350,17 +2476,14 @@ function renderRequestEditorItem(item, index) {
     <article class="editor-item" data-request-item data-index="${index}" data-id="${escapeHtml(item.caseId || '')}" data-published="${published ? 'true' : 'false'}" data-bucket="${escapeHtml(item.displayBucket || 'archive')}">
       <div class="editor-item-head">
         <div>
-          <div class="item-title-line">
-            <div class="item-title" data-live-title>${escapeHtml(item.title || '新規事例')}</div>
-            ${visibleChipHtml(published)}
-          </div>
-          <div class="editor-item-meta">表示順 ${index + 1}</div>
+          <div class="item-title" data-live-title>${escapeHtml(item.title || '新規事例')}</div>
+          <div class="editor-item-meta">${visibleChipHtml(published)}<span>表示順 ${index + 1}</span></div>
         </div>
         <div class="item-actions">
           <button class="button" type="button" onclick="moveRequestCase(${index}, -1)">↑</button>
           <button class="button" type="button" onclick="moveRequestCase(${index}, 1)">↓</button>
           <button class="button hidden-toggle ${published ? '' : 'is-hidden'}" type="button" onclick="toggleRequestPublished(${index})">${published ? '非公開' : '公開に戻す'}</button>
-          <button class="button danger" type="button" onclick="removeRequestCase(${index})">削除</button>
+          <button class="button danger icon" type="button" onclick="removeRequestCase(${index})" aria-label="削除" title="削除">${TRASH_ICON}</button>
         </div>
       </div>
       <div class="form-grid">
@@ -2458,8 +2581,10 @@ function buildLogsPreviewCardHtml(compared, noteHtml, isLoading) {
   const items = compared || [];
   return `
       <div class="card">
-        <h2>サイトの更新履歴プレビュー</h2>
-        <p class="panel-lead">緑は今回の公開で新しく表示される項目、赤は今回の公開でサイト上から非表示になる項目です。</p>
+        <div data-help>
+        <div class="help-title"><h2>サイトの更新履歴プレビュー</h2>${HELP_BUTTON}</div>
+        <p class="panel-lead help-text">緑は今回の公開で新しく表示される項目、赤は今回の公開でサイト上から非表示になる項目です。</p>
+        </div>
         <div class="preview-sim-legend">
           <span class="preview-sim-chip is-added">追加・再表示</span>
           <span class="preview-sim-chip is-removed">非表示</span>
@@ -2497,8 +2622,10 @@ function renderLogs() {
   panel.innerHTML = `
     <div class="stack">
       <div class="card">
-        <h2>更新履歴メモ</h2>
-        <p class="panel-lead">必要なときだけ、自由記述の履歴を追加できます。サイト側の履歴には現在の公開状態に応じて表示されます。</p>
+        <div data-help>
+        <div class="help-title"><h2>更新履歴メモ</h2>${HELP_BUTTON}</div>
+        <p class="panel-lead help-text">必要なときだけ、自由記述の履歴を追加できます。サイト側の履歴には現在の公開状態に応じて表示されます。</p>
+        </div>
         <div class="field full">
           <label>フリーテキスト履歴（改行ごとに1項目）</label>
           <textarea id="manualChangeNote" placeholder="例: 会場のご案内を更新しました。\n次回展示の詳細を追記しました。" oninput="syncManualChangeNote(); scheduleLogsPreviewRefresh();">${escapeHtml(appState.state.manualChangeNote || '')}</textarea>

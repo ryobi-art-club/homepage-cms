@@ -27,7 +27,15 @@
       return clone(draft.payload);
     },
     previewSiteHistory: () => ({ compared: data.siteHistory || [] }),
-    reportError: () => ({ notified: false, reason: 'not_configured' }),
+    /* 管理者への自動通知の結果。URL の ?notify=sent などか、コンソールで MOCK_BACKEND.notifyMode = 'sent' で切り替える */
+    notifyMode: new URLSearchParams(location.search).get('notify') || 'not_configured',
+    reportError: () => {
+      const mode = window.MOCK_BACKEND.notifyMode;
+      if (mode === 'sent') return { notified: true };
+      if (mode === 'duplicate') return { notified: true, duplicate: true };
+      if (mode === 'failed') throw new Error('プレビュー: 通知に失敗した場合の表示です。');
+      return { notified: false, reason: mode };
+    },
     saveDraft: (_, payload) => {
       data.bootstrap.drafts.unshift({ draftId: nextId('d'), savedAt: new Date().toISOString(), savedByName: data.bootstrap.viewerName, savedByEmail: data.bootstrap.viewerEmail, payload: clone(payload) });
       return { ok: true, message: '下書きを保存しました。' };

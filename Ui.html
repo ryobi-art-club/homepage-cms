@@ -13,7 +13,6 @@
     <div id="authShell" class="auth-shell">
       <div class="auth-card">
         <h1>凌美会 管理画面</h1>
-        <p>サイト更新に必要な項目だけをまとめた画面です。最初に確認コードで認証してください。</p>
         <div class="hr"></div>
         <div class="stack">
           <div class="field">
@@ -49,11 +48,11 @@
           </div>
         </div>
         <div class="sidebar-nav">
-          <button class="nav-button is-active" data-panel-target="dashboard" type="button">ダッシュボード</button>
+          <button class="nav-button is-active" data-panel-target="dashboard" type="button">ホーム</button>
           <button class="nav-button" data-panel-target="exhibitions" type="button">展示会</button>
-          <button class="nav-button" data-panel-target="activities" type="button">活動記録・告知</button>
-          <button class="nav-button" data-panel-target="recruit" type="button">入部希望の方</button>
-          <button class="nav-button" data-panel-target="requests" type="button">ご依頼の方</button>
+          <button class="nav-button" data-panel-target="activities" type="button"><span class="nav-label-full">活動記録・告知</span><span class="nav-label-short" aria-hidden="true">活動記録</span></button>
+          <button class="nav-button" data-panel-target="recruit" type="button"><span class="nav-label-full">入部希望の方</span><span class="nav-label-short" aria-hidden="true">入部希望</span></button>
+          <button class="nav-button" data-panel-target="requests" type="button"><span class="nav-label-full">ご依頼の方</span><span class="nav-label-short" aria-hidden="true">ご依頼</span></button>
           <button class="nav-button" data-panel-target="logs" type="button">更新履歴</button>
         </div>
         <div class="sidebar-meta">
@@ -71,7 +70,6 @@
               <div id="statusHistoryPanel" class="status-history-panel hidden" role="dialog" aria-label="ステータスメッセージ履歴">
                 <div class="status-history-head">
                   <strong>ステータス履歴</strong>
-                  <span class="small-note">最新順</span>
                 </div>
                 <div id="statusHistoryList" class="status-history-list">
                   <div class="status-history-empty">まだ履歴はありません。</div>
@@ -80,7 +78,7 @@
             </div>
           </div>
           <div class="topbar-actions">
-            <a id="openPreviewLink" class="button ghost hidden" href="#" target="_blank" rel="noopener noreferrer">サイトを開く</a>
+            <a id="openPreviewLink" class="button ghost hidden" href="#" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i><span class="button-label">サイトを開く</span></a>
             <button id="saveDraftButton" class="button primary" type="button">下書き保存</button>
             <button id="publishButton" class="button success" type="button">公開する</button>
           </div>

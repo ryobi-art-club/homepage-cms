@@ -17,7 +17,8 @@ const fixtures = path.join(outDir, 'fixtures');
 const url = pathToFileURL(path.join(outDir, 'preview.html')).href;
 const panels = ['dashboard', 'exhibitions', 'activities', 'recruit', 'requests', 'logs'];
 const DESKTOP = { width: 1440, height: 900 };
-const MOBILE = { width: 390, height: 844 };
+/* isMobile makes Chrome honour the viewport meta tag like a real phone */
+const MOBILE = { width: 390, height: 844, isMobile: true };
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /* 1x1 PNG for uploads and a small text catalog */
@@ -33,8 +34,14 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   fs.writeFileSync(imagePath, PNG);
   fs.writeFileSync(csvPath, CATALOG_CSV);
 
-  const browser = await puppeteer.launch({ executablePath, headless: true });
+  const browser = await puppeteer.launch({ executablePath, headless: true, defaultViewport: null });
   const page = await browser.newPage();
+  /* Screen sizes are set through CDP: setScreen() reloads the page whenever isMobile changes,
+     which would lose the dialogs and in-memory edits between the desktop and phone shots */
+  const cdp = await page.createCDPSession();
+  const setScreen = (screen) => cdp.send('Emulation.setDeviceMetricsOverride', {
+    width: screen.width, height: screen.height, deviceScaleFactor: 1, mobile: Boolean(screen.isMobile)
+  });
   const problems = [];
   page.on('pageerror', (error) => problems.push(error.message));
   page.on('console', (message) => { if (message.type() === 'error') problems.push(message.text()); });
@@ -55,7 +62,12 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   };
 
   let step = '';
-  const shot = (name, fullPage = false) => page.screenshot({ path: path.join(shots, name + '.png'), fullPage });
+  /* every screenshot also checks that nothing makes the page wider than the screen */
+  const shot = async (name, fullPage = false) => {
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    if (overflow > 0) problems.push(`${name}: 画面の幅を ${overflow}px はみ出しています`);
+    await page.screenshot({ path: path.join(shots, name + '.png'), fullPage });
+  };
   /* clicks the first enabled element whose onclick starts with the given function call */
   const click = async (onclick, options = {}) => {
     const found = await page.evaluate((prefix, within) => {
@@ -86,7 +98,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   /* --- login and every panel --- */
   for (const [label, viewport] of [['desktop', DESKTOP], ['mobile', MOBILE]]) {
     step = label + ' ログイン';
-    await page.setViewport(viewport);
+    await setScreen(viewport);
     await load(url + '#login');
     await shot(label + '-0-login');
     await page.type('#authEmail', 'member@example.com');
@@ -97,11 +109,63 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
     for (const [index, panel] of panels.entries()) {
       await page.evaluate((id) => activatePanel(id), panel);
       await wait(400);
-      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-      if (overflow > 0) problems.push(`${label} ${panel}: 画面の幅を ${overflow}px はみ出しています`);
       await shot(`${label}-${index + 1}-${panel}`, label === 'desktop');
     }
+    if (label === 'mobile') {
+      /* the tabs hide while scrolling down, come back under the status when scrolling up,
+         and choosing a tab starts it from the top */
+      step = 'スマホのタブ';
+      const navState = () => page.evaluate(() => ({
+        hidden: document.body.classList.contains('is-nav-hidden'),
+        top: Math.round(document.querySelector('.sidebar-nav').getBoundingClientRect().top),
+        bar: document.querySelector('.topbar').offsetHeight
+      }));
+      await page.evaluate(() => activatePanel('exhibitions'));
+      await page.evaluate(() => window.scrollTo(0, 1200));
+      await wait(400);
+      if (!(await navState()).hidden) problems.push(step + ': 下へスクロールしてもタブが隠れません');
+      await page.evaluate(() => window.scrollBy(0, -100));
+      await wait(400);
+      const shown = await navState();
+      if (shown.hidden || shown.top !== shown.bar) problems.push(step + ': 上へスクロールしてもタブがステータスの下に出ません ' + JSON.stringify(shown));
+      await shot('mobile-nav-scroll-up');
+      await page.click('[data-panel-target="activities"]');
+      await wait(300);
+      if (await page.evaluate(() => window.scrollY) !== 0) problems.push(step + ': タブを選んでも一番上から表示されません');
+    }
   }
+
+  /* other phone sizes and a phone held sideways: no page may be wider than the screen.
+     Screenshots only of the longest tab, to see how the item buttons wrap */
+  step = '機種ごとの幅';
+  for (const [label, viewport] of [['320', { width: 320, height: 568 }], ['360', { width: 360, height: 780 }], ['430', { width: 430, height: 932 }], ['landscape', { width: 844, height: 390 }], ['tablet', { width: 1024, height: 1366 }]]
+    .map(([name, size]) => [name, Object.assign({ isMobile: true }, size)])) {
+    await setScreen(viewport);
+    for (const panel of panels) {
+      await page.evaluate((id) => { activatePanel(id); window.scrollTo(0, 0); }, panel);
+      await wait(300);
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      if (overflow > 0) problems.push(`${label} ${panel}: 画面の幅を ${overflow}px はみ出しています`);
+    }
+    if (label === '360' || label === '430') {
+      await page.evaluate(() => activatePanel('exhibitions'));
+      await wait(300);
+      await shot(`mobile${label}-2-exhibitions`);
+    }
+    if (label === 'tablet') {
+      await page.evaluate(() => activatePanel('dashboard'));
+      await wait(300);
+      await shot('tablet-1-dashboard');
+    }
+  }
+  await setScreen(MOBILE);
+  /* folded descriptions open from the ? next to the title */
+  await page.evaluate(() => activatePanel('exhibitions'));
+  await page.click('#panel-exhibitions .help-button');
+  await wait(200);
+  await shot('mobile-panel-help');
+  await page.click('#panel-exhibitions .help-button');
+  await setScreen(DESKTOP);
   await watchErrors();
 
   /* --- image dialogs other than exhibitions (7 images in activity 3) --- */
@@ -110,7 +174,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   await page.evaluate(() => openMediaDialog('activity', 2));
   await wait(500);
   await shot('mobile-dialog-activity');
-  await page.setViewport(DESKTOP);
+  await setScreen(DESKTOP);
   await wait(300);
   await shot('desktop-dialog-activity');
   await click('moveMediaFile');
@@ -158,11 +222,11 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   });
   await showCatalog();
   await shot('desktop-dialog-catalog');
-  await page.setViewport(MOBILE);
+  await setScreen(MOBILE);
   await wait(300);
   await showCatalog();
   await shot('mobile-dialog-catalog');
-  await page.setViewport(DESKTOP);
+  await setScreen(DESKTOP);
   await click('clearCatalogDraftAndRender');
   await checkErrors();
 
@@ -243,10 +307,10 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   step = '公開';
   await clickId('publishButton', 800);
   await shot('desktop-proofread');
-  await page.setViewport(MOBILE);
+  await setScreen(MOBILE);
   await wait(300);
   await shot('mobile-proofread');
-  await page.setViewport(DESKTOP);
+  await setScreen(DESKTOP);
   await page.click('[data-proofread-action="publish"]');
   await wait(1000);
   await checkErrors();
@@ -262,14 +326,35 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
     await page.evaluate(trigger);
     await wait(200);
     await shot(name);
+    /* a user-side error opens the card only from 詳細 */
+    if (name === 'error-1-user') {
+      await page.click('#statusMessage .status-detail-button');
+      await wait(200);
+      await shot('error-1-user-detail');
+      /* pressing 詳細 again closes it; opening the history also closes it */
+      await page.click('#statusMessage .status-detail-button');
+      if (await page.$('#errorReportCard')) problems.push(step + ': もう一度「詳細」を押してもカードが閉じません');
+      await page.click('#statusMessage .status-detail-button');
+      await clickId('statusHistoryButton', 200);
+      if (await page.$('#errorReportCard')) problems.push(step + ': 履歴を開いてもカードが閉じません');
+      await clickId('statusHistoryButton', 200);
+    }
   }
+  /* the same error when automatic notification to the administrator is set up */
+  await page.evaluate(() => { window.MOCK_BACKEND.notifyMode = 'sent'; });
+  await page.evaluate(errors[1][1]);
+  await wait(200);
+  await shot('error-2-system-notified');
+  await page.evaluate(() => { window.MOCK_BACKEND.notifyMode = 'not_configured'; });
+  await page.evaluate(errors[1][1]);
+  await wait(200);
   await page.evaluate(() => document.querySelector('#errorReportCard [data-error-report-copy]').click());
-  await page.setViewport(MOBILE);
+  await setScreen(MOBILE);
   await shot('error-3-system-mobile');
 
   /* long unbroken text inside the image dialog and on the login screen */
   const longId = '1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfGhIjKlMnOpQrStUvWxYz';
-  await page.setViewport(DESKTOP);
+  await setScreen(DESKTOP);
   await page.evaluate(() => { const card = document.getElementById('errorReportCard'); if (card) card.remove(); });
   await page.evaluate(() => openMediaDialog('exhibition', 0));
   await wait(500);
@@ -278,7 +363,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   await shot('error-4-media-dialog');
   await load(url + '#login');
   for (const [label, viewport] of [['desktop', DESKTOP], ['mobile', MOBILE]]) {
-    await page.setViewport(viewport);
+    await setScreen(viewport);
     await page.evaluate((id) => showError(new Error('allowlist シートが見つかりません。ID: ' + id), 'ログイン', 'auth'), longId);
     await wait(200);
     await shot('error-5-login-' + label);
