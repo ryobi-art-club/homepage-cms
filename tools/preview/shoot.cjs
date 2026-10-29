@@ -97,6 +97,8 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
     for (const [index, panel] of panels.entries()) {
       await page.evaluate((id) => activatePanel(id), panel);
       await wait(400);
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      if (overflow > 0) problems.push(`${label} ${panel}: 画面の幅を ${overflow}px はみ出しています`);
       await shot(`${label}-${index + 1}-${panel}`, label === 'desktop');
     }
   }

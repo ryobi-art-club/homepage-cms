@@ -1796,7 +1796,7 @@ function renderDashboard() {
       ${renderStorageCard()}
       <div class="card">
         <h2>概要</h2>
-        <p class="lead">日常的に触る項目だけを、この画面から編集できます。</p>
+        <p class="panel-lead">日常的に触る項目だけを、この画面から編集できます。</p>
         <div class="kpi-grid">
           <div class="kpi"><div class="kpi-label">活動記録・告知</div><div class="kpi-value">${publishedActivities}</div></div>
           <div class="kpi"><div class="kpi-label">展示会</div><div class="kpi-value">${publishedExhibitions}</div></div>
@@ -1845,10 +1845,10 @@ function renderRecruitEditor() {
   panel.innerHTML = `
     <div class="grid-2">
       <div class="card">
-        <div class="editor-item-head">
+        <div class="panel-head">
           <div>
             <h2>入部希望の方</h2>
-            <p class="lead">年度ごとの新歓イベントカレンダー画像を設定します。表示名は年度から自動で作られます。</p>
+            <p class="panel-lead">年度ごとの新歓イベントカレンダー画像を設定します。表示名は年度から自動で作られます。</p>
           </div>
           <div class="item-actions">
             <button class="button" type="button" onclick="addRecruitYear()">年度を追加</button>
@@ -1876,13 +1876,13 @@ function renderRecruitEditorItem(item, index) {
       <div class="editor-item-head">
         <div>
           <div class="item-title-line">
-            <div data-live-title style="font-weight:700">${escapeHtml(label)}</div>
+            <div class="item-title" data-live-title>${escapeHtml(label)}</div>
             ${visibleChipHtml(published)}
           </div>
           <div class="editor-item-meta">画像は16:9推奨です。</div>
         </div>
         <div class="item-actions">
-          <button class="button hidden-toggle ${published ? '' : 'is-hidden'}" type="button" onclick="toggleRecruitPublished(${index})">${published ? '公開中' : 'この年度を公開'}</button>
+          ${published ? '' : `<button class="button hidden-toggle is-hidden" type="button" onclick="toggleRecruitPublished(${index})">この年度を公開</button>`}
           <button class="button danger" type="button" onclick="removeRecruitYear(${index})">削除</button>
         </div>
       </div>
@@ -1978,10 +1978,10 @@ function renderActivitiesEditor() {
   panel.innerHTML = `
     <div class="grid-2">
       <div class="card">
-        <div class="editor-item-head">
+        <div class="panel-head">
           <div>
             <h2>活動記録・告知</h2>
-            <div class="small-note">公開日が新しい順に表示されます。必要に応じて非公開にできます。</div>
+            <p class="panel-lead">公開日が新しい順に表示されます。必要に応じて非公開にできます。</p>
           </div>
           <div class="item-actions">
             <button class="button" type="button" onclick="addActivityArticle()">記事を追加</button>
@@ -2007,7 +2007,7 @@ function renderActivityEditorItem(item, index) {
       <div class="editor-item-head">
         <div>
           <div class="item-title-line">
-            <div data-live-title style="font-weight:700">${escapeHtml(item.title || '新規記事')}</div>
+            <div class="item-title" data-live-title>${escapeHtml(item.title || '新規記事')}</div>
             ${visibleChipHtml(published)}
           </div>
           <div class="editor-item-meta">初回公開日: ${formatDate(item.createdAt)}</div>
@@ -2100,10 +2100,10 @@ function renderExhibitionsEditor() {
   panel.innerHTML = `
     <div class="grid-2">
       <div class="card">
-        <div class="editor-item-head">
+        <div class="panel-head">
           <div>
             <h2>展示会</h2>
-            <div class="small-note">開始日をもとに自動で並びます。開催予定は複数設定でき、近い順に表示されます。直近の展示はアーカイブの最新1件から自動で反映されます。</div>
+            <p class="panel-lead">開始日をもとに自動で並びます。開催予定は複数設定でき、近い順に表示されます。直近の展示はアーカイブの最新1件から自動で反映されます。</p>
           </div>
           <div class="item-actions">
             <button class="button" type="button" onclick="addExhibition()">展示会を追加</button>
@@ -2130,7 +2130,7 @@ function renderExhibitionEditorItem(item, index) {
       <div class="editor-item-head">
         <div>
           <div class="item-title-line">
-            <div data-live-title style="font-weight:700">${escapeHtml(item.title || '新規展示会')}</div>
+            <div class="item-title" data-live-title>${escapeHtml(item.title || '新規展示会')}</div>
             ${visibleChipHtml(published)}
           </div>
           <div class="editor-item-meta">${bucketLabel}</div>
@@ -2322,10 +2322,10 @@ function renderRequestsEditor() {
   panel.innerHTML = `
     <div class="grid-2">
       <div class="card">
-        <div class="editor-item-head">
+        <div class="panel-head">
           <div>
             <h2>ご依頼の方</h2>
-            <div class="small-note">紹介したい取り組み事例を並べます。新しく追加した事例は先頭に配置されます。</div>
+            <p class="panel-lead">紹介したい取り組み事例を並べます。新しく追加した事例は先頭に配置されます。</p>
           </div>
           <div class="item-actions">
             <button class="button" type="button" onclick="addRequestCase()">取り組み事例を追加</button>
@@ -2351,7 +2351,7 @@ function renderRequestEditorItem(item, index) {
       <div class="editor-item-head">
         <div>
           <div class="item-title-line">
-            <div data-live-title style="font-weight:700">${escapeHtml(item.title || '新規事例')}</div>
+            <div class="item-title" data-live-title>${escapeHtml(item.title || '新規事例')}</div>
             ${visibleChipHtml(published)}
           </div>
           <div class="editor-item-meta">表示順 ${index + 1}</div>
@@ -2459,7 +2459,7 @@ function buildLogsPreviewCardHtml(compared, noteHtml, isLoading) {
   return `
       <div class="card">
         <h2>サイトの更新履歴プレビュー</h2>
-        <div class="small-note" style="margin-bottom:12px;">緑は今回の公開で新しく表示される項目、赤は今回の公開でサイト上から非表示になる項目です。</div>
+        <p class="panel-lead">緑は今回の公開で新しく表示される項目、赤は今回の公開でサイト上から非表示になる項目です。</p>
         <div class="preview-sim-legend">
           <span class="preview-sim-chip is-added">追加・再表示</span>
           <span class="preview-sim-chip is-removed">非表示</span>
@@ -2498,8 +2498,8 @@ function renderLogs() {
     <div class="stack">
       <div class="card">
         <h2>更新履歴メモ</h2>
-        <div class="small-note">必要なときだけ、自由記述の履歴を追加できます。サイト側の履歴には現在の公開状態に応じて表示されます。</div>
-        <div class="field full" style="margin-top:14px;">
+        <p class="panel-lead">必要なときだけ、自由記述の履歴を追加できます。サイト側の履歴には現在の公開状態に応じて表示されます。</p>
+        <div class="field full">
           <label>フリーテキスト履歴（改行ごとに1項目）</label>
           <textarea id="manualChangeNote" placeholder="例: 会場のご案内を更新しました。\n次回展示の詳細を追記しました。" oninput="syncManualChangeNote(); scheduleLogsPreviewRefresh();">${escapeHtml(appState.state.manualChangeNote || '')}</textarea>
         </div>
