@@ -402,10 +402,15 @@ select {
   background: rgba(255,255,255,0.04);
   border: 1px solid rgba(255,255,255,0.08);
   white-space: pre-line;
+  overflow-wrap: anywhere;
 }
 #statusMessage {
   width: 100%;
   align-items: flex-start;
+}
+#statusMessage > span {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .status-history-button {
   border: 1px solid rgba(255,255,255,0.10);
@@ -478,6 +483,9 @@ select {
   color: var(--muted);
   font-size: 0.76rem;
 }
+/* 時刻を左、種別とコピーボタンを右にまとめる */
+.status-history-meta { align-items: center; }
+.status-history-meta > span:first-child { margin-right: auto; }
 .status-history-message {
   color: var(--soft);
   font-size: 0.86rem;
@@ -492,18 +500,21 @@ select {
 /* ---------- エラー報告 ---------- */
 .status-copy-button {
   flex-shrink: 0;
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
   border: 1px solid rgba(255,255,255,0.18);
   background: rgba(255,255,255,0.06);
   color: var(--text);
   border-radius: 999px;
-  padding: 4px 12px;
-  font-size: 0.78rem;
-  font-weight: 800;
-  white-space: nowrap;
+  font-size: 0.86rem;
   cursor: pointer;
+  align-self: flex-start;
 }
 .status-copy-button:hover { background: rgba(255,255,255,0.14); }
-.status-copy-button:disabled { cursor: default; opacity: 0.7; }
+.status-copy-button:disabled { cursor: default; color: var(--green); }
 #authStatus .status-copy-button,
 .media-dialog-status .status-copy-button { margin-left: 10px; }
 .error-report-card {
@@ -521,7 +532,9 @@ select {
   background: rgba(12,12,12,0.97);
   border: 1px solid rgba(243,108,108,0.45);
   box-shadow: 0 22px 70px rgba(0,0,0,0.5);
+  overflow-wrap: anywhere;
 }
+.error-report-card > * { min-width: 0; }
 .error-report-head {
   display: flex;
   justify-content: space-between;
@@ -1126,8 +1139,10 @@ p.preview-exhibition-overview { margin: 0 0 12px; }
   color: var(--text);
   font-weight: 700;
   flex: 1 1 320px;
+  min-width: 0;
   align-self: center;
   white-space: pre-line;
+  overflow-wrap: anywhere;
 }
 .media-dialog-status.is-error {
   border-color: rgba(243,108,108,.45);

@@ -75,6 +75,19 @@ module.exports = {
     maintenance: { storage: { available: true, level: 'notice', used: 12.4e9, limit: 15e9, remaining: 2.6e9, usageRatio: 0.83, message: 'Drive の空き容量が少なくなっています。' }, recommendations: [] }
   },
   folders,
+  /* result of reading an exhibition catalog (returned whatever file is chosen) */
+  catalog: {
+    sourceName: '秋季展覧会_出品目録.xlsx',
+    model: 'preview',
+    warnings: ['12番の作者名がかすれていて読み取れませんでした。', '作品数が画像の枚数（24枚）より少なくなっています。'],
+    items: Array.from({ length: 12 }, (_, i) => ({
+      sortOrder: i + 1,
+      artist: i === 11 ? '' : artists[i % artists.length],
+      title: i === 2 ? '無題（連作「港の記憶」より、第三の習作）― 夜明け前の埠頭と、消えかけた灯台の光' : '出品作品' + (i + 1),
+      size: i % 3 === 0 ? 'F100（1620×1303mm）' : 'F10',
+      materials: i % 2 ? '油彩、キャンバス' : '水彩、アクリル、コラージュ、木製パネル'
+    }))
+  },
   siteHistory: [
     { date: '2026.10.28', items: [{ status: 'added', summary: '展示会「凌美会 秋季展覧会 ―境界のむこう側―」の情報を公開' }, { status: 'removed', summary: '取り組み「小学校の卒業記念品デザイン」' }] },
     { date: '2026.10.20', items: [{ status: 'unchanged', summary: '活動記録「秋の合同スケッチ会を開催しました」を公開' }] }

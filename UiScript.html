@@ -137,7 +137,7 @@ function renderStatusHistory() {
     '<div class="status-history-meta">',
     '<span>' + escapeHtml(item.time || '') + '</span>',
     '<span>' + escapeHtml(item.kind === 'error' ? 'エラー' : (item.kind === 'success' ? '完了' : '情報')) + '</span>',
-    item.report ? '<button class="status-copy-button" type="button" data-history-report="' + index + '">報告用にコピー</button>' : '',
+    item.report ? '<button class="status-copy-button" type="button" data-history-report="' + index + '" aria-label="報告用にコピー" title="報告用にコピー">' + COPY_ICON + '</button>' : '',
     '</div>',
     '<div class="status-history-message">' + escapeHtml(item.message || '') + '</div>',
     '</div>'
@@ -340,6 +340,10 @@ async function copyText(text) {
   return copied;
 }
 
+/* メッセージ横のコピーボタンは場所を取らないようアイコンだけにし、説明は aria-label と title で伝える */
+const COPY_ICON = '<i class="fa-regular fa-copy" aria-hidden="true"></i>';
+const COPIED_ICON = '<i class="fa-solid fa-check" aria-hidden="true"></i>';
+
 async function copyErrorReport(report, button) {
   if (!report) return;
   if (!(await copyText(report.text))) {
@@ -347,11 +351,14 @@ async function copyErrorReport(report, button) {
     return;
   }
   if (button) {
-    const label = button.textContent;
-    button.textContent = 'コピーしました';
+    const iconOnly = button.classList.contains('status-copy-button');
+    const original = button.innerHTML;
+    button.innerHTML = iconOnly ? COPIED_ICON : 'コピーしました';
+    if (iconOnly) button.setAttribute('aria-label', 'コピーしました');
     button.disabled = true;
     setTimeout(() => {
-      button.textContent = label;
+      button.innerHTML = original;
+      if (iconOnly) button.setAttribute('aria-label', '報告用にコピー');
       button.disabled = false;
     }, 2000);
   }
@@ -361,7 +368,9 @@ function createReportCopyButton(report) {
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'status-copy-button';
-  button.textContent = '報告用にコピー';
+  button.setAttribute('aria-label', '報告用にコピー');
+  button.title = '報告用にコピー';
+  button.innerHTML = COPY_ICON;
   button.addEventListener('click', () => copyErrorReport(report, button));
   return button;
 }
