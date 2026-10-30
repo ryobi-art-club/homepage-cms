@@ -1,10 +1,5 @@
 // 画像の入口：一覧・サムネイル・追加・削除
 
-function getFolderImages(sessionToken, folderId) {
-  requireSession_(sessionToken);
-  return getFolderMedia_(folderId).filter((file) => file.kind === 'image');
-}
-
 function getFolderMedia(sessionToken, folderId) {
   requireSession_(sessionToken);
   return getFolderMedia_(folderId);
@@ -24,7 +19,7 @@ function getMediaThumbnails(sessionToken, folderId, fileIds) {
   const result = {};
   if (!wanted.size) return result;
   const folder = getDriveFolderWithRetry_(String(folderId || '').trim(), '素材フォルダ取得');
-  requireManagedMediaFolder_(folder);
+  requireManagedItemFolder_(folder);
   mediaSourceFolders_(folder).forEach((source) => listFolderFiles_(source).forEach((file) => {
     const id = retryDriveOperation_(() => file.getId(), '素材ID取得');
     if (wanted.has(id) && !Object.prototype.hasOwnProperty.call(result, id)) result[id] = thumbnailDataUrl_(file);
@@ -52,16 +47,6 @@ function thumbnailDataUrl_(file) {
   }
 }
 
-function requireManagedMediaFolder_(folder) {
-  const config = getConfig_();
-  const roots = [config.ROOT_RECRUIT_FOLDER_ID, config.ROOT_ACTIVITY_FOLDER_ID, config.ROOT_EXHIBITION_FOLDER_ID, config.ROOT_REQUEST_FOLDER_ID];
-  const parents = retryDriveOperation_(() => folder.getParents(), '素材フォルダの親取得');
-  while (parents.hasNext()) {
-    if (roots.indexOf(parents.next().getId()) !== -1) return;
-  }
-  throw new Error('管理している画像フォルダではありません。');
-}
-
 function uploadManagedFiles(sessionToken, request) {
   requireSession_(sessionToken);
   if (!request || typeof request !== 'object') throw new Error('アップロード情報が不正です。');
@@ -69,7 +54,7 @@ function uploadManagedFiles(sessionToken, request) {
   const files = Array.isArray(request.files) ? request.files : [];
   if (!files.length) throw new Error('アップロードするファイルを選択してください。');
 
-  const kind = requireManagedKind_(request.kind);
+  const kind = requireOneOf_(request.kind, Object.keys(MEDIA_KIND_LABELS), '素材種別が不正です。');
   const role = String(request.role || 'image').trim().toLowerCase();
   const uploads = files.map((file) => {
     const originalName = requireString_(file && file.name, 'ファイル名', 180);

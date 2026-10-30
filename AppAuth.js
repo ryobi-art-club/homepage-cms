@@ -10,7 +10,7 @@ function requestOtp(email) {
   if (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
     throw new Error('メールアドレスの形式が正しくありません。');
   }
-  const allowed = getAllowedUserByEmail_(normalizedEmail);
+  const allowed = readAllowedUser_(normalizedEmail);
   if (!allowed) {
     throw new Error('このメールアドレスにはアクセス権がありません。');
   }
@@ -74,7 +74,7 @@ function verifyOtp(email, code) {
 
   cache.remove('otp:' + normalizedEmail);
   cache.remove('otp_req:' + normalizedEmail);
-  const allowed = getAllowedUserByEmail_(normalizedEmail);
+  const allowed = readAllowedUser_(normalizedEmail);
   const sessionToken = Utilities.getUuid() + '-' + Utilities.getUuid();
   cache.put('session:' + sessionToken, JSON.stringify({
     email: normalizedEmail,
@@ -99,7 +99,7 @@ function requireSession_(sessionToken) {
   return JSON.parse(raw);
 }
 
-function getAllowedUserByEmail_(email) {
+function readAllowedUser_(email) {
   const config = getConfig_();
   const sheet = SpreadsheetApp.openById(config.ALLOWLIST_SPREADSHEET_ID).getSheetByName(ALLOWLIST_SHEET_NAME);
   if (!sheet) throw new Error('allowlist シートが見つかりません。');

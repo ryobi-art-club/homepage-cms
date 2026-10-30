@@ -28,6 +28,13 @@ function requireString_(value, label, maxLength) {
   return normalized;
 }
 
+// 決まった値のどれかであることを確かめ、小文字にそろえて返す
+function requireOneOf_(value, allowed, message) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (allowed.indexOf(normalized) === -1) throw new Error(message);
+  return normalized;
+}
+
 function cleanMultiline_(value, maxLength) {
   const normalized = String(value || '').replace(/\r/g, '').trim();
   if (maxLength && normalized.length > maxLength) {

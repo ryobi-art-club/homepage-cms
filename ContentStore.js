@@ -1,6 +1,6 @@
 // スプレッドシートの読み書き：公開した内容・下書き・更新履歴・操作ログ
 
-// 内容は _PublishedState の1か所にある（README「8-4」）。読めないときは readPayloadCells_ がエラーで止め、
+// 内容は _PublishedState の1か所にある（README「8-4」）。読めないときは parsePayloadCells_ がエラーで止め、
 // 空の内容を出さない（そのまま公開してサイトを空にしないため）
 // spreadsheet は省略できる。prefetchSheets_ の結果も渡せる
 function readContentState_(spreadsheet) {
@@ -16,7 +16,7 @@ function readPublishedState_(spreadsheet) {
   const rows = readSheetObjects_(spreadsheet, CONTENT_SHEETS.publishedState);
   const row = rows[0] || {};
   return {
-    payload: buildPublicSnapshot_(requireContentFormat_(readPayloadCells_(row))),
+    payload: buildPublicSnapshot_(requireContentFormat_(parsePayloadCells_(row))),
     sha256: String(row.sha256 || ''),
     revision: Number(row.revision || 0)
   };
@@ -107,7 +107,7 @@ function readDrafts_(spreadsheet) {
     savedAt: row.saved_at,
     savedByName: row.saved_by_name,
     savedByEmail: row.saved_by_email,
-    payload: buildDraftPayload_(requireContentFormat_(readPayloadCells_(row)))
+    payload: buildDraftPayload_(requireContentFormat_(parsePayloadCells_(row)))
   })).sort((a, b) => String(b.savedAt).localeCompare(String(a.savedAt)));
 }
 
@@ -174,7 +174,7 @@ function buildPayloadCells_(json) {
   return [JSON.stringify({ storage_format: 'chunked-json-v1', chunk_count: chunks.length })].concat(chunks);
 }
 
-function readPayloadCells_(row) {
+function parsePayloadCells_(row) {
   if (!row.payload_json) return {};
   try {
     let payload = JSON.parse(row.payload_json);

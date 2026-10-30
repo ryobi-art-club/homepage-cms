@@ -41,7 +41,7 @@ function proofreadForPublish(sessionToken, fields) {
       break;
     }
     try {
-      const issues = proofreadBatchWithRetry_(config.GEMINI_API_KEY, model, batch);
+      const issues = proofreadBatch_(config.GEMINI_API_KEY, model, batch);
       batch.forEach((field) => {
         const own = issues.filter((issue) => issue.fieldId === field.id);
         if (own.length) {
@@ -114,24 +114,7 @@ function countProofreadFields_(batches) {
   return batches.reduce((sum, batch) => sum + batch.length, 0);
 }
 
-function proofreadBatchWithRetry_(apiKey, model, batch) {
-  let lastError = null;
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
-    try {
-      const responseText = callGeminiProofreader_(apiKey, model, batch, attempt);
-      const parsed = parseGeminiCatalogJson_(responseText);
-      return normalizeProofreadIssues_(parsed && parsed.issues ? parsed.issues : parsed, batch);
-    } catch (error) {
-      lastError = error;
-      Logger.log('Gemini proofread attempt ' + attempt + ' failed: ' + (error && error.message ? error.message : String(error)));
-      if (!isRetryableGeminiError_(error) || attempt >= 2) break;
-      Utilities.sleep(700 * attempt);
-    }
-  }
-  throw lastError || new Error('誤字チェックに失敗しました。');
-}
-
-function callGeminiProofreader_(apiKey, model, batch, attempt) {
+function proofreadBatch_(apiKey, model, batch) {
   const schema = {
     type: 'object',
     properties: {
@@ -164,16 +147,8 @@ function callGeminiProofreader_(apiKey, model, batch, attempt) {
     '入力:',
     JSON.stringify(batch.map((field) => ({ id: field.id, text: field.text })))
   ].join('\n');
-  const payload = {
-    model: model,
-    input: [{ type: 'text', text: prompt }],
-    response_format: {
-      type: 'text',
-      mime_type: 'application/json',
-      schema: schema
-    }
-  };
-  return postGeminiInteraction_(apiKey, payload, attempt);
+  return askGeminiForJson_(apiKey, model, [], prompt, schema,
+    (answer) => normalizeProofreadIssues_(answer && answer.issues ? answer.issues : answer, batch));
 }
 
 function normalizeProofreadIssues_(value, batch) {

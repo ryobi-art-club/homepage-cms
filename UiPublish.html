@@ -97,7 +97,7 @@ async function runExclusiveSubmit(busyButtonId, busyLabel, task) {
   }
 }
 
-function onSaveDraft() {
+function startSaveDraft() {
   return runExclusiveSubmit('saveDraftButton', '保存中…', async () => {
     try {
       const payload = buildPayloadFromDom();
@@ -302,7 +302,7 @@ function openProofreadDialog(groups) {
   });
 }
 
-function onPublish() {
+function startPublish() {
   return runExclusiveSubmit('publishButton', '公開中…', publishContent);
 }
 

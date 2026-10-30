@@ -248,7 +248,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   await shot('desktop-dialog-activity');
   await click('moveMediaFile');
   await (await page.$('#mediaUploadInput_image')).uploadFile(imagePath);
-  await click("onMediaUpload('image')", { wait: 600 });
+  await click("uploadMedia('image')", { wait: 600 });
   /* 間違えて選んだ動画は、すぐに選択から外れる */
   const videoRejected = await page.evaluate(() => {
     const input = document.getElementById('mediaUploadInput_image');
@@ -271,7 +271,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
     const transfer = new DataTransfer();
     transfer.items.add(new File([blob], 'large-photo.png', { type: 'image/png' }));
     document.getElementById('mediaUploadInput_image').files = transfer.files;
-    await onMediaUpload('image');
+    await uploadMedia('image');
     const sent = window.MOCK_BACKEND.lastUpload.files[0];
     const image = new Image();
     await new Promise((resolve) => { image.onload = resolve; image.src = 'data:' + sent.mimeType + ';base64,' + sent.data; });
@@ -280,7 +280,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   if (resized.mimeType !== 'image/jpeg' || resized.width !== 2000 || resized.height !== 1000 || !/\.jpg$/.test(resized.name)) {
     problems.push(step + ': 大きい画像が縮小されていません ' + JSON.stringify(resized));
   }
-  await click('onMediaDelete');
+  await click('removeMedia');
   await click('closeMediaDialog');
   step = '新歓の画像ダイアログ';
   await page.evaluate(() => { activatePanel('recruit'); return openMediaDialog('recruit', 0); });
@@ -291,8 +291,8 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   await page.evaluate(() => { activatePanel('requests'); return openMediaDialog('request', 1); });
   await wait(400);
   await (await page.$('#mediaUploadInput_image')).uploadFile(imagePath);
-  await click("onMediaUpload('image')", { wait: 600 });
-  await click('onMediaDelete');
+  await click("uploadMedia('image')", { wait: 600 });
+  await click('removeMedia');
   await click('closeMediaDialog');
   await checkErrors();
 
@@ -301,19 +301,19 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   step = '画像の登録（追加・削除・公開）';
   const registration = await page.evaluate(async () => {
     const article = () => appState.state.activityArticles[0];
-    const dialogIds = () => Array.from(document.querySelectorAll('#mediaDialog [onclick^="onMediaDelete"]'))
-      .map((button) => button.getAttribute('onclick').match(/onMediaDelete\('([^']+)'/)[1]);
+    const dialogIds = () => Array.from(document.querySelectorAll('#mediaDialog [onclick^="removeMedia"]'))
+      .map((button) => button.getAttribute('onclick').match(/removeMedia\('([^']+)'/)[1]);
     activatePanel('activities');
     await openMediaDialog('activity', 0);
     const before = article().mediaFileIds.slice();
     const transfer = new DataTransfer();
     transfer.items.add(new File([new Uint8Array([137, 80, 78, 71])], 'added.png', { type: 'image/png' }));
     document.getElementById('mediaUploadInput_image').files = transfer.files;
-    await onMediaUpload('image');
+    await uploadMedia('image');
     const afterUpload = article().mediaFileIds.slice();
     const added = afterUpload.filter((id) => before.indexOf(id) === -1);
     const removed = before[0];
-    await onMediaDelete(removed, '');
+    await removeMedia(removed, '');
     const afterDelete = article().mediaFileIds.slice();
     const dialogAfterDelete = dialogIds();
     closeMediaDialog();
@@ -367,10 +367,10 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   await click('moveExhibitionDm');
   await click('moveExhibitionWork');
   await (await page.$('#mediaUploadInput_work')).uploadFile(imagePath);
-  await click("onMediaUpload('work')", { wait: 600 });
+  await click("uploadMedia('work')", { wait: 600 });
   step = '目録の読み込み（テキスト）';
   await (await page.$('#catalogFileInput')).uploadFile(csvPath);
-  await click('onCatalogFileExtract', { wait: 800 });
+  await click('extractCatalog', { wait: 800 });
   await page.evaluate(() => {
     const selects = document.querySelectorAll('[data-field="catalogItem"]');
     [selects[0], selects[1]].forEach((select, index) => {
@@ -414,7 +414,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
       document.getElementById('catalogFileInput').files = transfer.files;
       return XLSX.version;
     });
-    await click('onCatalogFileExtract', { wait: 800 });
+    await click('extractCatalog', { wait: 800 });
     const text = await page.evaluate(() => {
       const request = window.MOCK_BACKEND.lastCatalogRequest;
       return request && request.parts[0].text || '';
@@ -424,7 +424,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
     problems.push(step + ': ' + error.message);
   }
   await click('clearCatalogDraftAndRender');
-  await click('onMediaDelete', { within: '#mediaDialogBody' });
+  await click('removeMedia', { within: '#mediaDialogBody' });
   await click('closeMediaDialog');
   await checkErrors();
 
@@ -477,7 +477,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
 
   step = '一覧の編集';
   for (const name of ['addExhibition', 'addActivityArticle', 'addRecruitYear', 'addRequestCase']) await click(name);
-  for (const name of ['toggleExhibitionPublished', 'toggleExhibitionBucket', 'toggleActivityPublished', 'toggleRecruitPublished', 'toggleRequestPublished']) {
+  for (const name of ["toggleItemPublished('exhibition'", 'toggleExhibitionBucket', "toggleItemPublished('activity'", 'publishRecruitYear', "toggleItemPublished('request'"]) {
     await click(name);
     await click(name);
   }
@@ -506,7 +506,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   await page.evaluate(() => document.querySelector('#statusHistoryPanel .status-copy-button').click());
   await wait(300);
   await clickId('statusHistoryButton');
-  for (const name of ['removeExhibition', 'removeActivityArticle', 'removeRecruitYear', 'removeRequestCase']) await click(name);
+  for (const name of ["removeItem('exhibition'", "removeItem('activity'", 'removeRecruitYear', "removeItem('request'"]) await click(name);
   await page.evaluate(() => document.querySelectorAll('[data-field="title"]').forEach((input) => {
     if (!input.value.trim()) input.value = 'プレビューで追加した項目';
   }));

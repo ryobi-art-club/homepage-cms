@@ -24,7 +24,7 @@ function finalizeManagedFolders_(state, previousSnapshot, stats) {
     const item = plan.item;
     reconcileMediaPlan_(plan);
     if (!plan.keepIds.size) {
-      applyPrivateFolderSharing_(plan.folder);
+      setFolderLinkSharing_(plan.folder, false);
       if (!plan.folder.getFiles().hasNext() && !plan.folder.getFolders().hasNext()) {
         emptyFolders.push(plan.folder.getId());
         item.mediaFolderId = '';

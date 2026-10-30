@@ -300,7 +300,7 @@ function renderMediaUploadBox(role, label, kind) {
     '<label>' + escapeHtml(label) + '</label>',
     '<input id="mediaUploadInput_' + escapeHtml(role) + '" type="file" multiple accept="' + escapeHtml(UPLOAD_IMAGE_ACCEPT) + '" onchange="onMediaFilesChosen(this)">',
     '</div>',
-    '<button class="button success" type="button" onclick="onMediaUpload(\'' + escapeJs(role) + '\')">アップロード</button>',
+    '<button class="button success" type="button" onclick="uploadMedia(\'' + escapeJs(role) + '\')">アップロード</button>',
     '</div>',
     '<div class="small-note">' + escapeHtml(note) + '</div>',
     '</div>'
@@ -332,7 +332,7 @@ function renderGenericMediaCard(file, index, count) {
     '<div class="media-file-actions">',
     '<button class="button subtle" type="button" onclick="moveMediaFile(\'' + escapeJs(file.id) + '\', -1)" ' + (index === 0 ? 'disabled' : '') + '>前へ</button>',
     '<button class="button subtle" type="button" onclick="moveMediaFile(\'' + escapeJs(file.id) + '\', 1)" ' + (index === count - 1 ? 'disabled' : '') + '>次へ</button>',
-    '<button class="button danger icon" type="button" aria-label="削除" title="削除" onclick="onMediaDelete(\'' + escapeJs(file.id) + '\', \'' + escapeJs(file.name) + '\')">' + TRASH_ICON + '</button>',
+    '<button class="button danger icon" type="button" aria-label="削除" title="削除" onclick="removeMedia(\'' + escapeJs(file.id) + '\', \'' + escapeJs(file.name) + '\')">' + TRASH_ICON + '</button>',
     '</div>',
     '</article>'
   ].join('');
@@ -387,7 +387,7 @@ function renderCatalogImportPanel(catalog, works) {
     '<label>目録ファイル</label>',
     '<input id="catalogFileInput" type="file" multiple accept="' + escapeHtml(CATALOG_ACCEPT) + '">',
     '</div>',
-    '<button class="button success" type="button" onclick="onCatalogFileExtract()">読み込む</button>',
+    '<button class="button success" type="button" onclick="extractCatalog()">読み込む</button>',
     '</div>',
     items.length ? [
       '<div class="catalog-summary">',
@@ -433,7 +433,7 @@ function renderExhibitionDmList(files, dmIds) {
       '<div class="media-file-actions">',
       '<button class="button subtle" type="button" onclick="moveExhibitionDm(\'' + escapeJs(file.id) + '\', -1)" ' + (index === 0 ? 'disabled' : '') + '>表へ</button>',
       '<button class="button subtle" type="button" onclick="moveExhibitionDm(\'' + escapeJs(file.id) + '\', 1)" ' + (index === dmFiles.length - 1 ? 'disabled' : '') + '>裏へ</button>',
-      '<button class="button danger icon" type="button" aria-label="削除" title="削除" onclick="onMediaDelete(\'' + escapeJs(file.id) + '\', \'' + escapeJs(file.name) + '\')">' + TRASH_ICON + '</button>',
+      '<button class="button danger icon" type="button" aria-label="削除" title="削除" onclick="removeMedia(\'' + escapeJs(file.id) + '\', \'' + escapeJs(file.name) + '\')">' + TRASH_ICON + '</button>',
       '</div>',
       '</article>'
     ].join('')).join(''),
@@ -454,7 +454,7 @@ function renderExhibitionWorkRow(file, work, index, count, catalog, works) {
     '<div class="media-file-actions">',
     '<button class="button subtle" type="button" onclick="moveExhibitionWork(\'' + escapeJs(file.id) + '\', -1)" ' + (index === 0 ? 'disabled' : '') + '>前へ</button>',
     '<button class="button subtle" type="button" onclick="moveExhibitionWork(\'' + escapeJs(file.id) + '\', 1)" ' + (index === count - 1 ? 'disabled' : '') + '>次へ</button>',
-    '<button class="button danger icon" type="button" aria-label="削除" title="削除" onclick="onMediaDelete(\'' + escapeJs(file.id) + '\', \'' + escapeJs(file.name) + '\')">' + TRASH_ICON + '</button>',
+    '<button class="button danger icon" type="button" aria-label="削除" title="削除" onclick="removeMedia(\'' + escapeJs(file.id) + '\', \'' + escapeJs(file.name) + '\')">' + TRASH_ICON + '</button>',
     '</div>',
     '</article>'
   ].join('');
@@ -550,20 +550,13 @@ async function prepareUploadPayload(file) {
   return readFilePayload(new File([blob], name, { type: 'image/jpeg' }));
 }
 
-function readFilePayload(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const value = String(reader.result || '');
-      resolve({
-        name: file.name,
-        mimeType: file.type || 'application/octet-stream',
-        data: value.indexOf(',') >= 0 ? value.split(',').pop() : value
-      });
-    };
-    reader.onerror = () => reject(reader.error || new Error('ファイルの読み込みに失敗しました。'));
-    reader.readAsDataURL(file);
-  });
+async function readFilePayload(file) {
+  const value = String(await readFile(file, 'readAsDataURL') || '');
+  return {
+    name: file.name,
+    mimeType: file.type || 'application/octet-stream',
+    data: value.indexOf(',') >= 0 ? value.split(',').pop() : value
+  };
 }
 
 function catalogFileExtension(file) {
@@ -594,21 +587,13 @@ function validateCatalogFiles(files) {
   if (total > CATALOG_MAX_SIZE) throw new Error('目録ファイルは合計10MB以下にしてください。');
 }
 
-function readFileAsText(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(reader.error || new Error('ファイルの読み込みに失敗しました。'));
-    reader.readAsText(file);
-  });
-}
-
-function readFileAsArrayBuffer(file) {
+/* method は FileReader の読み方（'readAsText'・'readAsArrayBuffer'・'readAsDataURL'） */
+function readFile(file, method) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result);
     reader.onerror = () => reject(reader.error || new Error('ファイルの読み込みに失敗しました。'));
-    reader.readAsArrayBuffer(file);
+    reader[method](file);
   });
 }
 
@@ -636,7 +621,7 @@ function loadSheetJs() {
 
 async function excelFileToCsvText(file) {
   const XLSX = await loadSheetJs();
-  const workbook = XLSX.read(new Uint8Array(await readFileAsArrayBuffer(file)), { type: 'array' });
+  const workbook = XLSX.read(new Uint8Array(await readFile(file, 'readAsArrayBuffer')), { type: 'array' });
   const sheets = workbook.SheetNames.map((name) => {
     const csv = XLSX.utils.sheet_to_csv(workbook.Sheets[name], { blankrows: false }).trim();
     return csv ? '## シート: ' + name + '\n' + csv : '';
@@ -649,7 +634,7 @@ async function buildCatalogRequest(files) {
   const kind = catalogFileKind(files[0]);
   const name = files.length > 1 ? files[0].name + ' ほか' + (files.length - 1) + '枚' : files[0].name;
   if (kind === 'text' || kind === 'excel') {
-    const text = kind === 'excel' ? await excelFileToCsvText(files[0]) : await readFileAsText(files[0]);
+    const text = kind === 'excel' ? await excelFileToCsvText(files[0]) : String(await readFile(files[0], 'readAsText') || '');
     if (!text.trim()) throw new Error('目録ファイルの内容が空です。');
     return { name, parts: [{ kind: 'text', name: files[0].name, text }] };
   }
@@ -681,7 +666,7 @@ function normalizeCatalogDraft(result) {
   };
 }
 
-async function onCatalogFileExtract() {
+async function extractCatalog() {
   const context = currentMediaContext();
   if (context.kind !== 'exhibition') return;
   const input = document.getElementById('catalogFileInput');
@@ -731,9 +716,7 @@ function onCatalogItemSelect(select) {
   }
   syncMediaEditorRowsToState();
   updateCatalogSortButtonState();
-  markDirty();
-  syncActiveMediaHiddenFields();
-  refreshPreviewForKind('exhibition');
+  commitMediaChange(context, false);
 }
 
 function updateCatalogSortButtonState() {
@@ -762,10 +745,7 @@ function sortExhibitionWorksByCatalogOrder() {
   });
   const unlinkedWorks = (context.item.works || []).filter((work) => !work.catalogKey);
   context.item.works = linkedWorks.concat(unlinkedWorks);
-  markDirty();
-  syncActiveMediaHiddenFields();
-  renderMediaDialog(context.folderId ? (appState.mediaCache[context.folderId] || []) : []);
-  refreshPreviewForKind('exhibition');
+  commitMediaChange(context, true);
   setMediaStatus('紐づけた作品を作品番号順に並べ、未紐づけ画像を後ろへ移動しました。', 'success');
 }
 
@@ -776,7 +756,7 @@ function clearCatalogDraftAndRender() {
   setMediaStatus('目録の抽出結果を消去しました。', 'success');
 }
 
-async function onMediaUpload(uploadRole) {
+async function uploadMedia(uploadRole) {
   const context = currentMediaContext();
   const role = uploadRole || 'image';
   const input = document.getElementById('mediaUploadInput_' + role);
@@ -820,7 +800,7 @@ async function onMediaUpload(uploadRole) {
   }
 }
 
-async function onMediaDelete(fileId, name) {
+async function removeMedia(fileId, name) {
   const context = currentMediaContext();
   if (!confirm('この画像を削除しますか？')) return;
   try {
@@ -846,7 +826,6 @@ function applyMediaResult(result, mutation) {
   const folderId = result.folderId;
   context.item.mediaFolderId = folderId;
   appState.mediaCache[folderId] = result.files || [];
-  appState.imageCache[folderId] = (result.files || []).filter((file) => file.kind === 'image');
 
   if (context.kind === 'exhibition') {
     const currentIds = new Set((result.files || []).map((file) => file.id));
@@ -872,28 +851,17 @@ function applyMediaResult(result, mutation) {
     }
     context.item.mediaFileIds = ids;
   }
-
-  markDirty();
-  syncActiveMediaHiddenFields();
-  refreshPreviewForKind(context.kind);
+  commitMediaChange(context, false);
 }
 
 function moveMediaFile(fileId, delta) {
   const context = currentMediaContext();
   if (!context.item) return;
-  const files = context.folderId ? (appState.mediaCache[context.folderId] || []) : [];
-  const orderedIds = orderedFilesByIds(files, mediaIdsForItem(context.item)).map((file) => file.id);
-  const index = orderedIds.indexOf(fileId);
-  const next = index + delta;
-  if (index < 0 || next < 0 || next >= orderedIds.length) return;
-  const tmp = orderedIds[index];
-  orderedIds[index] = orderedIds[next];
-  orderedIds[next] = tmp;
-  context.item.mediaFileIds = orderedIds;
-  markDirty();
-  syncActiveMediaHiddenFields();
-  renderMediaDialog(files);
-  refreshPreviewForKind(context.kind);
+  const ids = orderedFilesByIds(appState.mediaCache[context.folderId] || [], mediaIdsForItem(context.item)).map((file) => file.id);
+  const moved = movedInList(ids, ids.indexOf(fileId), delta);
+  if (!moved) return;
+  context.item.mediaFileIds = moved;
+  commitMediaChange(context, true);
 }
 
 function syncMediaEditorRowsToState() {
@@ -937,37 +905,33 @@ function syncActiveMediaHiddenFields() {
   if (mediaInput) mediaInput.value = JSON.stringify(normalizeIdList(context.item.mediaFileIds));
 }
 
+/* ダイアログで画像や作品を変えたあと：未保存の印・入力欄・プレビューを合わせる（並べ替えたときはダイアログも描き直す） */
+function commitMediaChange(context, redrawDialog) {
+  markDirty();
+  syncActiveMediaHiddenFields();
+  if (redrawDialog) renderMediaDialog(appState.mediaCache[context.folderId] || []);
+  refreshPreview(context.kind);
+}
+
 function moveExhibitionDm(fileId, delta) {
   const context = currentMediaContext();
   if (!context.item) return;
   syncMediaEditorRowsToState();
   const ids = normalizeIdList(context.item.dmFileIds);
-  const index = ids.indexOf(fileId);
-  const next = index + delta;
-  if (index < 0 || next < 0 || next >= ids.length) return;
-  const tmp = ids[index];
-  ids[index] = ids[next];
-  ids[next] = tmp;
-  context.item.dmFileIds = ids;
-  markDirty();
-  syncActiveMediaHiddenFields();
-  renderMediaDialog(context.folderId ? (appState.mediaCache[context.folderId] || []) : []);
-  refreshPreviewForKind('exhibition');
+  const moved = movedInList(ids, ids.indexOf(fileId), delta);
+  if (!moved) return;
+  context.item.dmFileIds = moved;
+  commitMediaChange(context, true);
 }
 
 function moveExhibitionWork(fileId, delta) {
   const context = currentMediaContext();
   if (!context.item) return;
   syncMediaEditorRowsToState();
-  const works = (context.item.works || []).slice();
-  const index = works.findIndex((work) => work.fileId === fileId);
-  const next = index + delta;
-  if (index < 0 || next < 0 || next >= works.length) return;
-  [works[index], works[next]] = [works[next], works[index]];
-  context.item.works = works;
-  markDirty();
-  syncActiveMediaHiddenFields();
-  renderMediaDialog(context.folderId ? (appState.mediaCache[context.folderId] || []) : []);
-  refreshPreviewForKind('exhibition');
+  const works = context.item.works || [];
+  const moved = movedInList(works, works.findIndex((work) => work.fileId === fileId), delta);
+  if (!moved) return;
+  context.item.works = moved;
+  commitMediaChange(context, true);
 }
 </script>

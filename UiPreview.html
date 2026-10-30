@@ -166,7 +166,7 @@ function ensurePreviewOpen(kind, element) {
 function openPreview(kind) {
   appState.previewOpen[kind] = true;
   if (kind === 'logs') renderLogsPreviewContent();
-  else refreshPreviewForKind(kind);
+  else refreshPreview(kind);
 }
 
 async function showPreviewHtml(element, html) {
@@ -175,45 +175,40 @@ async function showPreviewHtml(element, html) {
   hydrateThumbnails(element);
 }
 
-function refreshPreviewForKind(kind) {
-  if (kind === 'recruit') loadRecruitPreview();
-  if (kind === 'activity') refreshActivityPreview();
-  if (kind === 'exhibition') refreshExhibitionPreview();
-  if (kind === 'request') refreshRequestPreview();
-}
+/* タブごとのプレビュー：入力欄から読む関数と、HTML を作る関数（読む関数は UiEditors にあるので、呼ぶときに探す） */
+const PREVIEW_SOURCES = {
+  recruit: { elementId: 'recruitPreview', read: () => readRecruitFromDom(), render: (items) => renderRecruitPreview(items) },
+  activity: { elementId: 'activityPreview', read: () => readActivitiesFromDom(), render: (items) => renderActivityPreview(items) },
+  exhibition: { elementId: 'exhibitionPreview', read: () => readExhibitionsFromDom(), render: (items) => renderExhibitionPreview(items) },
+  request: { elementId: 'requestPreview', read: () => readRequestsFromDom(), render: (items) => renderRequestPreview(items) }
+};
 
-async function loadRecruitPreview(forceRefresh = false) {
-  const items = readRecruitFromDom();
-  const recruit = items.find((item) => item.published !== false) || items[0] || {};
-  const preview = document.getElementById('recruitPreview');
-
-  if (!preview || !ensurePreviewOpen('recruit', preview)) return;
-  const folderId = recruit.mediaFolderId || '';
-  if (!folderId) {
-    preview.innerHTML = '<div class="preview-empty">画像は未設定です。</div>';
-    return;
-  }
-
-  const label = recruitCalendarLabel(recruit.year);
-  preview.innerHTML = '<div class="preview-empty">画像を読み込んでいます…</div>';
-
+async function refreshPreview(kind) {
+  const source = PREVIEW_SOURCES[kind];
+  const preview = source ? document.getElementById(source.elementId) : null;
+  if (!preview || !ensurePreviewOpen(kind, preview)) return;
   try {
-    const files = await getFolderImagesCached(folderId, forceRefresh);
-    const registered = orderedFilesByIds(files, mediaIdsForItem(recruit));
-    const images = registered.slice(0, GENERAL_IMAGE_LIMIT);
-    showPreviewHtml(preview, `
-      <div class="preview-site">
-        <article class="preview-site-card">
-          <span class="preview-site-kicker">WELCOME CALENDAR</span>
-          <h4>${escapeHtml(label)}</h4>
-          ${buildRecruitPreviewHtml(images)}
-          ${folderImageWarning(registered.length, GENERAL_IMAGE_LIMIT, '画像')}
-        </article>
-      </div>
-    `);
+    showPreviewHtml(preview, await source.render(source.read()));
   } catch (error) {
     preview.innerHTML = `<div class="preview-empty">${escapeHtml(error.message || String(error))}</div>`;
   }
+}
+
+async function renderRecruitPreview(items) {
+  const recruit = items.find((item) => item.published !== false) || items[0] || {};
+  if (!recruit.mediaFolderId) return '<div class="preview-empty">画像は未設定です。</div>';
+  const files = await getFolderImagesCached(recruit.mediaFolderId);
+  const registered = orderedFilesByIds(files, mediaIdsForItem(recruit));
+  return `
+    <div class="preview-site">
+      <article class="preview-site-card">
+        <span class="preview-site-kicker">WELCOME CALENDAR</span>
+        <h4>${escapeHtml(recruitCalendarLabel(recruit.year))}</h4>
+        ${buildRecruitPreviewHtml(registered.slice(0, GENERAL_IMAGE_LIMIT))}
+        ${folderImageWarning(registered.length, GENERAL_IMAGE_LIMIT, '画像')}
+      </article>
+    </div>
+  `;
 }
 
 async function renderActivityPreview(items) {
@@ -229,12 +224,6 @@ async function renderActivityPreview(items) {
       item.title || 'タイトル未入力', item.body || '本文未入力',
       imageResult.items, folderImageWarning(imageResult.total, GENERAL_IMAGE_LIMIT, '画像'));
   })).then((cards) => `<div class="preview-site">${cards.join('')}</div>`);
-}
-
-async function refreshActivityPreview() {
-  const preview = document.getElementById('activityPreview');
-  if (!preview || !ensurePreviewOpen('activity', preview)) return;
-  showPreviewHtml(preview, await renderActivityPreview(readActivitiesFromDom()));
 }
 
 async function renderExhibitionPreview(items) {
@@ -281,12 +270,6 @@ async function renderExhibitionPreview(items) {
   return `<div class="preview-site">${sections.join('')}</div>`;
 }
 
-async function refreshExhibitionPreview() {
-  const preview = document.getElementById('exhibitionPreview');
-  if (!preview || !ensurePreviewOpen('exhibition', preview)) return;
-  showPreviewHtml(preview, await renderExhibitionPreview(readExhibitionsFromDom()));
-}
-
 async function renderRequestPreview(items) {
   const visible = (items || []).filter((item) => item.published !== false);
   if (!visible.length) return '<div class="preview-empty">公開中の事例はありません。</div>';
@@ -301,12 +284,6 @@ async function renderRequestPreview(items) {
       imageResult.items, folderImageWarning(imageResult.total, GENERAL_IMAGE_LIMIT, '画像'));
   }));
   return `<div class="preview-site">${cards.join('')}</div>`;
-}
-
-async function refreshRequestPreview() {
-  const preview = document.getElementById('requestPreview');
-  if (!preview || !ensurePreviewOpen('request', preview)) return;
-  showPreviewHtml(preview, await renderRequestPreview(readRequestsFromDom()));
 }
 
 let logsPreviewTimer = 0;

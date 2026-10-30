@@ -4,6 +4,10 @@
 // homepage の fetch_google_content.py と、両方の README も直す
 const CONTENT_FORMAT_VERSION = 2;
 
+const ACTIVITY_CATEGORIES = ['record', 'event', 'other'];
+// 展示会の並び順もこの順（開催予定が先）
+const DISPLAY_BUCKETS = ['upcoming', 'archive'];
+
 const CONTENT_FIELDS = {
   recruitCalendars: ['year', 'mediaFolderId', 'mediaFileIds', 'published'],
   activityArticles: ['articleId', 'title', 'category', 'body', 'mediaFolderId', 'mediaFileIds', 'published', 'createdAt'],
@@ -83,7 +87,7 @@ function normalizeActivityArticles_(items, existingItems, options) {
       articleId: articleId,
       title: requiredOrDraft_(item.title, '活動記事タイトル', 120, options),
       body: cleanMultiline_(item.body, 4000),
-      category: requireActivityCategory_(item.category),
+      category: requireOneOf_(item.category || 'record', ACTIVITY_CATEGORIES, '活動記事のカテゴリが不正です。'),
       mediaFolderId: String(item.mediaFolderId || '').trim(),
       mediaFileIds: normalizeStringList_(item.mediaFileIds),
       published: parseBool_(item.published, true),
@@ -107,7 +111,7 @@ function normalizeExhibitions_(items, existingItems, options) {
       venueAddress: cleanMultiline_(item.venueAddress, 240),
       dateLine: optionalSingleLine_(item.dateLine, 180),
       timeLine: optionalSingleLine_(item.timeLine, 220),
-      displayBucket: requireDisplayBucket_(item.displayBucket),
+      displayBucket: requireOneOf_(item.displayBucket, DISPLAY_BUCKETS, '展示会の表示区分が不正です。'),
       mediaFolderId: String(item.mediaFolderId || '').trim(),
       dmFileIds: normalizeStringList_(item.dmFileIds).slice(0, 2),
       published: parseBool_(item.published, true),
@@ -140,9 +144,8 @@ function normalizeRequestCases_(items, options) {
 }
 
 function compareExhibitions_(a, b) {
-  const weight = { upcoming: 0, archive: 1 };
-  const bucketA = Object.prototype.hasOwnProperty.call(weight, a.displayBucket) ? weight[a.displayBucket] : 99;
-  const bucketB = Object.prototype.hasOwnProperty.call(weight, b.displayBucket) ? weight[b.displayBucket] : 99;
+  const bucketA = DISPLAY_BUCKETS.indexOf(a.displayBucket);
+  const bucketB = DISPLAY_BUCKETS.indexOf(b.displayBucket);
   if (bucketA !== bucketB) return bucketA - bucketB;
 
   const hasDateA = !!String(a.startDate || '').trim();
@@ -153,22 +156,6 @@ function compareExhibitions_(a, b) {
 
   if (a.displayBucket === 'upcoming') return String(a.startDate || '').localeCompare(String(b.startDate || ''));
   return String(b.startDate || '').localeCompare(String(a.startDate || ''));
-}
-
-function requireActivityCategory_(value) {
-  const normalized = String(value || 'record').trim().toLowerCase();
-  if (['record', 'event', 'other'].indexOf(normalized) === -1) {
-    throw new Error('活動記事のカテゴリが不正です。');
-  }
-  return normalized;
-}
-
-function requireDisplayBucket_(value) {
-  const normalized = String(value || '').trim().toLowerCase();
-  if (['upcoming', 'archive'].indexOf(normalized) === -1) {
-    throw new Error('展示会の表示区分が不正です。');
-  }
-  return normalized;
 }
 
 /* 終了日は YYYY-MM-DD だけを受け付ける（シートの日付型は normalizeSheetCellValue_ で文字列になっている） */

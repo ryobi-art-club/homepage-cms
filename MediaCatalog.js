@@ -23,7 +23,7 @@ function extractExhibitionCatalog(sessionToken, request) {
   const name = requireString_(request.name, 'ファイル名', 180);
   const inputParts = buildCatalogInputParts_(request);
   const model = normalizeGeminiModelName_(config.GEMINI_MODEL);
-  const extraction = extractCatalogWithRetry_(config.GEMINI_API_KEY, model, inputParts);
+  const extraction = extractCatalogItems_(config.GEMINI_API_KEY, model, inputParts);
 
   return {
     model: model,
@@ -67,30 +67,7 @@ function buildCatalogInputParts_(request) {
   return input;
 }
 
-function extractCatalogWithRetry_(apiKey, model, inputParts) {
-  let lastError = null;
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
-    try {
-      const responseText = callGeminiCatalogExtractor_(apiKey, model, inputParts, attempt);
-      Logger.log('Gemini outputText attempt ' + attempt + ': ' + responseText.slice(0, 5000));
-      const parsed = parseGeminiCatalogJson_(responseText);
-      const items = normalizeCatalogItems_(parsed && parsed.items ? parsed.items : parsed);
-      if (!items.length) throw new Error('目録から作品情報を抽出できませんでした。');
-      return {
-        items: items,
-        warnings: normalizeStringList_(parsed && parsed.warnings ? parsed.warnings : [])
-      };
-    } catch (error) {
-      lastError = error;
-      Logger.log('Gemini extract attempt ' + attempt + ' failed: ' + (error && error.message ? error.message : String(error)));
-      if (!isRetryableGeminiError_(error) || attempt >= 2) break;
-      Utilities.sleep(700 * attempt);
-    }
-  }
-  throw new Error('目録から作品情報を抽出できませんでした。ファイルの内容を確認してください。' + (lastError && lastError.message ? ' 詳細: ' + lastError.message : ''));
-}
-
-function callGeminiCatalogExtractor_(apiKey, model, inputParts, attempt) {
+function extractCatalogItems_(apiKey, model, inputParts) {
   const schema = {
     type: 'object',
     properties: {
@@ -126,17 +103,16 @@ function callGeminiCatalogExtractor_(apiKey, model, inputParts, attempt) {
     '目録内の作品番号順に sort_order を設定してください。作品番号がない場合は掲載順にしてください。',
     '推測で補完せず、読めない項目は空文字にしてください。'
   ].join('\n');
-  const payload = {
-    model: model,
-    input: inputParts.concat([{ type: 'text', text: prompt }]),
-    response_format: {
-      type: 'text',
-      mime_type: 'application/json',
-      schema: schema
-    }
-  };
-
-  return postGeminiInteraction_(apiKey, payload, attempt);
+  try {
+    return askGeminiForJson_(apiKey, model, inputParts, prompt, schema, (answer) => {
+      const items = normalizeCatalogItems_(answer && answer.items ? answer.items : answer);
+      // 「抽出できません」はやり直しの対象（isRetryableGeminiError_）
+      if (!items.length) throw new Error('目録から作品情報を抽出できませんでした。');
+      return { items: items, warnings: normalizeStringList_(answer && answer.warnings ? answer.warnings : []) };
+    });
+  } catch (error) {
+    throw new Error('目録から作品情報を抽出できませんでした。ファイルの内容を確認してください。 詳細: ' + (error && error.message ? error.message : String(error)));
+  }
 }
 
 function normalizeCatalogItems_(value) {

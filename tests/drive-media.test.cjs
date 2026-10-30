@@ -142,7 +142,7 @@ test('uploads reuse private staging without changing public folder or existing I
   assert.equal(first.folderId, folder.id);
   assert.equal(files.get(first.uploadedFileIds[0]).parent, staging);
   assert.equal(files.get(second.uploadedFileIds[0]).parent, staging);
-  assert.equal(ctx.getFolderImages('session', folder.id).length, 3);
+  assert.equal(ctx.getFolderMedia('session', folder.id).filter(file => file.kind === 'image').length, 3);
   assert.equal(isLocked(), false);
 });
 
@@ -187,7 +187,7 @@ test('delete and draft save never mutate published images; older draft can still
   const result = ctx.trashManagedFile('session', { folderId: folder.id, fileId: image.id });
   assert.equal(result.files.length, 0);
   assert.deepEqual(ids(folder), [image.id]);
-  assert.equal(ctx.getFolderImages('session', folder.id)[0].id, image.id);
+  assert.equal(ctx.getFolderMedia('session', folder.id).filter(file => file.kind === 'image')[0].id, image.id);
   let saved;
   ctx.readContentState_ = () => state;
   ctx.normalizePayload_ = payload => payload;
@@ -368,7 +368,7 @@ test('client retains only explicitly uploaded IDs and preserves removals on the 
   const item = { mediaFolderId: 'folder', dmFileIds: [], works: [{ fileId: 'kept', title: 'Title' }] };
   ctx.currentMediaContext = () => ({ kind: 'exhibition', item });
   ctx.syncActiveMediaHiddenFields = () => {};
-  ctx.refreshPreviewForKind = () => {};
+  ctx.refreshPreview = () => {};
   ctx.applyMediaResult({ folderId: 'folder', files: ['kept', 'orphan', 'removed', 'added'].map(id => ({ id, kind: 'image' })) },
     { type: 'upload', role: 'work', newIds: ['added'] });
   assert.deepEqual(Array.from(item.works, work => work.fileId), ['kept', 'added']);
@@ -395,7 +395,7 @@ test('thumbnails are served only from managed folders, at most ten at a time', (
   assert.equal(ctx.getMediaThumbnails('session', articleFolder.id, [photo.id])[photo.id], 'data:image/jpeg;base64,' + Buffer.from([4, 5]).toString('base64'));
   const outside = new Folder('Personal');
   const secret = new File('secret.jpg', outside);
-  assert.throws(() => ctx.getMediaThumbnails('session', outside.id, [secret.id]), /管理している画像フォルダではありません/);
+  assert.throws(() => ctx.getMediaThumbnails('session', outside.id, [secret.id]), /画像のフォルダが見つかりません/);
   const many = Array.from({ length: 12 }, (_, i) => new File('p' + i + '.jpg', articleFolder).id);
   assert.equal(Object.keys(ctx.getMediaThumbnails('session', articleFolder.id, many)).length, 10);
 });

@@ -27,7 +27,6 @@
       return clone(data.bootstrap);
     },
     getFolderMedia: (_, folderId) => media(folderId),
-    getFolderImages: (_, folderId) => media(folderId).filter((file) => file.kind === 'image'),
     thumbnailRequests: 0,
     getMediaThumbnails: (_, folderId, fileIds) => {
       window.MOCK_BACKEND.thumbnailRequests += 1;

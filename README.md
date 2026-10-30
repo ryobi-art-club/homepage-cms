@@ -379,6 +379,32 @@ homepage-cms/
 - GAS がファイルを読む順番は決まっていません。そのため、ファイルの一番外側には関数の宣言と固定の値だけを書き、ほかのファイルの関数を呼ぶ処理は書きません。画面のスクリプトは `Ui.html` の順に読まれますが、同じ決まりにしています。
 - 関数を足すときは、役割の合うファイルに置きます。テストはサーバーの `.js` を全部読み込む（`tests/files.cjs`）ので、ファイルを足しても一覧を直す必要はありません。画面のスクリプトを足したときは、`Ui.html` の `include` に足します。
 
+**名前の付け方**
+
+| 種類 | 決まり | 例 |
+|---|---|---|
+| サーバーの関数 | 画面から呼ぶものだけ `_` を付けない。それ以外は末尾に `_`（GAS では `_` 付きの関数は画面から呼べない） | `publishState`、`readDrafts_` |
+| 定数（決まった値） | 全部大文字。末尾に `_` は付けない | `CONTENT_FIELDS`、`DRIVE_CHANGE_KEYS` |
+| 画面の関数 | `_` は付けない | `renderMediaDialog` |
+| 画面の `on…` | 入力欄の変化やキー入力を受ける関数だけ。ボタンの操作は動詞で始める | `onDateLineKeydown`、`startPublish`、`removeMedia` |
+
+動詞の意味はそろえています。
+
+| 動詞 | 意味 |
+|---|---|
+| `read…` | スプレッドシート（画面では入力欄・ファイル）から読む |
+| `get…` | Drive・設定・キャッシュから取る |
+| `write…` / `append…` | シートに書く・行を足す |
+| `build…` | 値を組み立てる（HTML や JSON、保存する形など） |
+| `parse…` | 文字から読み取る |
+| `normalize…` | 画面などから届いた値を整える |
+| `require…` | 確かめて、だめならエラーにする |
+| `ensure…` | なければ作る |
+| `render…` | 画面に描く（画面のスクリプト） |
+| `refresh…` | 今の入力に合わせて描き直す（画面のスクリプト） |
+
+**同じことは1か所に**：同じ手順を2か所に書かず、1つの関数にまとめています。例：決まった値の確認（`requireOneOf_`）、Gemini の呼び出しとやり直し（`askGeminiForJson_`）、プレビューの描き直し（`refreshPreview(種類)`）、一覧の公開の切り替えと削除（`toggleItemPublished`・`removeItem`）、並べ替え（`movedInList`）、ダイアログで変えたあとの処理（`commitMediaChange`）、ファイルの読み込み（`readFile`）。
+
 ### 8-2. 各ファイルの役割
 
 #### `AppMain.js` / `AppConfig.js` / `AppUtil.js` — 入口・設定・道具
@@ -449,7 +475,7 @@ Drive とスプレッドシートの更新全体は、途中で失敗しても�
 
 | 関数 | 役割 |
 |---|---|
-| `getFolderMedia` / `getFolderImages` | フォルダの中の画像の一覧。画像ごとに、ブラウザが Drive から直接読めるか（`public`：フォルダが「リンクを知っている全員」か）を付ける |
+| `getFolderMedia` | フォルダの中の画像の一覧（画面は画像だけを使うときも、これを読んで絞る）。画像ごとに、ブラウザが Drive から直接読めるか（`public`：フォルダが「リンクを知っている全員」か）を付ける |
 | `getMediaThumbnails` | ブラウザが直接読めない画像（非公開・公開前）の小さいサムネイルを、データとして返す。1回10枚まで。4つのルートフォルダの中のフォルダの画像しか返さない |
 | `uploadManagedFiles` | 画像のアップロード。項目のフォルダの一時置き場（`CMS_下書き_…`）に入れる。項目にフォルダがまだなければ、ここで作る |
 | `trashManagedFile` | 画像の削除。一覧から外すだけで、実際の移動（退避先へ）は公開のとき。項目のフォルダ（CMS が作ったもの）の画像しか受け付けない |
@@ -603,7 +629,7 @@ GAS エディタの「プロジェクトの設定」→「スクリプト プロ
 | `_AdminLog` | 操作ログ（誰がいつ公開し、何を変えたか。メールアドレスも残る）。ホームの「公開履歴」に出る | 読まない |
 | `_ProofreadChecked` | 誤字チェック済みの文章のハッシュ。シートを消すと、全文章が次の公開で再チェックされる | 読まない |
 
-**下書きと公開内容の保存形式**：`_Drafts` と `_PublishedState` は内容を JSON でセルに保存します。1つのセルには5万字までしか入らないため、45,000字を超えたら20,000字ずつ `payload_json_2`、`payload_json_3`、… の列に分けて保存し（`buildPayloadCells_`）、`payload_json` には `{"storage_format":"chunked-json-v1","chunk_count":n}` を書きます。読むときにつなげます（`readPayloadCells_`。サイトのビルドでは `read_published_content`）。列は自動で増えます。
+**下書きと公開内容の保存形式**：`_Drafts` と `_PublishedState` は内容を JSON でセルに保存します。1つのセルには5万字までしか入らないため、45,000字を超えたら20,000字ずつ `payload_json_2`、`payload_json_3`、… の列に分けて保存し（`buildPayloadCells_`）、`payload_json` には `{"storage_format":"chunked-json-v1","chunk_count":n}` を書きます。読むときにつなげます（`parsePayloadCells_`。サイトのビルドでは `read_published_content`）。列は自動で増えます。
 
 **スプレッドシートまわりの制約**（2026年10月に確認）
 

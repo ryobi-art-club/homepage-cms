@@ -17,7 +17,6 @@ const appState = {
     changeLog: [],
     manualChangeNote: ''
   },
-  imageCache: {},
   mediaCache: {},
   thumbnailCache: {},
   previewOpen: {},
@@ -94,10 +93,10 @@ async function resumeSession() {
 }
 
 function bindGlobalEvents() {
-  document.getElementById('requestOtpButton').addEventListener('click', onRequestOtp);
-  document.getElementById('verifyOtpButton').addEventListener('click', onVerifyOtp);
-  document.getElementById('saveDraftButton').addEventListener('click', onSaveDraft);
-  document.getElementById('publishButton').addEventListener('click', onPublish);
+  document.getElementById('requestOtpButton').addEventListener('click', sendOtp);
+  document.getElementById('verifyOtpButton').addEventListener('click', verifyOtpAndOpen);
+  document.getElementById('saveDraftButton').addEventListener('click', startSaveDraft);
+  document.getElementById('publishButton').addEventListener('click', startPublish);
   document.getElementById('statusHistoryButton').addEventListener('click', (event) => {
     event.stopPropagation();
     toggleStatusHistory();
@@ -672,16 +671,8 @@ function serverCall(functionName, ...args) {
   });
 }
 
-async function getFolderImagesCached(folderId, forceRefresh = false) {
-  if (!folderId) return [];
-
-  if (!forceRefresh && appState.imageCache[folderId]) {
-    return appState.imageCache[folderId];
-  }
-
-  const images = await serverCall('getFolderImages', appState.sessionToken, folderId);
-  appState.imageCache[folderId] = images || [];
-  return appState.imageCache[folderId];
+async function getFolderImagesCached(folderId) {
+  return (await getFolderMediaCached(folderId)).filter((file) => file.kind === 'image');
 }
 
 async function getFolderMediaCached(folderId, forceRefresh = false) {
@@ -693,7 +684,6 @@ async function getFolderMediaCached(folderId, forceRefresh = false) {
 
   const files = await serverCall('getFolderMedia', appState.sessionToken, folderId);
   appState.mediaCache[folderId] = files || [];
-  appState.imageCache[folderId] = (files || []).filter((file) => file.kind === 'image');
   return appState.mediaCache[folderId];
 }
 
@@ -750,6 +740,15 @@ function visibleChipHtml(published) {
   return `<span class="visibility-chip${published ? '' : ' is-hidden'}">${published ? '公開中' : '非公開'}</span>`;
 }
 
+/* 一覧の index 番目を delta だけ動かした新しい一覧。動かせないときは null */
+function movedInList(list, index, delta) {
+  const next = index + delta;
+  if (index < 0 || next < 0 || next >= list.length) return null;
+  const moved = list.slice();
+  [moved[index], moved[next]] = [moved[next], moved[index]];
+  return moved;
+}
+
 function normalizeIdList(value) {
   if (typeof value === 'string') {
     try { value = JSON.parse(value); } catch (error) { value = []; }
@@ -804,7 +803,7 @@ function formatExhibitionDateLine(startDate, endDate) {
   return formatJapaneseDate(start, true) + '〜' + formatJapaneseDate(end, end.getFullYear() !== start.getFullYear());
 }
 
-async function onRequestOtp() {
+async function sendOtp() {
   const email = document.getElementById('authEmail').value.trim();
   try {
     setAuthStatus('確認コードを送信しています…');
@@ -816,7 +815,7 @@ async function onRequestOtp() {
   }
 }
 
-async function onVerifyOtp() {
+async function verifyOtpAndOpen() {
   const button = document.getElementById('verifyOtpButton');
   const email = document.getElementById('authEmail').value.trim();
   const otp = document.getElementById('authOtp').value.trim();

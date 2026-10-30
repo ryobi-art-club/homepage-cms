@@ -21,6 +21,28 @@ function postGeminiInteraction_(apiKey, payload, attempt) {
   return extractGeminiOutputText_(parseJson_(body, {}));
 }
 
+// Gemini に、schema の形の JSON で答えを求める。readAnswer は答えを確かめて使う形にする関数で、
+// そこで投げたエラーも含め、一時的な失敗は1回だけやり直す
+function askGeminiForJson_(apiKey, model, inputParts, prompt, schema, readAnswer) {
+  const payload = {
+    model: model,
+    input: inputParts.concat([{ type: 'text', text: prompt }]),
+    response_format: { type: 'text', mime_type: 'application/json', schema: schema }
+  };
+  let lastError = null;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      return readAnswer(parseGeminiJson_(postGeminiInteraction_(apiKey, payload, attempt)));
+    } catch (error) {
+      lastError = error;
+      Logger.log('Gemini attempt ' + attempt + ' failed: ' + (error && error.message ? error.message : String(error)));
+      if (!isRetryableGeminiError_(error) || attempt >= 2) break;
+      Utilities.sleep(700 * attempt);
+    }
+  }
+  throw lastError;
+}
+
 function isRetryableGeminiError_(error) {
   if (!error) return false;
   const status = Number(error.status || 0);
@@ -74,7 +96,7 @@ function collectGeminiText_(value, chunks) {
   if (value.parts) collectGeminiText_(value.parts, chunks);
 }
 
-function parseGeminiCatalogJson_(text) {
+function parseGeminiJson_(text) {
   const raw = String(text || '').trim();
   if (!raw) throw new Error('Gemini API の応答が空です。');
   const direct = parseJson_(raw, null);

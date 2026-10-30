@@ -126,10 +126,10 @@ test('large JSON with Japanese, emoji, escapes and formula-like text round trips
   const cells = ctx.buildPayloadCells_(ctx.stableStringify_(payload));
   assert.ok(cells.length > 10);
   assert.ok(cells.every(cell => cell.length <= 50000 && !cell.startsWith('=')));
-  assert.equal(ctx.stableStringify_(ctx.readPayloadCells_(asRow(ctx, cells))), ctx.stableStringify_(payload));
+  assert.equal(ctx.stableStringify_(ctx.parsePayloadCells_(asRow(ctx, cells))), ctx.stableStringify_(payload));
   const row = asRow(ctx, cells);
   delete row.payload_json_3;
-  assert.throws(() => ctx.readPayloadCells_(row), /JSON/);
+  assert.throws(() => ctx.parsePayloadCells_(row), /JSON/);
 });
 
 test('content sheets are written as plain text so formula- and date-like input stays literal', () => {

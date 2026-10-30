@@ -24,15 +24,17 @@ function buildManagedFolderName_(title, draft, existingName) {
   return base + '_' + datePart;
 }
 
-function sanitizeFolderTitle_(title) {
-  const normalized = String(title || '').trim()
-    .replace(/_/g, '-')
+// Drive の名前に使えない文字と制御文字を除き、空白を1つにまとめる
+function cleanDriveName_(text) {
+  return String(text || '').trim()
     .replace(/[\\/:*?"<>|#%{}~&]/g, '-')
     .replace(/[\u0000-\u001f]/g, '')
-    .replace(/\s+/g, ' ')
-    .slice(0, 80)
-    .trim();
-  return normalized || '素材';
+    .replace(/\s+/g, ' ');
+}
+
+// フォルダ名の「_」は日付との区切りに使うので、タイトルの中の「_」は「-」にする
+function sanitizeFolderTitle_(title) {
+  return cleanDriveName_(String(title || '').replace(/_/g, '-')).slice(0, 80).trim() || '素材';
 }
 
 function renameFolderIfPresent_(folderId, title, draft) {
@@ -55,15 +57,7 @@ function rootFolderIdForKind_(kind) {
     exhibition: config.ROOT_EXHIBITION_FOLDER_ID,
     request: config.ROOT_REQUEST_FOLDER_ID
   };
-  return map[requireManagedKind_(kind)];
-}
-
-function requireManagedKind_(kind) {
-  const value = String(kind || '').trim().toLowerCase();
-  if (['recruit', 'activity', 'exhibition', 'request'].indexOf(value) === -1) {
-    throw new Error('素材種別が不正です。');
-  }
-  return value;
+  return map[requireOneOf_(kind, Object.keys(MEDIA_KIND_LABELS), '素材種別が不正です。')];
 }
 
 // 項目のフォルダ（4つのルートフォルダの直下で、CMS_ の一時置き場・退避先ではないもの）なら、そのルートの ID。
@@ -104,7 +98,7 @@ function getMediaAuxFolder_(folderId, type, create, rootId) {
     throw new Error('下書き画像を非公開で保管するため、画像の親フォルダ（新歓・活動記録・展示会・ご依頼）の共有設定を「制限付き」にしてください。');
   }
   const result = folder || root.createFolder(name);
-  applyPrivateFolderSharing_(result);
+  setFolderLinkSharing_(result, false);
   return result;
 }
 
@@ -134,25 +128,13 @@ function isLinkShared_(target) {
   return access === DriveApp.Access.ANYONE_WITH_LINK || access === DriveApp.Access.ANYONE;
 }
 
-// 公開中の項目のフォルダは「リンクを知っている全員」にする（画像はもともとサイトに載っている）。
-// 設定が違うときだけ変える（公開のたびに全部のフォルダを触らないため）
 function setFolderLinkSharing_(folder, isPublic) {
   if (isLinkShared_(folder) === isPublic) return;
-  if (isPublic) applyExhibitionFolderSharing_(folder);
-  else applyPrivateFolderSharing_(folder);
-}
-
-function applyExhibitionFolderSharing_(folder) {
   retryDriveOperation_(
-    () => folder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW),
-    '展示会フォルダ公開設定'
-  );
-}
-
-function applyPrivateFolderSharing_(folder) {
-  retryDriveOperation_(
-    () => folder.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE),
-    '展示会フォルダ非公開設定'
+    () => isPublic
+      ? folder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW)
+      : folder.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE),
+    'フォルダの共有設定'
   );
 }
 
@@ -194,12 +176,7 @@ function getExistingFileNameSet_(folder, ignoreFileId) {
 }
 
 function safeFileName_(name) {
-  const value = String(name || '').trim()
-    .replace(/[\\/:*?"<>|#%{}~&]/g, '-')
-    .replace(/[\u0000-\u001f]/g, '')
-    .replace(/\s+/g, ' ')
-    .slice(0, 180)
-    .trim();
+  const value = cleanDriveName_(name).slice(0, 180).trim();
   if (!value || value === '.' || value === '..') throw new Error('ファイル名が不正です。');
   return value;
 }
