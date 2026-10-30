@@ -61,6 +61,8 @@ function setup() {
     getSize() { return 100; }
     getUrl() { return 'https://drive.test/' + this.id; }
     getThumbnail() { return { getContentType: () => 'image/png', getBytes: () => [1, 2, 3] }; }
+    getDescription() { return this.description || ''; }
+    setDescription(text) { this.description = text; return this; }
     getBlob() { return { getContentType: () => this.mimeType, getBytes: () => [4, 5] }; }
     setName(name) { this.name = name; return this; }
     setTrashed(value) { this.trashed = value; return this; }
@@ -102,7 +104,8 @@ function setup() {
     requireSession_: () => ({ name: 'Editor', email: 'editor@example.test' }),
     requireString_: value => String(value || ''),
     getConfig_: () => config,
-    console: { warn() {} }
+    console: { warn() {}, log() {} },
+    isoNow_: () => new Date().toISOString()
   });
   for (const name of ['DriveGateway.js', 'Store.js']) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '..', name), 'utf8'), ctx);
@@ -394,4 +397,108 @@ test('publishing opens the folders of published recruit, activity and request it
   assert.equal(hidden.access, 'PRIVATE');
   assert.equal(thisYear.access, 'ANYONE_WITH_LINK');
   assert.equal(lastYear.access, 'PRIVATE');
+});
+
+test('publishing again without changes leaves Drive alone; only changed items are processed', () => {
+  const { ctx, activityRoot, item } = setup();
+  const first = activityRoot.createFolder('First_20260925');
+  const second = activityRoot.createFolder('Second_20260925');
+  const state = {
+    exhibitions: [item],
+    recruitCalendars: [],
+    recruitCalendar: {},
+    activityArticles: [
+      { articleId: 'a1', title: 'First', mediaFolderId: first.id, mediaFileIds: [], published: true },
+      { articleId: 'a2', title: 'Second', mediaFolderId: second.id, mediaFileIds: [], published: true }
+    ],
+    requestCases: []
+  };
+  ctx.finalizeManagedFolders_(state);
+  const previous = JSON.parse(JSON.stringify(ctx.buildPublicSnapshot_(state)));
+
+  let lookups = 0;
+  const getFolderById = ctx.DriveApp.getFolderById;
+  ctx.DriveApp.getFolderById = (id) => { lookups += 1; return getFolderById(id); };
+  ctx.finalizeManagedFolders_(JSON.parse(JSON.stringify(state)), previous);
+  assert.equal(lookups, 0, 'nothing changed, so no folder is opened');
+
+  const edited = JSON.parse(JSON.stringify(state));
+  edited.activityArticles[1].title = 'Second renamed';
+  ctx.finalizeManagedFolders_(edited, previous);
+  assert.equal(lookups, 1, 'only the renamed article is opened');
+  assert.equal(second.name, 'Second renamed_20260925');
+  assert.equal(first.name, 'First_20260925');
+
+  const unpublished = JSON.parse(JSON.stringify(state));
+  unpublished.activityArticles[0].published = false;
+  ctx.finalizeManagedFolders_(unpublished, previous);
+  assert.equal(first.access, 'PRIVATE');
+  ctx.DriveApp.getFolderById = getFolderById;
+});
+
+test('an exhibition with a changed work list is reconciled even when its title is the same', () => {
+  const { ctx, folder, image, item, upload } = setup();
+  const state = { exhibitions: [item], recruitCalendars: [], recruitCalendar: {}, activityArticles: [], requestCases: [] };
+  ctx.finalizeManagedFolders_(state);
+  const previous = JSON.parse(JSON.stringify(ctx.buildPublicSnapshot_(state)));
+  const added = upload().uploadedFileIds[0];
+  item.workFiles.push({ fileId: added, sortOrder: 2, title: 'New', artist: 'Artist' });
+  ctx.finalizeManagedFolders_(state, previous);
+  assert.deepEqual(ids(folder), [image.id, added].sort());
+});
+
+test('cleanup after a publish lists, and in trash mode trashes, only what the published state no longer uses', () => {
+  const { ctx, root, folder, item, activityRoot, Folder, File, upload, files } = setup();
+  const kept = activityRoot.createFolder('Kept_20260925');
+  const deleted = activityRoot.createFolder('Deleted article_20250101');
+  const oldDraft = activityRoot.createFolder('Unsaved_下書き_20260925_1200');
+  const handMade = activityRoot.createFolder('部員の写真');
+  const removedExhibition = root.createFolder('Old exhibition_20240101');
+  const removedStaging = root.createFolder('CMS_下書き_' + removedExhibition.id);
+  // an image set aside by an earlier publish, with and without a stamp, and one set aside by this publish
+  const recovery = ctx.getExhibitionAuxFolder_(folder.id, 'recovery', true);
+  const earlier = new File('earlier.jpg', recovery);
+  earlier.description = 'cms-unregistered-at:2026-01-01T00:00:00.000Z';
+  const unstamped = new File('unstamped.jpg', recovery);
+  const publishStartedAt = Date.now();
+  const justNow = new File('just-now.jpg', recovery);
+  justNow.description = 'cms-unregistered-at:' + new Date(publishStartedAt + 1000).toISOString();
+  const state = {
+    exhibitions: [item], recruitCalendars: [], recruitCalendar: {}, requestCases: [],
+    activityArticles: [{ articleId: 'a', title: 'Kept', mediaFolderId: kept.id, published: true }]
+  };
+
+  const report = ctx.collectGarbage_(state, { trash: false, budgetMs: 60000, publishStartedAt });
+  assert.equal(report.finished, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(report.lines)).sort(), [
+    'フォルダ 活動記録/Deleted article_20250101（削除された項目）',
+    'フォルダ 活動記録/Unsaved_下書き_20260925_1200（削除された項目）',
+    'フォルダ 展示会/CMS_下書き_' + removedExhibition.id + '（削除された項目）',
+    'フォルダ 展示会/Old exhibition_20240101（削除された項目）',
+    '画像 展示会/CMS_未登録_' + folder.id + '/earlier.jpg（退避した画像）',
+    '画像 展示会/CMS_未登録_' + folder.id + '/unstamped.jpg（退避した画像）'
+  ].sort());
+  assert.ok([deleted, oldDraft, removedExhibition, removedStaging].every(f => !f.trashed), 'report mode trashes nothing');
+  assert.ok([earlier, unstamped].every(f => !f.trashed));
+
+  ctx.collectGarbage_(state, { trash: true, budgetMs: 60000, publishStartedAt });
+  assert.ok([deleted, oldDraft, removedExhibition, removedStaging].every(f => f.trashed));
+  assert.ok(earlier.trashed && unstamped.trashed);
+  assert.ok(!justNow.trashed && !kept.trashed && !handMade.trashed && !folder.trashed && !recovery.trashed);
+
+  const late = ctx.collectGarbage_(state, { trash: false, budgetMs: -1, publishStartedAt });
+  assert.equal(late.finished, false, 'stops at the time budget');
+  assert.match(ctx.formatCleanupReport_(late, false), /時間切れ/);
+});
+
+test('images set aside are stamped, and the stamp is cleared when they are registered again', () => {
+  const { ctx, folder, image, item, state, File } = setup();
+  const other = new File('2_Other_Artist.jpg', folder);
+  item.workFiles = [{ fileId: other.id, sortOrder: 1, title: 'Other', artist: 'Artist' }];
+  ctx.finalizeManagedFolders_(state);
+  assert.match(image.description, /^cms-unregistered-at:/);
+  item.workFiles = [{ fileId: image.id, sortOrder: 1, title: 'Old', artist: 'Artist' }, { fileId: other.id, sortOrder: 2, title: 'Other', artist: 'Artist' }];
+  ctx.finalizeManagedFolders_(state);
+  assert.equal(image.parent, folder);
+  assert.equal(image.description, '');
 });

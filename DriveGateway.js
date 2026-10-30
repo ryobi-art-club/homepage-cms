@@ -159,21 +159,38 @@ function getDriveMaintenanceSummary_(state) {
   };
 }
 
-function finalizeManagedFolders_(state) {
-  // Validate every exhibition before moving any files.
-  const exhibitionPlans = buildExhibitionMediaPlans_(state);
+// previousSnapshot: the public snapshot of the last publish. Items whose Drive-related fields are unchanged
+// since then are skipped: their folders were already renamed, shared and (exhibitions) reconciled at that
+// publish. This keeps publishing time proportional to what changed instead of to all content.
+// Without a snapshot every item is processed.
+// stats (optional) receives, per kind, how many items were processed out of all.
+function finalizeManagedFolders_(state, previousSnapshot, stats) {
+  const isChanged = buildDriveChangeFilter_(previousSnapshot);
+  const changed = (kind, item) => {
+    const result = isChanged(kind, item);
+    if (stats) {
+      stats[kind] = stats[kind] || { processed: 0, total: 0 };
+      stats[kind].total += 1;
+      if (result) stats[kind].processed += 1;
+    }
+    return result;
+  };
+  // Validate every changed exhibition before moving any files.
+  const exhibitionPlans = buildExhibitionMediaPlans_({
+    exhibitions: (state.exhibitions || []).filter((item) => changed('exhibition', item))
+  });
   const emptyExhibitionFolders = [];
-  (state.recruitCalendars || []).forEach((item) => {
+  (state.recruitCalendars || []).filter((item) => changed('recruit', item)).forEach((item) => {
     const folder = renameFolderIfPresent_(item.mediaFolderId || item.folderId, item.label, false);
     if (folder) setFolderLinkSharing_(folder, item.published === true);
   });
 
-  (state.activityArticles || []).forEach((item) => {
+  (state.activityArticles || []).filter((item) => changed('activity', item)).forEach((item) => {
     const folder = renameFolderIfPresent_(item.mediaFolderId || item.photoFolderId, item.title, false);
     if (folder) setFolderLinkSharing_(folder, item.published !== false);
   });
 
-  (state.requestCases || []).forEach((item) => {
+  (state.requestCases || []).filter((item) => changed('request', item)).forEach((item) => {
     const folder = renameFolderIfPresent_(item.mediaFolderId || item.photoFolderId, item.title, false);
     if (folder) setFolderLinkSharing_(folder, item.published !== false);
   });
@@ -201,6 +218,131 @@ function finalizeManagedFolders_(state) {
     }
   });
   return emptyExhibitionFolders;
+}
+
+// What decides each item's folder name, sharing and (exhibitions) file placement and names.
+const DRIVE_CHANGE_KEYS_ = {
+  recruit: {
+    key: (item) => String(item.year || ''),
+    signature: (item) => [item.label, item.published === true, item.mediaFolderId || item.folderId || '']
+  },
+  activity: {
+    key: (item) => String(item.articleId || ''),
+    signature: (item) => [item.title, item.published !== false, item.mediaFolderId || item.photoFolderId || '']
+  },
+  request: {
+    key: (item) => String(item.caseId || ''),
+    signature: (item) => [item.title, item.published !== false, item.mediaFolderId || item.photoFolderId || '']
+  },
+  exhibition: {
+    key: (item) => String(item.exhibitionId || ''),
+    signature: (item) => [item.title, item.published !== false, item.mediaFolderId || item.driveFolderId || '',
+      (item.dmFileIds || []).map(String), serializeWorkFiles_(item.workFiles || item.works || [])]
+  }
+};
+
+function buildDriveChangeFilter_(previousSnapshot) {
+  if (!previousSnapshot) return () => true;
+  const lists = {
+    recruit: previousSnapshot.recruitCalendars,
+    activity: previousSnapshot.activityArticles,
+    request: previousSnapshot.requestCases,
+    exhibition: previousSnapshot.exhibitions
+  };
+  const before = {};
+  Object.keys(DRIVE_CHANGE_KEYS_).forEach((kind) => {
+    const rule = DRIVE_CHANGE_KEYS_[kind];
+    (lists[kind] || []).forEach((item) => {
+      const key = rule.key(item);
+      if (key) before[kind + ':' + key] = stableStringify_(rule.signature(item));
+    });
+  });
+  return (kind, item) => {
+    const rule = DRIVE_CHANGE_KEYS_[kind];
+    const key = rule.key(item);
+    return !key || before[kind + ':' + key] !== stableStringify_(rule.signature(item));
+  };
+}
+
+// ---------- Cleanup after a successful publish ----------
+// Moves to the Drive trash (restorable for 30 days):
+//  - folders made by the CMS whose item no longer exists (deleted items, and the staging / recovery
+//    folders of deleted exhibitions);
+//  - images set aside in an exhibition's recovery folder by an earlier publish. They were kept only so
+//    that an interrupted publish could be retried; after this successful publish they are not needed.
+// Only folders named the way the CMS names them are touched. Work stops at the time budget and the
+// rest is done after the next publish (every step can be repeated safely).
+const RECOVERY_STAMP_PREFIX_ = 'cms-unregistered-at:';
+const CMS_ITEM_FOLDER_PATTERN_ = /_(\d{8}|下書き_\d{8}_\d{4})$/;
+const CMS_AUX_FOLDER_PATTERN_ = /^CMS_(下書き|未登録)_(.+)$/;
+
+function collectGarbage_(state, options) {
+  const trash = !!options.trash;
+  const deadline = Date.now() + options.budgetMs;
+  const publishStartedAt = options.publishStartedAt;
+  const referenced = buildReferencedFolderIdSet_(state || {});
+  const config = getConfig_();
+  const result = { lines: [], finished: true };
+  const outOfTime = () => {
+    if (Date.now() <= deadline) return false;
+    result.finished = false;
+    return true;
+  };
+  const roots = [
+    ['新歓', config.ROOT_RECRUIT_FOLDER_ID],
+    ['活動記録', config.ROOT_ACTIVITY_FOLDER_ID],
+    ['展示会', config.ROOT_EXHIBITION_FOLDER_ID],
+    ['ご依頼', config.ROOT_REQUEST_FOLDER_ID]
+  ];
+  for (const [label, rootId] of roots) {
+    if (outOfTime()) break;
+    const root = getDriveFolderWithRetry_(rootId, '片付け対象の親フォルダ取得');
+    const folders = listSubfolders_(root);
+    for (const folder of folders) {
+      if (outOfTime()) break;
+      const id = retryDriveOperation_(() => folder.getId(), '片付け対象のフォルダID取得');
+      const name = retryDriveOperation_(() => folder.getName(), '片付け対象のフォルダ名取得');
+      const aux = name.match(CMS_AUX_FOLDER_PATTERN_);
+      if (!aux && !CMS_ITEM_FOLDER_PATTERN_.test(name)) continue;
+      const ownerId = aux ? aux[2] : id;
+      if (!referenced[ownerId]) {
+        result.lines.push('フォルダ ' + label + '/' + name + '（削除された項目）');
+        if (trash) retryDriveOperation_(() => folder.setTrashed(true), '削除された項目のフォルダの片付け');
+        continue;
+      }
+      if (aux && aux[1] === '未登録') trashOldRecoveryFiles_(folder, label + '/' + name, publishStartedAt, trash, result, outOfTime);
+    }
+  }
+  return result;
+}
+
+// Files without a stamp were set aside before the stamp existed, which is also an earlier publish.
+function trashOldRecoveryFiles_(folder, path, publishStartedAt, trash, result, outOfTime) {
+  for (const file of listFolderFiles_(folder)) {
+    if (outOfTime()) return;
+    const description = String(retryDriveOperation_(() => file.getDescription(), '退避日時の確認') || '');
+    const stamped = description.indexOf(RECOVERY_STAMP_PREFIX_) === 0 ? Date.parse(description.slice(RECOVERY_STAMP_PREFIX_.length)) : NaN;
+    if (!isNaN(stamped) && stamped >= publishStartedAt) continue;
+    const name = retryDriveOperation_(() => file.getName(), '退避した画像の名前取得');
+    result.lines.push('画像 ' + path + '/' + name + '（退避した画像）');
+    if (trash) retryDriveOperation_(() => file.setTrashed(true), '退避した画像の片付け');
+  }
+  if (trash) trashFolderIfEmpty_(retryDriveOperation_(() => folder.getId(), '退避フォルダID取得'));
+}
+
+function listSubfolders_(folder) {
+  const iterator = retryDriveOperation_(() => folder.getFolders(), 'フォルダ一覧取得');
+  const folders = [];
+  while (iterator.hasNext()) folders.push(iterator.next());
+  return folders;
+}
+
+function formatCleanupReport_(result, trash) {
+  const head = trash ? 'ゴミ箱に入れました' : '記録のみ（スクリプト プロパティ CLEANUP_MODE が trash ではないので、何も消していません）';
+  if (!result.lines.length) return head + '：片付けるものはありません' + (result.finished ? '' : '（時間切れ。残りは次の公開で）');
+  const body = result.lines.join('\n');
+  const limited = body.length > 40000 ? body.slice(0, 40000) + '\n…（ほかは省略）' : body;
+  return head + '（' + result.lines.length + '件' + (result.finished ? '' : '、時間切れ。残りは次の公開で') + '）\n' + limited;
 }
 
 function cleanupUnreferencedDraftFolders_(state) {
@@ -361,6 +503,8 @@ function reconcileExhibitionMedia_(plan) {
   unregistered.forEach((entry) => {
     if (entry.source.getId() !== recovery.getId()) {
       retryDriveOperation_(() => entry.file.moveTo(recovery), '未登録画像の退避');
+      // When it was set aside: the cleanup after the next successful publish moves it to the trash.
+      retryDriveOperation_(() => entry.file.setDescription(RECOVERY_STAMP_PREFIX_ + isoNow_()), '未登録画像の退避日時記録');
     }
     if (entry.file.getSharingAccess() !== DriveApp.Access.PRIVATE) {
       retryDriveOperation_(() => entry.file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE), '未登録画像の非公開設定');
@@ -368,6 +512,9 @@ function reconcileExhibitionMedia_(plan) {
   });
   plan.entries.filter((entry) => plan.keepIds.has(entry.file.getId()) && entry.source !== plan.folder).forEach((entry) => {
     retryDriveOperation_(() => entry.file.moveTo(plan.folder), '展示会画像の公開フォルダへの移動');
+    if (plan.recovery && entry.source.getId() === plan.recovery.getId()) {
+      retryDriveOperation_(() => entry.file.setDescription(''), '退避日時の記録の削除');
+    }
   });
   if (plan.staging) trashFolderIfEmpty_(plan.staging.getId());
 }

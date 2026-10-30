@@ -260,3 +260,13 @@ test('grid cleanup preserves active split drafts, frozen regions and empty sheet
   assert.equal(sheets.Recruit.maxRows, 4);
   assert.equal(sheets.Recruit.maxColumns, 3);
 });
+
+test('publish timings are written next to the admin log row, adding the column once', () => {
+  const {ctx, sheets} = setup();
+  sheets._AdminLog = new Sheet([['timestamp', 'actor_name', 'actor_email', 'action', 'detail'], ['t1', 'A', 'a@example.com', 'published', 'x']]);
+  ctx.writeAdminLogCell_(2, 'timings', 'read 1.0s, drive 2.0s');
+  sheets._AdminLog.values.push(['t2', 'B', 'b@example.com', 'published', 'y']);
+  ctx.writeAdminLogCell_(3, 'timings', 'read 0.5s');
+  assert.deepEqual(sheets._AdminLog.values.map(row => row[5]), ['timings', 'read 1.0s, drive 2.0s', 'read 0.5s']);
+  assert.equal(ctx.readAdminLog_()[0].detail, 'y');
+});

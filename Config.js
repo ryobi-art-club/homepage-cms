@@ -46,6 +46,8 @@ function getConfig_() {
   config.GH_FINE_GRAINED_PAT = String(props.getProperty('GH_FINE_GRAINED_PAT') || '').trim();
   config.GEMINI_API_KEY = String(props.getProperty('GEMINI_API_KEY') || '').trim();
   config.GEMINI_MODEL = String(props.getProperty('GEMINI_MODEL') || 'gemini-3.1-flash-lite').trim();
+  // 'trash' moves cleanup targets to the Drive trash; anything else only writes the list to _AdminLog.
+  config.CLEANUP_MODE = String(props.getProperty('CLEANUP_MODE') || '').trim().toLowerCase();
   return config;
 }
 

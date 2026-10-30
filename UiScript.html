@@ -65,6 +65,7 @@ function bindGlobalEvents() {
     });
   });
   bindNarrowNavAutoHide();
+  bindKeyboardAwareLayout();
   document.addEventListener('click', (event) => {
     const area = document.getElementById('statusArea');
     if (area && !area.contains(event.target)) toggleStatusHistory(false);
@@ -111,6 +112,37 @@ function bindNarrowNavAutoHide() {
     document.body.classList.toggle('is-nav-hidden', isNarrowScreen() && delta > 0 && y > topbar.offsetHeight);
     lastY = y;
   }, { passive: true });
+}
+
+/* スマホでキーボードが開いている間は body.keyboard-open を付ける。
+   見えている範囲（visualViewport）の高さと位置を CSS 変数にし、ダイアログをキーボードの上に収める。
+   キーボードが閉じているときの高さを覚えておき、それより大きく縮んだら開いているとみなす */
+const KEYBOARD_MIN_HEIGHT = 150;
+
+function bindKeyboardAwareLayout() {
+  const viewport = window.visualViewport;
+  if (!viewport) return;
+  let fullHeight = viewport.height;
+  const update = () => {
+    fullHeight = Math.max(fullHeight, viewport.height);
+    const open = isNarrowScreen() && fullHeight - viewport.height > KEYBOARD_MIN_HEIGHT;
+    const wasOpen = document.body.classList.contains('keyboard-open');
+    document.body.classList.toggle('keyboard-open', open);
+    document.documentElement.style.setProperty('--visible-height', Math.round(viewport.height) + 'px');
+    document.documentElement.style.setProperty('--visible-top', Math.round(viewport.offsetTop) + 'px');
+    /* ダイアログが縮んだあと、入力中の欄が隠れないよう見える位置まで送る */
+    const active = document.activeElement;
+    if (open && !wasOpen && active && active.closest && active.closest('.media-modal')) {
+      setTimeout(() => active.scrollIntoView({ block: 'nearest' }), 50);
+    }
+  };
+  viewport.addEventListener('resize', update);
+  viewport.addEventListener('scroll', update);
+  window.addEventListener('orientationchange', () => {
+    fullHeight = 0;
+    setTimeout(update, 300);
+  });
+  update();
 }
 
 function activatePanel(panelId) {
@@ -251,7 +283,7 @@ function escapeHtml(value) {
 const ERROR_RULES = [
   { pattern: /セッションが切れています/, important: false, hint: '一定時間操作がなかったため、ログインが切れました。ページを再読み込みして、もう一度ログインしてください。' },
   { pattern: /Excel 読み込み用ライブラリ/, important: true, hint: 'Excel の目録は今は読み込めません。Excel の「名前を付けて保存」で CSV 形式にして選び直すか、PDF・画像の目録を使ってください。' },
-  { pattern: /Lock timeout/i, important: false, hint: 'ほかの人が保存や公開をしている最中でした。1分ほど待ってから、もう一度お試しください。' },
+  { pattern: /Lock timeout|ロックのタイムアウト/i, important: false, hint: 'ほかの人の保存・公開か、直前に押した操作がまだ続いていました。1分ほど待ってから、もう一度お試しください。' },
   { pattern: /NetworkError|Failed to fetch|network/i, important: false, hint: '通信が途切れた可能性があります。インターネット接続を確認して、もう一度お試しください。' },
   { pattern: /too many times|quota|Limit Exceeded|Bandwidth/i, important: true, hint: 'Google の1日あたりの利用上限に達した可能性があります。時間をおいて（翌日に）もう一度お試しください。' },
   { pattern: /Script Properties|allowlist シート|共有設定/, important: true, hint: 'CMS の設定に問題があります。管理者に連絡してください。' },
@@ -908,10 +940,15 @@ function buildExhibitionSubtitleHtml(item) {
   return item.subtitle ? `<div class="preview-exhibition-subtitle">${escapeHtml(item.subtitle)}</div>` : '';
 }
 
-const FILE_WARN_SIZE = 5 * 1024 * 1024;
-const FILE_STRONG_WARN_SIZE = 10 * 1024 * 1024;
 const FILE_MAX_SIZE = 20 * 1024 * 1024;
-const FILE_TOTAL_WARN_SIZE = 50 * 1024 * 1024;
+/* アップロードできる画像。accept は種類を具体的に並べる（「画像なら何でも」の指定だと、スマホで動画まで選べてしまうことがある） */
+const UPLOAD_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif'];
+const UPLOAD_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'heif'];
+const UPLOAD_IMAGE_ACCEPT = UPLOAD_IMAGE_TYPES.concat(UPLOAD_IMAGE_EXTENSIONS.map((ext) => '.' + ext)).join(',');
+/* ブラウザで縮小してから送る。長い辺が UPLOAD_MAX_EDGE を超えるか UPLOAD_RESIZE_BYTES を超える画像だけを JPEG にする */
+const UPLOAD_MAX_EDGE = 2000;
+const UPLOAD_RESIZE_BYTES = 3 * 1024 * 1024;
+const UPLOAD_JPEG_QUALITY = 0.85;
 const CATALOG_MAX_SIZE = 10 * 1024 * 1024;
 const CATALOG_MAX_IMAGES = 20;
 const CATALOG_TEXT_EXTENSIONS = ['txt', 'md', 'markdown', 'csv', 'tsv', 'json'];
@@ -1128,7 +1165,6 @@ function renderMediaDialog(files) {
 }
 
 function renderMediaUploadBox(role, label, kind) {
-  const imageAccept = 'image/' + '*';
   const note = kind === 'recruit'
     ? '1枚3MB以下を推奨します。カレンダー画像は16:9（横長）で作成してください。'
     : '1枚3MB以下を推奨します。';
@@ -1137,7 +1173,7 @@ function renderMediaUploadBox(role, label, kind) {
     '<div class="media-upload-row">',
     '<div class="field media-file-field">',
     '<label>' + escapeHtml(label) + '</label>',
-    '<input id="mediaUploadInput_' + escapeHtml(role) + '" type="file" multiple accept="' + escapeHtml(imageAccept) + '">',
+    '<input id="mediaUploadInput_' + escapeHtml(role) + '" type="file" multiple accept="' + escapeHtml(UPLOAD_IMAGE_ACCEPT) + '" onchange="onMediaFilesChosen(this)">',
     '</div>',
     '<button class="button success" type="button" onclick="onMediaUpload(\'' + escapeJs(role) + '\')">アップロード</button>',
     '</div>',
@@ -1343,24 +1379,56 @@ function validateMediaSelection(files, role, context) {
     const currentCount = normalizeIdList(context.item && context.item.dmFileIds).length;
     if (currentCount + files.length > 2) throw new Error('DM画像は表・裏の2枚までです。不要なDM画像を削除してから追加してください。');
   }
-  let total = 0;
-  const warnings = [];
-  Array.from(files).forEach((file) => {
-    total += file.size || 0;
-    if (file.size > FILE_MAX_SIZE) {
-      throw new Error(file.name + ' は20MBを超えています。圧縮または分割してください。');
-    }
-    if (!file.type.startsWith('image/')) {
-      throw new Error(file.name + ' は画像ファイルではありません。');
-    }
-    if (file.size > FILE_STRONG_WARN_SIZE) warnings.push(file.name + ': ' + formatBytes(file.size) + '（大きめ）');
-    else if (file.size > FILE_WARN_SIZE) warnings.push(file.name + ': ' + formatBytes(file.size));
-  });
-  if (total > FILE_TOTAL_WARN_SIZE) warnings.push('合計: ' + formatBytes(total));
-  if (warnings.length) {
-    return confirm('大きいファイルが含まれています。\nアップロードに時間がかかる場合があります。\n\n' + warnings.join('\n') + '\n\n続行しますか？');
-  }
+  const notImage = Array.from(files).find((file) => !isUploadableImage(file));
+  if (notImage) throw new Error(notImage.name + ' は画像ではないため、アップロードできません。画像（JPEG・PNG・WebP・GIF・HEIC）を選んでください。');
   return true;
+}
+
+function isUploadableImage(file) {
+  if (UPLOAD_IMAGE_TYPES.indexOf(String(file.type || '').toLowerCase()) !== -1) return true;
+  /* パソコンでは HEIC の種類が空になることがあるので、拡張子でも確かめる */
+  const ext = String(file.name || '').toLowerCase().split('.').pop();
+  return !file.type && UPLOAD_IMAGE_EXTENSIONS.indexOf(ext) !== -1;
+}
+
+/* 選んだ時点で確かめ、画像以外（動画など）が混ざっていれば選択を取り消す */
+function onMediaFilesChosen(input) {
+  const files = Array.from(input.files || []);
+  const notImage = files.find((file) => !isUploadableImage(file));
+  if (!notImage) return;
+  input.value = '';
+  setMediaStatus(notImage.name + ' は画像ではないため選べません。画像（JPEG・PNG・WebP・GIF・HEIC）だけを選んでください。', 'error');
+}
+
+/* 大きい画像はブラウザで縮小して JPEG にする。描き直すので、写真に埋め込まれた撮影場所などの情報も消える。
+   描き直せない画像（パソコンのブラウザでの HEIC など）と GIF（動きが消えるため）はそのまま送る */
+async function prepareUploadPayload(file) {
+  if (file.type === 'image/gif' || typeof createImageBitmap !== 'function') return readFilePayload(file);
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch (error) {
+    return readFilePayload(file);
+  }
+  const edge = Math.max(bitmap.width, bitmap.height);
+  if (edge <= UPLOAD_MAX_EDGE && file.size <= UPLOAD_RESIZE_BYTES) {
+    if (bitmap.close) bitmap.close();
+    return readFilePayload(file);
+  }
+  const scale = Math.min(1, UPLOAD_MAX_EDGE / edge);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  const context = canvas.getContext('2d');
+  /* 透明な部分は白にする（JPEG は透明を持てないため） */
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  if (bitmap.close) bitmap.close();
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', UPLOAD_JPEG_QUALITY));
+  if (!blob) return readFilePayload(file);
+  const name = String(file.name || 'image').replace(/\.[^.]+$/, '') + '.jpg';
+  return readFilePayload(new File([blob], name, { type: 'image/jpeg' }));
 }
 
 function readFilePayload(file) {
@@ -1603,7 +1671,17 @@ async function onMediaUpload(uploadRole) {
     document.getElementById('mediaDialogBody').classList.add('is-loading');
     setMediaStatus('ファイルをアップロードしています…');
     setStatus('ファイルをアップロードしています…');
-    const files = await Promise.all(selected.map(readFilePayload));
+    /* 1枚ずつ順番に縮小・読み込みする（スマホでまとめて読むとメモリが足りなくなることがある） */
+    const files = [];
+    for (let index = 0; index < selected.length; index += 1) {
+      if (selected.length > 1) setMediaStatus('画像を準備しています（' + (index + 1) + ' / ' + selected.length + '）…');
+      const payload = await prepareUploadPayload(selected[index]);
+      if (payload.data.length * 0.75 > FILE_MAX_SIZE) {
+        throw new Error(selected[index].name + ' は20MBを超えています。小さくしてから選んでください。');
+      }
+      files.push(payload);
+    }
+    setMediaStatus('ファイルをアップロードしています…');
     const result = await serverCall('uploadManagedFiles', appState.sessionToken, {
       kind: context.kind,
       role,
@@ -2990,18 +3068,45 @@ async function loadDraftIntoEditor(draftId) {
   }
 }
 
-async function onSaveDraft() {
+/* 保存・公開の処理中は、もう一方も含めてボタンを押せなくする（二重に動くと、2回目がロック待ちで失敗するため） */
+const SUBMIT_BUTTON_IDS = ['saveDraftButton', 'publishButton'];
+
+async function runExclusiveSubmit(busyButtonId, busyLabel, task) {
+  if (appState.submitting) return;
+  appState.submitting = true;
+  const busyButton = document.getElementById(busyButtonId);
+  const originalLabel = busyButton ? busyButton.textContent : '';
+  SUBMIT_BUTTON_IDS.forEach((id) => {
+    const button = document.getElementById(id);
+    if (button) button.disabled = true;
+  });
+  if (busyButton) busyButton.textContent = busyLabel;
   try {
-    const payload = buildPayloadFromDom();
-    if (!confirm('現在の内容を新しい下書きとして保存しますか？')) return;
-    setStatus('下書きを保存しています…');
-    const result = await serverCall('saveDraft', appState.sessionToken, payload);
-    setStatus(result.message, 'success');
-    await refreshMetaAfterDraftSave(payload);
-    clearDirty();
-  } catch (error) {
-    showError(error, '下書きの保存');
+    await task();
+  } finally {
+    appState.submitting = false;
+    SUBMIT_BUTTON_IDS.forEach((id) => {
+      const button = document.getElementById(id);
+      if (button) button.disabled = false;
+    });
+    if (busyButton) busyButton.textContent = originalLabel;
   }
+}
+
+function onSaveDraft() {
+  return runExclusiveSubmit('saveDraftButton', '保存中…', async () => {
+    try {
+      const payload = buildPayloadFromDom();
+      if (!confirm('現在の内容を新しい下書きとして保存しますか？')) return;
+      setStatus('下書きを保存しています…');
+      const result = await serverCall('saveDraft', appState.sessionToken, payload);
+      setStatus(result.message, 'success');
+      await refreshMetaAfterDraftSave(payload);
+      clearDirty();
+    } catch (error) {
+      showError(error, '下書きの保存');
+    }
+  });
 }
 
 function collectProofreadFields() {
@@ -3193,7 +3298,11 @@ function openProofreadDialog(groups) {
   });
 }
 
-async function onPublish() {
+function onPublish() {
+  return runExclusiveSubmit('publishButton', '公開中…', publishContent);
+}
+
+async function publishContent() {
   try {
     let payload = buildPayloadFromDom();
     if (!validatePayloadForSubmit(payload)) return;

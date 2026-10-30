@@ -44,7 +44,7 @@ function setup(geminiReply) {
   const requests = [];
   const ctx = vm.createContext({
     SpreadsheetApp: {openById: () => spreadsheet, flush() {}},
-    LockService: {getScriptLock: () => ({waitLock() {}, releaseLock() {}})},
+    LockService: {getScriptLock: () => ({waitLock() {}, tryLock() { return true; }, releaseLock() {}})},
     Logger: {log() {}},
     Utilities: {
       sleep() {},

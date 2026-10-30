@@ -329,6 +329,18 @@ h3 { font-size: 1.05rem; }
   padding: var(--space-3) 14px;
 }
 .field input[type="date"] { color-scheme: dark; }
+/* iPhone(Safari と、iPhone の Chrome)の日付欄は、日付の文字に合わせた最小幅を持ち、幅の指定を無視してカードからはみ出す。
+   iPhone などのタッチ端末の WebKit だけに当てる(-webkit-touch-callout は iOS の WebKit だけが持つ) */
+@supports (-webkit-touch-callout: none) {
+  .field input[type="date"] {
+    -webkit-appearance: none;
+    appearance: none;
+    display: block;
+    min-width: 0;
+    min-height: 48px;
+  }
+  .field input[type="date"]::-webkit-date-and-time-value { text-align: left; }
+}
 .field input[type="date"]::-webkit-calendar-picker-indicator {
   filter: brightness(0) invert(1) saturate(0) contrast(200%);
   opacity: 1;
@@ -1678,5 +1690,25 @@ p.preview-exhibition-overview { margin: 0 0 12px; }
   }
   .catalog-import-head { display: grid; }
   .catalog-import-actions { justify-content: flex-start; }
+
+  /* キーボードが開いている間(body.keyboard-open は UiScript が付ける)。
+     固定のヘッダーとタブは固定をやめ、ダイアログはキーボードの上の見えている範囲に収め、説明と余白を詰める */
+  body.keyboard-open .topbar,
+  body.keyboard-open .sidebar-nav { position: static; transform: none; }
+  body.keyboard-open .media-modal {
+    inset: auto 0;
+    top: var(--visible-top, 0px);
+    height: var(--visible-height, 100%);
+    padding: 0;
+    place-items: stretch;
+  }
+  body.keyboard-open .media-modal-panel { max-height: 100%; border-radius: 0; }
+  body.keyboard-open .media-modal-head { padding: var(--space-2) var(--space-4); }
+  body.keyboard-open .media-modal-head h2 { font-size: 1rem; }
+  body.keyboard-open .media-modal-head .small-note,
+  body.keyboard-open .media-dialog-status.is-success { display: none; }
+  body.keyboard-open .media-modal-body { padding: var(--space-3) var(--space-4); }
+  body.keyboard-open .proofread-actions { padding: var(--space-2) var(--space-4); }
+  body.keyboard-open .proofread-actions .button { min-height: 40px; }
 }
 </style>

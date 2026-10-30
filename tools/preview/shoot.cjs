@@ -68,6 +68,27 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
     if (overflow > 0) problems.push(`${name}: 画面の幅を ${overflow}px はみ出しています`);
     await page.screenshot({ path: path.join(shots, name + '.png'), fullPage });
   };
+  /* phone keyboard: 844px screen, 420px visible above the keyboard (what UiScript sets from visualViewport) */
+  const simulateKeyboard = (open) => page.evaluate((isOpen) => {
+    document.body.classList.toggle('keyboard-open', isOpen);
+    document.documentElement.style.setProperty('--visible-height', isOpen ? '420px' : '');
+    document.documentElement.style.setProperty('--visible-top', '0px');
+  }, open);
+  /* the focused field must be inside the visible part, and the dialog (if any) must fit in it */
+  const checkKeyboardLayout = async (name) => {
+    const result = await page.evaluate(() => {
+      const field = document.activeElement;
+      if (field && field.scrollIntoView) field.scrollIntoView({ block: 'nearest' });
+      const rect = field.getBoundingClientRect();
+      const panel = document.querySelector('.media-modal:not(.hidden) .media-modal-panel');
+      const topbar = getComputedStyle(document.querySelector('.topbar')).position;
+      return { fieldTop: Math.round(rect.top), fieldBottom: Math.round(rect.bottom), panelBottom: panel ? Math.round(panel.getBoundingClientRect().bottom) : 0, topbar };
+    });
+    if (result.fieldTop < 0 || result.fieldBottom > 421 || result.panelBottom > 421 || result.topbar === 'sticky') {
+      problems.push(`${name}: キーボードが開いたとき、入力欄が見えない、または場所を取っている ` + JSON.stringify(result));
+    }
+    await shot(name);
+  };
   /* clicks the first enabled element whose onclick starts with the given function call */
   const click = async (onclick, options = {}) => {
     const found = await page.evaluate((prefix, within) => {
@@ -142,6 +163,17 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
     });
     if (!unavailableShown) problems.push(`${label}: 取得できない画像に「画像を表示できません」が出ません`);
     if (label === 'mobile') {
+      /* typing an article body with the keyboard open: the fixed header and tabs give way */
+      /* the page itself is scrolled by the browser to keep the field in view, so here the screen is made
+         as small as the part above the keyboard */
+      await setScreen({ width: 390, height: 420, isMobile: true });
+      await page.evaluate(() => { activatePanel('activities'); document.querySelector('#panel-activities [data-field="body"]').focus(); });
+      await simulateKeyboard(true);
+      await wait(200);
+      await checkKeyboardLayout('mobile-edit-keyboard');
+      await simulateKeyboard(false);
+      await setScreen(MOBILE);
+      await page.evaluate(() => { document.activeElement.blur(); window.scrollTo(0, 0); });
       /* the tabs hide while scrolling down, come back under the status when scrolling up,
          and choosing a tab starts it from the top */
       step = 'スマホのタブ';
@@ -210,6 +242,37 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   await click('moveMediaFile');
   await (await page.$('#mediaUploadInput_image')).uploadFile(imagePath);
   await click("onMediaUpload('image')", { wait: 600 });
+  /* a video picked by mistake is taken off the selection at once */
+  const videoRejected = await page.evaluate(() => {
+    const input = document.getElementById('mediaUploadInput_image');
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([new Uint8Array(16)], 'movie.mov', { type: 'video/quicktime' }));
+    input.files = transfer.files;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    return input.files.length === 0 && document.getElementById('mediaDialogStatus').classList.contains('is-error');
+  });
+  if (!videoRejected) problems.push(step + ': 動画を選んでも取り消されません');
+  /* a large photo is shrunk in the browser to 2000px on the long side, as JPEG */
+  const resized = await page.evaluate(async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 2600;
+    canvas.height = 1300;
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#4a64d8';
+    context.fillRect(0, 0, 2600, 1300);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([blob], 'large-photo.png', { type: 'image/png' }));
+    document.getElementById('mediaUploadInput_image').files = transfer.files;
+    await onMediaUpload('image');
+    const sent = window.MOCK_BACKEND.lastUpload.files[0];
+    const image = new Image();
+    await new Promise((resolve) => { image.onload = resolve; image.src = 'data:' + sent.mimeType + ';base64,' + sent.data; });
+    return { name: sent.name, mimeType: sent.mimeType, width: image.naturalWidth, height: image.naturalHeight };
+  });
+  if (resized.mimeType !== 'image/jpeg' || resized.width !== 2000 || resized.height !== 1000 || !/\.jpg$/.test(resized.name)) {
+    problems.push(step + ': 大きい画像が縮小されていません ' + JSON.stringify(resized));
+  }
   await click('onMediaDelete');
   await click('closeMediaDialog');
   step = '新歓の画像ダイアログ';
@@ -256,6 +319,12 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   await wait(300);
   await showCatalog();
   await shot('mobile-dialog-catalog');
+  /* typing a work title with the keyboard open */
+  await page.evaluate(() => document.querySelector('[data-field="workTitle"]').focus());
+  await simulateKeyboard(true);
+  await wait(200);
+  await checkKeyboardLayout('mobile-dialog-keyboard');
+  await simulateKeyboard(false);
   await setScreen(DESKTOP);
   await click('clearCatalogDraftAndRender');
   await checkErrors();
@@ -381,10 +450,25 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   /* publish: the fake proofreader always flags up to 3 fields */
   step = '公開';
   await clickId('publishButton', 800);
+  /* while publishing, neither save nor publish can be pressed again */
+  const locked = await page.evaluate(() => ['saveDraftButton', 'publishButton'].every((id) => document.getElementById(id).disabled));
+  if (!locked) problems.push(step + ': 公開の途中でも「下書き保存」「公開する」が押せます');
   await shot('desktop-proofread');
   await setScreen(MOBILE);
   await wait(300);
   await shot('mobile-proofread');
+  /* phone keyboard open: the dialog fits in the visible part above the keyboard (simulated: 844px screen, 420px visible) */
+  await page.evaluate(() => {
+    document.body.classList.add('keyboard-open');
+    document.documentElement.style.setProperty('--visible-height', '420px');
+    document.documentElement.style.setProperty('--visible-top', '0px');
+    document.querySelector('.proofread-item textarea').focus();
+  });
+  await wait(200);
+  const fits = await page.evaluate(() => document.querySelector('.proofread-panel').getBoundingClientRect().bottom <= 421);
+  if (!fits) problems.push(step + ': キーボードが開いたとき、ダイアログが見えている範囲に収まりません');
+  await shot('mobile-proofread-keyboard');
+  await page.evaluate(() => document.body.classList.remove('keyboard-open'));
   await setScreen(DESKTOP);
   await page.click('[data-proofread-action="publish"]');
   await wait(1000);

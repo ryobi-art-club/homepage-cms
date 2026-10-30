@@ -24,6 +24,7 @@ node tools/preview/shoot.cjs                  # drives every feature, saves scre
 - `UiScript.html` is inlined by HtmlService. It must not contain the literal strings `https://`, `http://`, `//` (so no `//` comments; use `/* */`), `image/*`, or an SVG `xmlns`. Build URLs with `URL_PROTOCOL + '…'` and write `'image/' + '*'`. `tests/ui-script.test.cjs` checks this.
 - Keep stored data backward compatible: add sheet columns at the end, keep columns that are no longer used, and make new code read old rows. The CMS and the site may be deployed in either order.
 - Write to content sheets through `writeSheet_` (it sets the plain-text format `@` so values are not turned into formulas, dates or numbers).
+- Some class names are assembled in code (e.g. `is-${placement}`, `'is-' + type`). Before removing CSS or functions as unused, search for the parts of the name and run the preview screenshots.
 - Files that must not reach Apps Script (Node tools, docs, tests) go in `.claspignore`.
 - Preserve each file's line endings (many files are CRLF) when editing with scripts.
 

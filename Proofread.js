@@ -12,7 +12,8 @@ function proofreadForPublish(sessionToken, fields) {
   const currentHashes = {};
   targets.forEach((field) => { currentHashes[field.hash] = true; });
   // 公開対象から外れた文章の記録を削除する。
-  updateProofreadChecked_([], currentHashes);
+  // Dropping records of texts that are no longer published can wait: skip it while another save or publish holds the lock.
+  updateProofreadChecked_([], currentHashes, { optional: true });
   const checked = readProofreadCheckedHashes_();
   const pending = targets.filter((field) => !checked[field.hash]);
   const result = { issues: [], cleanFieldIds: [], pendingCount: pending.length, remainingCount: 0, error: '' };
@@ -211,9 +212,13 @@ function readProofreadCheckedHashes_() {
 }
 
 // addHashes を追記する。keepHashes を渡した場合は、それに含まれない古い記録を削除する。
-function updateProofreadChecked_(addHashes, keepHashes) {
+function updateProofreadChecked_(addHashes, keepHashes, options) {
   const lock = LockService.getScriptLock();
-  lock.waitLock(10000);
+  if (options && options.optional) {
+    if (!lock.tryLock(1000)) return;
+  } else {
+    lock.waitLock(30000);
+  }
   try {
     const existing = readProofreadCheckedHashes_();
     const next = {};

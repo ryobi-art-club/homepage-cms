@@ -15,10 +15,15 @@ function getBootstrapData(sessionToken) {
   });
 }
 
+// Save and publish wait up to 30 seconds for another save, publish or upload to finish.
+const SUBMIT_LOCK_WAIT_MS = 30000;
+// The cleanup after a publish stops after this long; the rest is done after the next publish.
+const CLEANUP_BUDGET_MS = 20000;
+
 function saveDraft(sessionToken, payload) {
   const session = requireSession_(sessionToken);
   const lock = LockService.getScriptLock();
-  lock.waitLock(10000);
+  lock.waitLock(SUBMIT_LOCK_WAIT_MS);
   try {
     const normalized = normalizePayload_(payload, readContentState_(), { allowIncomplete: true });
     saveDraftRecord_(normalized, session.name || session.email, session.email);
@@ -51,16 +56,28 @@ function previewSiteHistory(sessionToken, payload) {
 
 function publishState(sessionToken, payload) {
   const session = requireSession_(sessionToken);
+  // Seconds since the start, after each step. Written to the timings column of the _AdminLog row
+  // (the Apps Script execution page does not show the logs of web app calls reliably).
+  const started = Date.now();
+  const timings = [];
+  const mark = (label) => timings.push(label + ' ' + ((Date.now() - started) / 1000).toFixed(1) + 's');
+  const driveStats = {};
+  let adminLogRow = 0;
+  let cleanupReport = '';
   const lock = LockService.getScriptLock();
-  lock.waitLock(10000);
+  lock.waitLock(SUBMIT_LOCK_WAIT_MS);
+  mark('lock');
   try {
     const currentState = readContentState_();
     const normalized = normalizePayload_(payload, currentState);
     const publishedInfo = readPublishedState_();
-    const emptyExhibitionFolders = finalizeManagedFolders_(normalized);
+    mark('read');
+    const emptyExhibitionFolders = finalizeManagedFolders_(normalized, publishedInfo.payload, driveStats);
+    mark('drive (' + Object.keys(driveStats).map((kind) => kind + ' ' + driveStats[kind].processed + '/' + driveStats[kind].total).join(', ') + ')');
     const currentPayloadJson = stableStringify_(buildPublicSnapshot_(normalized));
     const currentHash = sha256Hex_(currentPayloadJson);
     writeStateToSheets_(normalized, session.name || session.email, session.email, true);
+    mark('sheets');
 
     let changeSummary = '内容を更新しました。';
     const publicSnapshot = buildPublicSnapshot_(normalized);
@@ -74,12 +91,26 @@ function publishState(sessionToken, payload) {
       writePublishedState_(currentPayloadJson, currentHash);
     }
 
+    mark('history');
     emptyExhibitionFolders.forEach(trashFolderIfEmpty_);
     clearDrafts_();
+    mark('drafts');
     cleanupUnreferencedDraftFolders_(normalized);
-    appendAdminLog_(session.name || session.email, session.email, 'published', buildAdminDiffSummary_(publishedInfo.payload, publicSnapshot, normalized.manualChangeNote));
+    mark('cleanup');
+    adminLogRow = appendAdminLog_(session.name || session.email, session.email, 'published', buildAdminDiffSummary_(publishedInfo.payload, publicSnapshot, normalized.manualChangeNote));
+    mark('adminlog');
     compactContentSheetGrids_();
+    mark('compact');
     const dispatchInfo = dispatchGithubWorkflow_();
+    mark('github');
+    // The site update has started, so the publish is complete. Cleanup problems must not turn it into an error.
+    try {
+      const trash = getConfig_().CLEANUP_MODE === 'trash';
+      cleanupReport = formatCleanupReport_(collectGarbage_(normalized, { trash, budgetMs: CLEANUP_BUDGET_MS, publishStartedAt: started }), trash);
+    } catch (error) {
+      cleanupReport = '片付けの途中でエラーが起きました（次の公開でやり直します）: ' + (error && error.message ? error.message : error);
+    }
+    mark('gc');
     return {
       ok: true,
       message: '公開を開始しました。',
@@ -88,6 +119,15 @@ function publishState(sessionToken, payload) {
     };
   } finally {
     lock.releaseLock();
+    console.log('publishState timings: ' + timings.join(', '));
+    if (adminLogRow) {
+      try {
+        writeAdminLogCell_(adminLogRow, 'timings', timings.join(', '));
+        if (cleanupReport) writeAdminLogCell_(adminLogRow, 'cleanup', cleanupReport);
+      } catch (error) {
+        console.warn('公開の所要時間や片付けの内容を記録できませんでした', error);
+      }
+    }
   }
 }
 
@@ -769,6 +809,23 @@ function appendAdminLog_(actorName, actorEmail, action, detail) {
     sheet.appendRow(['timestamp', 'actor_name', 'actor_email', 'action', 'detail']);
   }
   sheet.appendRow([isoNow_(), actorName, actorEmail, action, detail]);
+  return sheet.getLastRow();
+}
+
+// Extra columns (timings, cleanup) are added next to the existing ones the first time they are used.
+function writeAdminLogCell_(row, name, text) {
+  const spreadsheet = SpreadsheetApp.openById(getConfig_().CONTENT_SPREADSHEET_ID);
+  const sheet = spreadsheet.getSheetByName(CONTENT_SHEETS.adminLog);
+  if (!sheet) return;
+  const header = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map((value) => String(value || '').trim());
+  let column = header.indexOf(name) + 1;
+  if (!column) {
+    column = header.length + 1;
+    ensureSheetSize_(sheet, row, column);
+    sheet.getRange(1, column, 1, 1).setValues([[name]]);
+  }
+  ensureSheetSize_(sheet, row, column);
+  sheet.getRange(row, column, 1, 1).setValues([[text]]);
 }
 
 function saveDraftRecord_(state, actorName, actorEmail) {

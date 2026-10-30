@@ -72,6 +72,13 @@ test('user-side errors are not sent to the administrator', () => {
   assert.equal(ctx.describeError(new Error('アップロードするファイルを選択してください。'), '画像のアップロード').hint, '');
 });
 
+test('a lock timeout in Japanese also explains that another save or publish was running', () => {
+  const ctx = loadClient();
+  const report = ctx.describeError(new Error('ロックのタイムアウト: 別のプロセスがロックを保持している時間が長すぎました。'), '公開');
+  assert.equal(report.important, false);
+  assert.match(report.hint, /直前に押した操作/);
+});
+
 test('copied report names the operation and never contains the session token', () => {
   const ctx = loadClient();
   vm.runInContext("appState.sessionToken = 'secret-session-token';", ctx);

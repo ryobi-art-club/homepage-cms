@@ -74,6 +74,7 @@
     },
     uploadManagedFiles: (_, request) => {
       if (!request.files || !request.files.length) throw new Error('アップロードするファイルを選択してください。');
+      window.MOCK_BACKEND.lastUpload = request;
       const folderId = request.folderId || nextId('f-new');
       const uploadedFileIds = request.files.map((file) => {
         const id = nextId('upload');
