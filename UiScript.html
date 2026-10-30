@@ -54,6 +54,12 @@ function bindGlobalEvents() {
     event.stopPropagation();
     toggleStatusHistory();
   });
+  /* ステータスを押すと、全文が読める「履歴」を開く（ボタンを押したときは、そのボタンの動きだけにする） */
+  document.getElementById('statusMessage').addEventListener('click', (event) => {
+    if (event.target.closest('button')) return;
+    event.stopPropagation();
+    toggleStatusHistory(true);
+  });
   document.getElementById('statusHistoryPanel').addEventListener('click', (event) => {
     event.stopPropagation();
   });
@@ -161,10 +167,20 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/* ステータスは1行に収めて作業する場所を広く残す。2行目以降や入りきらない分は「…」で省略し、
+   メッセージを押すと開く「履歴」で全文を読む。入力チェックのエラー（直す項目の一覧）だけは複数行のまま出す */
 function renderStatusMessage(message, kind = 'default', report = null) {
   const status = document.getElementById('statusMessage');
   status.textContent = '';
-  appendStatusContent(status, message, report);
+  const text = String(message == null ? '' : message);
+  const lines = text.split('\n');
+  const oneLine = kind !== 'error' && !report;
+  appendStatusContent(status, oneLine ? lines[0] + (lines.length > 1 ? ' …' : '') : text, report);
+  if (oneLine) {
+    const span = status.querySelector('span');
+    span.className = 'status-summary';
+    span.title = text;
+  }
   status.setAttribute('data-kind', kind);
   status.style.color = kind === 'error' ? '#ffd5d5' : (kind === 'success' ? '#0a0a0a' : '');
   status.style.background = kind === 'error' ? 'rgba(243,108,108,0.18)' : (kind === 'success' ? 'rgba(136,196,132,0.92)' : 'rgba(255,255,255,0.04)');
@@ -914,10 +930,12 @@ function buildRecruitPreviewHtml(images) {
   const source = (images || []).slice(0, 10);
   if (!source.length) return '';
   const first = source[0];
+  /* 公開サイトと同じく、枠の縦横比を画像に合わせる（16:9〜4:5） */
+  const fitFrame = ` onload="this.parentElement.style.aspectRatio = Math.min(16 / 9, Math.max(0.8, this.naturalWidth / this.naturalHeight))"`;
   const dots = source.length > 1 ? `<div class="preview-recruit-dots">${source.map((_, index) => `<span class="${index === 0 ? 'is-active' : ''}"></span>`).join('')}</div>` : '';
   return `
     <div class="preview-recruit-carousel">
-      ${mediaImageHtml(first)}
+      ${mediaImageHtml(first, fitFrame)}
       ${dots}
     </div>
   `;
@@ -1166,7 +1184,7 @@ function renderMediaDialog(files) {
 
 function renderMediaUploadBox(role, label, kind) {
   const note = kind === 'recruit'
-    ? '1枚3MB以下を推奨します。カレンダー画像は16:9（横長）で作成してください。'
+    ? '1枚3MB以下を推奨します。横長（16:9）がおすすめですが、正方形や縦長（4:5まで）の画像も切れずに表示されます。'
     : '1枚3MB以下を推奨します。';
   return [
     '<div class="media-upload-box">',
@@ -3318,7 +3336,7 @@ async function publishContent() {
         .catch((error) => console.warn('誤字チェック済みの記録に失敗しました', error));
     }
     await loadBootstrap();
-    setStatus((result.changeSummary ? result.changeSummary + '\n' : '') + '公開処理を完了しました。数分後にサイトに反映されます。', 'success');
+    setStatus('公開処理を完了しました。数分後にサイトに反映されます。' + (result.changeSummary ? '\n' + result.changeSummary : ''), 'success');
     clearDirty();
   } catch (error) {
     showError(error, '公開');
