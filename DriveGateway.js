@@ -175,15 +175,13 @@ function finalizeManagedFolders_(state, previousSnapshot, stats) {
       applyPrivateFolderSharing_(plan.folder);
       if (!plan.folder.getFiles().hasNext() && !plan.folder.getFolders().hasNext()) {
         emptyFolders.push(plan.folder.getId());
-        ['mediaFolderId', 'driveFolderId', 'folderId', 'photoFolderId'].forEach((key) => {
-          if (Object.prototype.hasOwnProperty.call(item, key)) item[key] = '';
-        });
+        item.mediaFolderId = '';
       }
       return;
     }
-    const folder = renameFolderIfPresent_(plan.folder.getId(), plan.kind === 'recruit' ? item.label : item.title, false);
+    const folder = renameFolderIfPresent_(plan.folder.getId(), itemDisplayTitle_(plan.kind, item), false);
     if (!folder) return;
-    if (plan.kind === 'exhibition') renameExhibitionMediaFiles_(folder, item.dmFileIds || [], item.workFiles || item.works || []);
+    if (plan.kind === 'exhibition') renameExhibitionMediaFiles_(folder, item.dmFileIds, item.works);
     setFolderLinkSharing_(folder, plan.kind === 'recruit' ? item.published === true : item.published !== false);
   });
   return emptyFolders;
@@ -191,22 +189,22 @@ function finalizeManagedFolders_(state, previousSnapshot, stats) {
 
 // What decides each item's folder name, sharing and (exhibitions) file placement and names.
 const DRIVE_CHANGE_KEYS_ = {
+  // 新歓のフォルダ名は年度から決まるので、年度（key）が同じなら名前も変わらない
   recruit: {
     key: (item) => String(item.year || ''),
-    signature: (item) => [item.label, item.published === true, item.mediaFolderId || item.folderId || '', registeredMediaIds_('recruit', item)]
+    signature: (item) => [item.published === true, item.mediaFolderId, registeredMediaIds_('recruit', item)]
   },
   activity: {
     key: (item) => String(item.articleId || ''),
-    signature: (item) => [item.title, item.published !== false, item.mediaFolderId || item.photoFolderId || '', registeredMediaIds_('activity', item)]
+    signature: (item) => [item.title, item.published !== false, item.mediaFolderId, registeredMediaIds_('activity', item)]
   },
   request: {
     key: (item) => String(item.caseId || ''),
-    signature: (item) => [item.title, item.published !== false, item.mediaFolderId || item.photoFolderId || '', registeredMediaIds_('request', item)]
+    signature: (item) => [item.title, item.published !== false, item.mediaFolderId, registeredMediaIds_('request', item)]
   },
   exhibition: {
     key: (item) => String(item.exhibitionId || ''),
-    signature: (item) => [item.title, item.published !== false, item.mediaFolderId || item.driveFolderId || '',
-      (item.dmFileIds || []).map(String), serializeWorkFiles_(item.workFiles || item.works || [])]
+    signature: (item) => [item.title, item.published !== false, item.mediaFolderId, item.dmFileIds, item.works]
   }
 };
 
@@ -342,11 +340,9 @@ function buildReferencedFolderIdSet_(state) {
     const value = String(id || '').trim();
     if (value) ids[value] = true;
   }
-  (state.recruitCalendars || []).forEach((item) => add(item.mediaFolderId || item.folderId));
-  add(state.recruitCalendar && (state.recruitCalendar.mediaFolderId || state.recruitCalendar.folderId));
-  (state.activityArticles || []).forEach((item) => add(item.mediaFolderId || item.photoFolderId));
-  (state.exhibitions || []).forEach((item) => add(item.mediaFolderId || item.driveFolderId));
-  (state.requestCases || []).forEach((item) => add(item.mediaFolderId || item.photoFolderId));
+  ['recruitCalendars', 'activityArticles', 'exhibitions', 'requestCases'].forEach((name) => {
+    (state[name] || []).forEach((item) => add(item.mediaFolderId));
+  });
   return ids;
 }
 
@@ -457,15 +453,15 @@ function getExhibitionAuxFolder_(folderId, type, create) {
 // The images an item uses: DM and works for exhibitions, mediaFileIds for the others.
 function registeredMediaIds_(kind, item) {
   const ids = kind === 'exhibition'
-    ? (item.dmFileIds || []).concat((item.workFiles || item.works || []).map((work) => work.fileId || work.file_id))
+    ? (item.dmFileIds || []).concat((item.works || []).map((work) => work.fileId))
     : (item.mediaFileIds || []);
   return ids.map((id) => String(id || '').trim()).filter(Boolean);
 }
 
 const MEDIA_KIND_LABELS_ = { recruit: '新歓カレンダー', activity: '活動記録・告知', exhibition: '展示会', request: '取り組み事例' };
 
-function itemMediaFolderId_(item) {
-  return String(item.mediaFolderId || item.driveFolderId || item.folderId || item.photoFolderId || '').trim();
+function itemDisplayTitle_(kind, item) {
+  return kind === 'recruit' ? recruitCalendarLabel_(item.year) : item.title;
 }
 
 // Items saved before images were registered one by one have no mediaFileIds and use every image in
@@ -491,8 +487,8 @@ function folderImageIdsInOrder_(folder) {
 function buildMediaPlans_(changedItems, previousSnapshot) {
   const seenFolders = new Set();
   return changedItems.map(({ kind, item }) => {
-    const label = MEDIA_KIND_LABELS_[kind] + '「' + (item.title || item.label || '') + '」';
-    const folderId = itemMediaFolderId_(item);
+    const label = MEDIA_KIND_LABELS_[kind] + '「' + (itemDisplayTitle_(kind, item) || '') + '」';
+    const folderId = item.mediaFolderId;
     let keepIds = new Set(registeredMediaIds_(kind, item));
     if (!folderId && !keepIds.size) return null;
     if (!folderId || seenFolders.has(folderId)) {
@@ -619,25 +615,18 @@ function buildUploadFileName_(folder, kind, role, originalName, mimeType) {
   return uniqueFileName_(folder, safeFileName_(originalName));
 }
 
-function renameExhibitionMediaFiles_(folder, dmFileIds, workFiles) {
+// DM は「0_DM_表」「0_DM_裏」、作品は「番号_作品名_作者名」（番号は並び順）
+function renameExhibitionMediaFiles_(folder, dmFileIds, works) {
   const used = {};
-  const dmIds = (dmFileIds || []).map((id) => String(id || '').trim()).filter(Boolean).slice(0, 2);
-  dmIds.forEach((fileId, index) => {
+  (dmFileIds || []).slice(0, 2).forEach((fileId, index) => {
     const file = DriveApp.getFileById(fileId);
     const ext = extensionFromNameOrMime_(file.getName(), file.getMimeType());
-    const label = index === 0 ? '表' : '裏';
-    renameFileUniquely_(folder, file, '0_DM_' + label + ext, used);
+    renameFileUniquely_(folder, file, '0_DM_' + (index === 0 ? '表' : '裏') + ext, used);
   });
-
-  (workFiles || []).filter(Boolean).sort((a, b) => Number(a.sortOrder || a.sort_order || 9999) - Number(b.sortOrder || b.sort_order || 9999)).forEach((work, index) => {
-    const fileId = String(work.fileId || work.file_id || '').trim();
-    if (!fileId) return;
-    const file = DriveApp.getFileById(fileId);
+  (works || []).forEach((work, index) => {
+    const file = DriveApp.getFileById(work.fileId);
     const ext = extensionFromNameOrMime_(file.getName(), file.getMimeType());
-    const order = Number(work.sortOrder || work.sort_order || index + 1) || index + 1;
-    const title = String(work.title || work.workTitle || '作品').trim() || '作品';
-    const artist = String(work.artist || work.artistName || '作者未設定').trim() || '作者未設定';
-    renameFileUniquely_(folder, file, order + '_' + title + '_' + artist + ext, used);
+    renameFileUniquely_(folder, file, (index + 1) + '_' + (work.title || '作品') + '_' + (work.artist || '作者未設定') + ext, used);
   });
 }
 
@@ -820,9 +809,10 @@ function buildStorageRecommendations_(state, storage) {
     });
   }
 
-  (state.exhibitions || []).forEach((item) => push('exhibition', '展示会', item.title, item.startDate, item.mediaFolderId || item.driveFolderId, item.published));
-  (state.activityArticles || []).forEach((item) => push('activity', '活動記録・告知', item.title, item.createdAt, item.mediaFolderId || item.photoFolderId, item.published));
-  (state.requestCases || []).forEach((item) => push('request', '取り組み事例', item.title, item.updatedAt, item.mediaFolderId || item.photoFolderId, item.published));
+  (state.exhibitions || []).forEach((item) => push('exhibition', '展示会', item.title, item.startDate, item.mediaFolderId, item.published));
+  (state.activityArticles || []).forEach((item) => push('activity', '活動記録・告知', item.title, item.createdAt, item.mediaFolderId, item.published));
+  // ご依頼事例には日付がないので、日付のある項目のあとに並ぶ
+  (state.requestCases || []).forEach((item) => push('request', '取り組み事例', item.title, '', item.mediaFolderId, item.published));
 
   items.sort((a, b) => {
     return String(a.date || '9999').localeCompare(String(b.date || '9999'));

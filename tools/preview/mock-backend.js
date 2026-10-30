@@ -61,7 +61,7 @@
     publishState: (_, payload) => {
       const summary = '[プレビュー] 公開内容を更新';
       data.bootstrap.state = Object.assign({}, data.bootstrap.state, clone(payload));
-      data.bootstrap.state.changeLog = [{ timestamp: new Date().toISOString(), summary, actorName: data.bootstrap.viewerName, revision: '' }].concat(data.bootstrap.state.changeLog || []);
+      data.bootstrap.state.changeLog = [{ timestamp: new Date().toISOString(), summary, actorName: data.bootstrap.viewerName }].concat(data.bootstrap.state.changeLog || []);
       data.bootstrap.drafts = [];
       /* published items' folders become viewable by link, like the real publish */
       const state = data.bootstrap.state;
@@ -72,7 +72,7 @@
         data.folders[item.mediaFolderId] = data.folders[item.mediaFolderId].filter((file) => file.kind !== 'image' || keep.has(file.id));
         data.folders[item.mediaFolderId].forEach((file) => { file.staged = false; });
       };
-      (state.exhibitions || []).forEach((item) => reconcile(item, (item.dmFileIds || []).concat((item.workFiles || []).map((work) => work.fileId))));
+      (state.exhibitions || []).forEach((item) => reconcile(item, (item.dmFileIds || []).concat((item.works || []).map((work) => work.fileId))));
       (state.recruitCalendars || []).concat(state.activityArticles || [], state.requestCases || []).forEach((item) => reconcile(item, item.mediaFileIds));
       publicFolders.clear();
       (state.exhibitions || []).concat(state.activityArticles || [], state.requestCases || []).filter((item) => item.published !== false)

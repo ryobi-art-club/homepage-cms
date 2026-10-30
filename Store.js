@@ -1,13 +1,15 @@
 function getBootstrapData(sessionToken) {
   const session = requireSession_(sessionToken);
-  const state = fillUnregisteredMediaIds_(readContentState_());
+  // Reading the sheets one by one took about 7 of the 8 seconds of opening the CMS (measured 2026-10-31)
+  const source = prefetchSheets_([CONTENT_SHEETS.publishedState, CONTENT_SHEETS.changeLog, CONTENT_SHEETS.drafts, CONTENT_SHEETS.adminLog]);
+  const state = fillUnregisteredMediaIds_(readContentState_(source));
   return sanitizeForClient_({
     viewerEmail: session.email,
     viewerName: session.name || session.email,
     previewUrl: getConfig_().SITE_PREVIEW_URL,
     state: state,
-    drafts: readDrafts_(),
-    adminLog: readAdminLog_(),
+    drafts: readDrafts_(source),
+    adminLog: readAdminLog_(source),
     maintenance: getDriveMaintenanceSummary_(state)
   });
 }
@@ -24,11 +26,7 @@ function saveDraft(sessionToken, payload) {
   try {
     const normalized = normalizePayload_(payload, readContentState_(), { allowIncomplete: true });
     saveDraftRecord_(normalized, session.name || session.email, session.email);
-    return {
-      ok: true,
-      message: '下書きを保存しました。',
-      summary: buildHumanSummary_(normalized)
-    };
+    return { ok: true, message: '下書きを保存しました。' };
   } finally {
     lock.releaseLock();
   }
@@ -73,19 +71,20 @@ function publishState(sessionToken, payload) {
     mark('drive (' + Object.keys(driveStats).map((kind) => kind + ' ' + driveStats[kind].processed + '/' + driveStats[kind].total).join(', ') + ')');
     const currentPayloadJson = stableStringify_(buildPublicSnapshot_(normalized));
     const currentHash = sha256Hex_(currentPayloadJson);
-    writeStateToSheets_(normalized, session.name || session.email, session.email, true);
-    mark('sheets');
 
+    // _PublishedState is where the content is kept, so it is written first. If the change log fails after
+    // it, a retry finds nothing changed: the site is right and only that history line is missing.
     let changeSummary = '内容を更新しました。';
     const publicSnapshot = buildPublicSnapshot_(normalized);
     if (publishedInfo.sha256 !== currentHash) {
+      writePublishedState_(currentPayloadJson, currentHash);
+      mark('sheets');
       syncChangeLogTitles_(publishedInfo.payload, publicSnapshot);
       const summarized = summarizeChange_(publishedInfo.payload, publicSnapshot, normalized.manualChangeNote);
       if (summarized) {
         changeSummary = summarized;
-        appendChangeLog_(session.name || session.email, session.email, changeSummary);
+        appendChangeLog_(session.name || session.email, changeSummary);
       }
-      writePublishedState_(currentPayloadJson, currentHash);
     }
 
     mark('history');
@@ -97,6 +96,8 @@ function publishState(sessionToken, payload) {
     adminLogRow = appendAdminLog_(session.name || session.email, session.email, 'published', buildAdminDiffSummary_(publishedInfo.payload, publicSnapshot, normalized.manualChangeNote));
     mark('adminlog');
     compactContentSheetGrids_();
+    // the site build reads _PublishedState and ChangeLog
+    SpreadsheetApp.flush();
     mark('compact');
     const dispatchInfo = dispatchGithubWorkflow_();
     mark('github');
@@ -134,18 +135,15 @@ function normalizeIsoDate_(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : '';
 }
 
-function readContentState_() {
-  const spreadsheet = SpreadsheetApp.openById(getConfig_().CONTENT_SPREADSHEET_ID);
-  const recruitCalendars = readRecruitCalendars_(spreadsheet);
-  return {
-    recruitCalendars: recruitCalendars,
-    recruitCalendar: getPublishedRecruitCalendar_(recruitCalendars),
-    activityArticles: readActivityArticles_(spreadsheet),
-    exhibitions: readExhibitions_(spreadsheet),
-    requestCases: readRequestCases_(spreadsheet),
+// 内容は _PublishedState の1か所にある（README「8-4」）。読めないときは readPayloadCells_ がエラーで止め、
+// 空の内容を出さない（そのまま公開してサイトを空にしないため）
+// spreadsheet は省略できる。prefetchSheets_ の結果も渡せる
+function readContentState_(spreadsheet) {
+  spreadsheet = spreadsheet || SpreadsheetApp.openById(getConfig_().CONTENT_SPREADSHEET_ID);
+  return Object.assign(contentLists_(readPublishedState_(spreadsheet).payload), {
     changeLog: readChangeLog_(spreadsheet),
     manualChangeNote: ''
-  };
+  });
 }
 
 function loadDraft(sessionToken, draftId) {
@@ -153,7 +151,7 @@ function loadDraft(sessionToken, draftId) {
   const drafts = readDrafts_();
   const match = drafts.find((item) => item.draftId === draftId);
   if (!match) throw new Error('指定した下書きが見つかりません。');
-  return fillUnregisteredMediaIds_(match.payload);
+  return fillUnregisteredMediaIds_(Object.assign(contentLists_(match.payload), { manualChangeNote: match.payload.manualChangeNote || '' }));
 }
 
 // The CMS shows and publishes only registered images (mediaFileIds). Items saved before images were
@@ -162,10 +160,9 @@ function loadDraft(sessionToken, draftId) {
 function fillUnregisteredMediaIds_(state) {
   [['recruit', state.recruitCalendars], ['activity', state.activityArticles], ['request', state.requestCases]].forEach(([kind, items]) => {
     (items || []).forEach((item) => {
-      const folderId = itemMediaFolderId_(item);
-      if (!folderId || registeredMediaIds_(kind, item).length) return;
+      if (!item.mediaFolderId || registeredMediaIds_(kind, item).length) return;
       try {
-        item.mediaFileIds = folderImageIdsInOrder_(getDriveFolderWithRetry_(folderId, '素材フォルダ取得'));
+        item.mediaFileIds = folderImageIdsInOrder_(getDriveFolderWithRetry_(item.mediaFolderId, '素材フォルダ取得'));
       } catch (error) {
         console.warn('画像の一覧を補えませんでした', error);
       }
@@ -175,82 +172,95 @@ function fillUnregisteredMediaIds_(state) {
 }
 
 
+// 保存する内容の形（版2）。管理画面とサイトのビルドの約束なので、項目を変えるときは
+// homepage の fetch_google_content.py と、両方の README も直す
+const CONTENT_FORMAT_VERSION = 2;
+const CONTENT_FIELDS = {
+  recruitCalendars: ['year', 'mediaFolderId', 'mediaFileIds', 'published'],
+  activityArticles: ['articleId', 'title', 'category', 'body', 'mediaFolderId', 'mediaFileIds', 'published', 'createdAt'],
+  exhibitions: ['exhibitionId', 'title', 'subtitle', 'theme', 'venueName', 'venueAddress', 'dateLine', 'timeLine',
+    'displayBucket', 'mediaFolderId', 'dmFileIds', 'works', 'published', 'startDate', 'endDate'],
+  requestCases: ['caseId', 'title', 'body', 'mediaFolderId', 'mediaFileIds', 'published']
+};
+
+function contentLists_(content) {
+  const lists = {};
+  Object.keys(CONTENT_FIELDS).forEach((name) => lists[name] = (content && content[name]) || []);
+  return lists;
+}
+
+function pickFields_(item, fields) {
+  const out = {};
+  fields.forEach((field) => out[field] = item[field]);
+  return out;
+}
+
+// 版1（formatVersion がない、2026年10月までの形）を版2に直す。古い形を読む処理はここだけに置く。
+// 版2で最初に公開したあとは版1のデータが残らないので、そのあと消す（設計書 段階3）
+function upgradeContent_(content) {
+  if (!content || content.formatVersion === CONTENT_FORMAT_VERSION) return content;
+  const folderOf = (item) => item.mediaFolderId || item.driveFolderId || item.photoFolderId || item.folderId || '';
+  const withFolder = (item) => Object.assign({}, item, { mediaFolderId: folderOf(item) });
+  const inStoredOrder = (items) => (items || [])
+    .map((item, index) => ({ item, index, order: Number(item.sortOrder || item.sort_order) || Number.MAX_SAFE_INTEGER }))
+    .sort((a, b) => a.order - b.order || a.index - b.index)
+    .map((entry) => entry.item);
+  return Object.assign({}, content, {
+    formatVersion: CONTENT_FORMAT_VERSION,
+    recruitCalendars: (content.recruitCalendars || []).map(withFolder),
+    activityArticles: (content.activityArticles || []).map(withFolder),
+    exhibitions: (content.exhibitions || []).map((item) => Object.assign(withFolder(item), {
+      works: inStoredOrder(item.workFiles || item.works).map((work) => ({
+        fileId: work.fileId || work.file_id || '',
+        title: work.title || work.workTitle || '',
+        artist: work.artist || work.artistName || ''
+      }))
+    })),
+    requestCases: inStoredOrder(content.requestCases).map(withFolder)
+  });
+}
+
 function normalizePayload_(payload, existingState, options) {
   options = options || {};
   if (!payload || typeof payload !== 'object') throw new Error('入力データが不正です。');
-  const recruitCalendars = normalizeRecruitCalendars_(
-    payload.recruitCalendars || (payload.recruitCalendar ? [payload.recruitCalendar] : []),
-    existingState.recruitCalendars || []
-  );
-  const normalized = {
-    recruitCalendars: recruitCalendars,
-    recruitCalendar: getPublishedRecruitCalendar_(recruitCalendars),
+  // 古い画面を開いたままの人が送った内容も受け付ける
+  payload = upgradeContent_(payload);
+  return {
+    recruitCalendars: normalizeRecruitCalendars_(payload.recruitCalendars),
     activityArticles: normalizeActivityArticles_(payload.activityArticles, existingState.activityArticles || [], options),
     exhibitions: normalizeExhibitions_(payload.exhibitions, existingState.exhibitions || [], options),
     requestCases: normalizeRequestCases_(payload.requestCases, options),
     changeLog: existingState.changeLog || [],
     manualChangeNote: cleanMultiline_(payload.manualChangeNote, 500)
   };
-  validateBusinessRules_(normalized);
-  return normalized;
 }
 
-function normalizeRecruitCalendars_(items, existingItems) {
-  const rows = (items || []).filter(Boolean).map((item) => {
-    const year = String(item.year || '').replace(/[^\d]/g, '').slice(0, 4);
-    const mediaFolderId = String(item.mediaFolderId || item.folderId || '').trim();
-    const mediaFileIds = normalizeStringList_(item.mediaFileIds || item.fileIds);
-    return {
-      year: year,
-      mediaFolderId: mediaFolderId,
-      folderId: mediaFolderId,
-      mediaFileIds: mediaFileIds,
-      label: year ? year + '年度 新歓イベントカレンダー' : String(item.label || '').trim(),
-      published: item.published === false ? false : parseBool_(item.published, true),
-      updatedAt: isoNow_()
-    };
-  }).filter((item) => item.year || item.mediaFolderId || item.mediaFileIds.length);
-
-  if (!rows.length) {
-    const year = String(new Date().getFullYear());
-    rows.push({
-      year: year,
-      mediaFolderId: '',
-      folderId: '',
-      mediaFileIds: [],
-      label: year + '年度 新歓イベントカレンダー',
-      published: true,
-      updatedAt: isoNow_()
-    });
+function normalizeRecruitCalendars_(items) {
+  const calendars = (items || []).filter(Boolean).map((item) => ({
+    year: String(item.year || '').replace(/[^\d]/g, '').slice(0, 4),
+    mediaFolderId: String(item.mediaFolderId || '').trim(),
+    mediaFileIds: normalizeStringList_(item.mediaFileIds),
+    published: parseBool_(item.published, true)
+  })).filter((item) => item.year || item.mediaFolderId || item.mediaFileIds.length);
+  if (!calendars.length) {
+    calendars.push({ year: String(new Date().getFullYear()), mediaFolderId: '', mediaFileIds: [], published: true });
   }
-
+  // 公開するのは1年度だけ
   let publishedSeen = false;
-  rows.forEach((item) => {
-    if (item.published && !publishedSeen) {
-      publishedSeen = true;
-    } else {
-      item.published = false;
-    }
+  calendars.forEach((item) => {
+    item.published = item.published && !publishedSeen;
+    publishedSeen = publishedSeen || item.published;
   });
-  if (!publishedSeen) rows[0].published = true;
-
-  return rows.sort((a, b) => String(b.year || '').localeCompare(String(a.year || '')));
+  if (!publishedSeen) calendars[0].published = true;
+  return calendars.sort((a, b) => String(b.year).localeCompare(String(a.year)));
 }
 
-function getPublishedRecruitCalendar_(items) {
-  const list = (items || []).slice();
-  const selected = list.find((item) => item.published !== false) || list[0] || {};
-  const year = String(selected.year || '').trim();
-  const mediaFolderId = String(selected.mediaFolderId || selected.folderId || '').trim();
-  return {
-    year: year,
-    mediaFolderId: mediaFolderId,
-    folderId: mediaFolderId,
-    mediaFileIds: normalizeStringList_(selected.mediaFileIds || []),
-    label: year ? year + '年度 新歓イベントカレンダー' : String(selected.label || '新歓イベントカレンダー').trim(),
-    published: selected.published !== false,
-    updatedAt: selected.updatedAt || ''
-  };
+function publishedRecruitCalendar_(calendars) {
+  return (calendars || []).find((item) => item.published === true) || null;
+}
+
+function recruitCalendarLabel_(year) {
+  return year ? year + '年度 新歓イベントカレンダー' : '新歓イベントカレンダー';
 }
 
 function normalizeStringList_(value) {
@@ -284,12 +294,10 @@ function normalizeActivityArticles_(items, existingItems, options) {
       title: requiredOrDraft_(item.title, '活動記事タイトル', 120, options),
       body: cleanMultiline_(item.body, 4000),
       category: requireActivityCategory_(item.category),
-      mediaFolderId: String(item.mediaFolderId || item.photoFolderId || '').trim(),
-      photoFolderId: String(item.mediaFolderId || item.photoFolderId || '').trim(),
-      mediaFileIds: normalizeStringList_(item.mediaFileIds || item.fileIds),
-      published: item.published === false ? false : parseBool_(item.published, true),
-      createdAt: existing ? existing.createdAt : isoNow_(),
-      updatedAt: isoNow_()
+      mediaFolderId: String(item.mediaFolderId || '').trim(),
+      mediaFileIds: normalizeStringList_(item.mediaFileIds),
+      published: parseBool_(item.published, true),
+      createdAt: existing ? existing.createdAt : isoNow_()
     };
   }).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
 }
@@ -299,9 +307,6 @@ function normalizeExhibitions_(items, existingItems, options) {
   (existingItems || []).forEach((item) => existingById[item.exhibitionId] = item);
   return (items || []).filter(Boolean).map((item) => {
     const exhibitionId = String(item.exhibitionId || '').trim() || 'exhibition-' + Utilities.getUuid().slice(0, 8);
-    const folderId = String(item.mediaFolderId || item.driveFolderId || '').trim();
-    const dmFileIds = normalizeStringList_(item.dmFileIds || item.dm_file_ids).slice(0, 2);
-    const works = normalizeExhibitionWorkFiles_(item.workFiles || item.works);
     return {
       exhibitionId: exhibitionId,
       title: requiredOrDraft_(item.title, '展示会名', 140, options),
@@ -312,51 +317,36 @@ function normalizeExhibitions_(items, existingItems, options) {
       venueAddress: cleanMultiline_(item.venueAddress, 240),
       dateLine: optionalSingleLine_(item.dateLine, 180),
       timeLine: optionalSingleLine_(item.timeLine, 220),
-      mapEmbedUrl: String(item.mapEmbedUrl || '').trim(),
       displayBucket: requireDisplayBucket_(item.displayBucket),
-      mediaFolderId: folderId,
-      driveFolderId: folderId,
-      dmFileIds: dmFileIds,
-      published: item.published === false ? false : parseBool_(item.published, true),
+      mediaFolderId: String(item.mediaFolderId || '').trim(),
+      dmFileIds: normalizeStringList_(item.dmFileIds).slice(0, 2),
+      published: parseBool_(item.published, true),
       startDate: String(item.startDate || '').trim(),
       endDate: normalizeIsoDate_(item.endDate),
+      // 日付のない下書きを並べるためだけに使う。公開する内容には含めない
       draftCreatedAt: String(item.draftCreatedAt || (existingById[exhibitionId] && existingById[exhibitionId].draftCreatedAt) || isoNow_()),
-      updatedAt: isoNow_(),
-      workFiles: works,
-      works: works
+      works: normalizeWorks_(item.works)
     };
   }).sort(compareExhibitions_);
 }
 
 function normalizeRequestCases_(items, options) {
-  return (items || []).filter(Boolean).map((item, index) => ({
+  return (items || []).filter(Boolean).map((item) => ({
     caseId: String(item.caseId || '').trim() || 'request-' + Utilities.getUuid().slice(0, 8),
     title: requiredOrDraft_(item.title, '事例タイトル', 120, options),
     body: cleanMultiline_(item.body, 4000),
-    mediaFolderId: String(item.mediaFolderId || item.photoFolderId || '').trim(),
-    photoFolderId: String(item.mediaFolderId || item.photoFolderId || '').trim(),
-    mediaFileIds: normalizeStringList_(item.mediaFileIds || item.fileIds),
-    sortOrder: index + 1,
-    published: item.published === false ? false : parseBool_(item.published, true),
-    updatedAt: isoNow_()
+    mediaFolderId: String(item.mediaFolderId || '').trim(),
+    mediaFileIds: normalizeStringList_(item.mediaFileIds),
+    published: parseBool_(item.published, true)
   }));
 }
 
-function normalizeExhibitionWorkFiles_(items) {
-  return (items || []).filter(Boolean).slice(0, 200).map((work, idx) => {
-    const fileId = String(work.fileId || work.file_id || '').trim();
-    const title = cleanMultiline_(work.title || work.workTitle, 140);
-    const artist = cleanMultiline_(work.artist || work.artistName, 120);
-    return {
-      fileId: fileId,
-      file_id: fileId,
-      sortOrder: Number(work.sortOrder || work.sort_order || idx + 1),
-      title: title,
-      artist: artist,
-      workTitle: title,
-      artistName: artist
-    };
-  }).filter((work) => work.fileId);
+function normalizeWorks_(items) {
+  return (items || []).filter(Boolean).slice(0, 200).map((work) => ({
+    fileId: String(work.fileId || '').trim(),
+    title: cleanMultiline_(work.title, 140),
+    artist: cleanMultiline_(work.artist, 120)
+  })).filter((work) => work.fileId);
 }
 
 
@@ -400,45 +390,6 @@ function requireDisplayBucket_(value) {
   return normalized;
 }
 
-function validateBusinessRules_(state) {
-}
-
-function writeStateToSheets_(state, actorName, actorEmail, touchPublishState) {
-  const spreadsheet = SpreadsheetApp.openById(getConfig_().CONTENT_SPREADSHEET_ID);
-  const tables = [];
-  function collect(sheetName, values) { tables.push({ sheetName, values }); }
-  collect(CONTENT_SHEETS.recruit, [
-    ['year', 'media_folder_id', 'media_file_ids', 'published', 'updated_at']
-  ].concat((state.recruitCalendars || []).map((item) => [
-    item.year, item.mediaFolderId, JSON.stringify(item.mediaFileIds || []), item.published ? 'TRUE' : 'FALSE', item.updatedAt || isoNow_()
-  ])));
-
-  collect(CONTENT_SHEETS.activityArticles, [
-    ['article_id', 'title', 'category', 'body', 'media_folder_id', 'media_file_ids', 'published', 'created_at', 'updated_at']
-  ].concat(state.activityArticles.map((item) => [
-    item.articleId, item.title, item.category, item.body, item.mediaFolderId, JSON.stringify(item.mediaFileIds || []), item.published ? 'TRUE' : 'FALSE', item.createdAt, item.updatedAt
-  ])));
-
-  collect(CONTENT_SHEETS.exhibitions, [
-    ['exhibition_id', 'title', 'subtitle', 'theme', 'venue_name', 'venue_address', 'date_line', 'time_line', 'map_embed_url', 'display_bucket', 'media_folder_id', 'dm_file_ids', 'work_files', 'published', 'start_date', 'updated_at', 'end_date']
-  ].concat(state.exhibitions.map((item) => [
-    item.exhibitionId, item.title, item.subtitle || '', item.theme, item.venueName, item.venueAddress, item.dateLine, item.timeLine, item.mapEmbedUrl,
-    item.displayBucket, item.mediaFolderId, JSON.stringify(item.dmFileIds || []), JSON.stringify(serializeWorkFiles_(item.workFiles || item.works || [])), item.published ? 'TRUE' : 'FALSE', item.startDate, item.updatedAt, item.endDate || ''
-  ])));
-
-  collect(CONTENT_SHEETS.requestCases, [
-    ['case_id', 'title', 'body', 'media_folder_id', 'media_file_ids', 'sort_order', 'published', 'updated_at']
-  ].concat(state.requestCases.map((item) => [
-    item.caseId, item.title, item.body, item.mediaFolderId, JSON.stringify(item.mediaFileIds || []), String(item.sortOrder), item.published ? 'TRUE' : 'FALSE', item.updatedAt
-  ])));
-
-  tables.forEach((table) => validateSheetCellLengths_(table.sheetName, table.values));
-  tables.forEach((table) => writeSheet_(spreadsheet, table.sheetName, table.values));
-  if (touchPublishState) {
-    SpreadsheetApp.flush();
-  }
-}
-
 function writeSheet_(spreadsheet, sheetName, values) {
   validateSheetCellLengths_(sheetName, values);
   let sheet = spreadsheet.getSheetByName(sheetName);
@@ -480,99 +431,22 @@ function compactContentSheetGrids_() {
   });
 }
 
-function readRecruitCalendars_(spreadsheet) {
-  const rows = readSheetObjects_(spreadsheet, CONTENT_SHEETS.recruit);
-  if (!rows.length) return normalizeRecruitCalendars_([], []);
-  return rows.map((row) => {
-    const year = String(row.year || '').replace(/[^\d]/g, '').slice(0, 4);
-    const mediaFolderId = String(row.media_folder_id || row.recruit_calendar_folder_id || '');
-    return {
-      year: year,
-      mediaFolderId: mediaFolderId,
-      folderId: mediaFolderId,
-      mediaFileIds: normalizeStringList_(row.media_file_ids),
-      label: year ? year + '年度 新歓イベントカレンダー' : String(row.recruit_calendar_label || '新歓イベントカレンダー'),
-      published: parseBool_(row.published, true),
-      updatedAt: row.updated_at
-    };
-  }).sort((a, b) => String(b.year || '').localeCompare(String(a.year || '')));
-}
-
-function readActivityArticles_(spreadsheet) {
-  return readSheetObjects_(spreadsheet, CONTENT_SHEETS.activityArticles).map((row) => ({
-    articleId: row.article_id,
-    title: row.title,
-    category: row.category || 'record',
-    body: row.body,
-    mediaFolderId: row.media_folder_id || row.photo_folder_id,
-    photoFolderId: row.media_folder_id || row.photo_folder_id,
-    mediaFileIds: normalizeStringList_(row.media_file_ids),
-    published: parseBool_(row.published, true),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at
-  }));
-}
-
-function readExhibitions_(spreadsheet) {
-  return readSheetObjects_(spreadsheet, CONTENT_SHEETS.exhibitions).map((row) => {
-    const works = normalizeExhibitionWorkFiles_(parseJson_(row.work_files, [])).sort((a, b) => a.sortOrder - b.sortOrder);
-    return {
-      exhibitionId: row.exhibition_id,
-      title: row.title,
-      subtitle: row.subtitle,
-      theme: row.theme,
-      venueName: row.venue_name,
-      venueAddress: row.venue_address,
-      dateLine: row.date_line,
-      timeLine: row.time_line,
-      mapEmbedUrl: row.map_embed_url,
-      displayBucket: row.display_bucket,
-      mediaFolderId: row.media_folder_id || row.drive_folder_id,
-      driveFolderId: row.media_folder_id || row.drive_folder_id,
-      dmFileIds: normalizeStringList_(row.dm_file_ids),
-      published: parseBool_(row.published, true),
-      startDate: row.start_date,
-      endDate: normalizeIsoDate_(row.end_date),
-      workFiles: works,
-      works: works
-    };
-  }).sort(compareExhibitions_);
-}
-
-function readRequestCases_(spreadsheet) {
-  return readSheetObjects_(spreadsheet, CONTENT_SHEETS.requestCases)
-    .map((row) => ({
-      caseId: row.case_id,
-      title: row.title,
-      body: row.body,
-      mediaFolderId: row.media_folder_id || row.photo_folder_id,
-      photoFolderId: row.media_folder_id || row.photo_folder_id,
-      mediaFileIds: normalizeStringList_(row.media_file_ids),
-      sortOrder: Number(row.sort_order || 9999),
-      published: parseBool_(row.published, true),
-      updatedAt: row.updated_at
-    }))
-    .sort((a, b) => a.sortOrder - b.sortOrder);
-}
-
 function readChangeLog_(spreadsheet) {
   return readSheetObjects_(spreadsheet, CONTENT_SHEETS.changeLog)
     .map((row) => ({
       timestamp: row.timestamp,
       summary: row.summary,
-      actorName: row.actor_name || '',
-      actorEmailInput: row.actor_email_input,
-      revision: row.revision
+      actorName: row.actor_name || ''
     }))
     .sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)));
 }
 
-function readPublishedState_() {
-  const spreadsheet = SpreadsheetApp.openById(getConfig_().CONTENT_SPREADSHEET_ID);
+function readPublishedState_(spreadsheet) {
+  spreadsheet = spreadsheet || SpreadsheetApp.openById(getConfig_().CONTENT_SPREADSHEET_ID);
   const rows = readSheetObjects_(spreadsheet, CONTENT_SHEETS.publishedState);
   const row = rows[0] || {};
   return {
-    payload: restoreStoredPayload_(readPayloadCells_(row), false),
+    payload: buildPublicSnapshot_(upgradeContent_(readPayloadCells_(row))),
     sha256: String(row.sha256 || ''),
     revision: Number(row.revision || 0)
   };
@@ -581,7 +455,7 @@ function readPublishedState_() {
 function writePublishedState_(payloadJson, sha256) {
   const spreadsheet = SpreadsheetApp.openById(getConfig_().CONTENT_SPREADSHEET_ID);
   const current = readPublishedState_();
-  const cells = buildPayloadCells_(JSON.parse(payloadJson));
+  const cells = buildPayloadCells_(payloadJson);
   writeSheet_(spreadsheet, CONTENT_SHEETS.publishedState, [
     ['updated_at', 'revision', 'sha256'].concat(payloadCellHeaders_(cells.length)),
     [isoNow_(), String(current.revision + 1), sha256].concat(cells)
@@ -589,14 +463,14 @@ function writePublishedState_(payloadJson, sha256) {
 }
 
 
-function appendChangeLog_(actorName, actorEmail, summary) {
+// The site build reads ChangeLog, so it holds no e-mail addresses (they are in _AdminLog). The whole sheet
+// is rewritten, which also drops the columns earlier versions had (actor_email_input, revision).
+function appendChangeLog_(actorName, summary) {
   const spreadsheet = SpreadsheetApp.openById(getConfig_().CONTENT_SPREADSHEET_ID);
-  const sheet = spreadsheet.getSheetByName(CONTENT_SHEETS.changeLog) || spreadsheet.insertSheet(CONTENT_SHEETS.changeLog);
-  if (sheet.getLastRow() === 0) {
-    sheet.appendRow(['timestamp', 'summary', 'actor_name', 'actor_email_input', 'revision']);
-  }
-  const published = readPublishedState_();
-  sheet.appendRow([isoNow_(), summary, actorName, actorEmail, String(published.revision + 1)]);
+  const rows = readSheetObjects_(spreadsheet, CONTENT_SHEETS.changeLog)
+    .map((row) => [row.timestamp, row.summary, row.actor_name || '']);
+  rows.push([isoNow_(), summary, actorName]);
+  writeSheet_(spreadsheet, CONTENT_SHEETS.changeLog, [['timestamp', 'summary', 'actor_name']].concat(rows));
 }
 
 function syncChangeLogTitles_(beforeSnapshot, afterSnapshot) {
@@ -844,7 +718,7 @@ function writeAdminLogCell_(row, name, text) {
 }
 
 function saveDraftRecord_(state, actorName, actorEmail) {
-  const cells = buildPayloadCells_(state);
+  const cells = buildPayloadCells_(stableStringify_(buildDraftPayload_(state)));
   const header = ['draft_id', 'saved_at', 'saved_by_name', 'saved_by_email'].concat(payloadCellHeaders_(cells.length));
   const values = [Utilities.getUuid(), isoNow_(), actorName, actorEmail].concat(cells);
   validateSheetCellLengths_(CONTENT_SHEETS.drafts, [header, values]);
@@ -861,14 +735,14 @@ function saveDraftRecord_(state, actorName, actorEmail) {
   }
 }
 
-function readDrafts_() {
-  const spreadsheet = SpreadsheetApp.openById(getConfig_().CONTENT_SPREADSHEET_ID);
+function readDrafts_(spreadsheet) {
+  spreadsheet = spreadsheet || SpreadsheetApp.openById(getConfig_().CONTENT_SPREADSHEET_ID);
   return readSheetObjects_(spreadsheet, CONTENT_SHEETS.drafts).filter((row) => row.draft_id && row.payload_json).map((row) => ({
     draftId: row.draft_id,
     savedAt: row.saved_at,
     savedByName: row.saved_by_name,
     savedByEmail: row.saved_by_email,
-    payload: restoreStoredPayload_(readPayloadCells_(row), true)
+    payload: buildDraftPayload_(upgradeContent_(readPayloadCells_(row)))
   })).sort((a, b) => String(b.savedAt).localeCompare(String(a.savedAt)));
 }
 
@@ -881,8 +755,8 @@ function clearDrafts_() {
   ]);
 }
 
-function readAdminLog_() {
-  const spreadsheet = SpreadsheetApp.openById(getConfig_().CONTENT_SPREADSHEET_ID);
+function readAdminLog_(spreadsheet) {
+  spreadsheet = spreadsheet || SpreadsheetApp.openById(getConfig_().CONTENT_SPREADSHEET_ID);
   return readSheetObjects_(spreadsheet, CONTENT_SHEETS.adminLog).map((row) => ({
     timestamp: row.timestamp,
     actorName: row.actor_name,
@@ -893,9 +767,53 @@ function readAdminLog_() {
 }
 
 function readSheetObjects_(spreadsheet, sheetName) {
+  if (spreadsheet.prefetchedRows) return (spreadsheet.prefetchedRows[sheetName] || []).map((row) => Object.assign({}, row));
   const sheet = spreadsheet.getSheetByName(sheetName);
   if (!sheet || sheet.getLastRow() === 0 || sheet.getLastColumn() === 0) return [];
-  const values = sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn()).getValues();
+  return sheetValuesToObjects_(sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn()).getValues(), normalizeSheetCellValue_);
+}
+
+// Reads whole sheets of the content spreadsheet with one request of the Sheets advanced service
+// (appsscript.json). SpreadsheetApp needs about four calls per sheet. Returns an object that the read
+// functions accept in place of the spreadsheet. If the request fails (a sheet is missing, the service is
+// not enabled), the spreadsheet is returned and the sheets are read one by one as before.
+// Calling the Sheets API through UrlFetchApp did not work (2026-10-31): the API is not enabled in the
+// script's default Cloud project, and only an advanced service enables it there.
+function prefetchSheets_(sheetNames) {
+  const spreadsheetId = getConfig_().CONTENT_SPREADSHEET_ID;
+  try {
+    // Content cells are stored as plain text; UNFORMATTED_VALUE returns them, numbers and booleans as
+    // getValues() does. Cells that are dates come back as their displayed text (see normalizeFetchedCellValue_)
+    const response = Sheets.Spreadsheets.Values.batchGet(spreadsheetId, {
+      ranges: sheetNames.map((name) => "'" + name.replace(/'/g, "''") + "'"),
+      valueRenderOption: 'UNFORMATTED_VALUE',
+      dateTimeRenderOption: 'FORMATTED_STRING'
+    });
+    const valueRanges = (response && response.valueRanges) || [];
+    if (valueRanges.length !== sheetNames.length) throw new Error('unexpected number of ranges: ' + valueRanges.length);
+    const prefetchedRows = {};
+    sheetNames.forEach((name, index) => {
+      prefetchedRows[name] = sheetValuesToObjects_(valueRanges[index].values || [], normalizeFetchedCellValue_);
+    });
+    return { prefetchedRows };
+  } catch (error) {
+    console.warn('シートをまとめて読めなかったため、1枚ずつ読みます', error);
+    return SpreadsheetApp.openById(spreadsheetId);
+  }
+}
+
+// getValues() turns a date cell into a Date, which normalizeSheetCellValue_ writes as yyyy-MM-dd. The API
+// returns the displayed text instead (2026/11/18 or 2026/11/18 9:00:00 in a Japanese spreadsheet)
+function normalizeFetchedCellValue_(value) {
+  if (value === undefined || value === null) return '';
+  const match = typeof value === 'string' && value.match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})(?: \d{1,2}:\d{2}(?::\d{2})?)?$/);
+  if (match && !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return match[1] + '-' + ('0' + match[2]).slice(-2) + '-' + ('0' + match[3]).slice(-2);
+  }
+  return value;
+}
+
+function sheetValuesToObjects_(values, normalizeCell) {
   if (!values.length) return [];
   const header = values[0];
   const rows = [];
@@ -905,7 +823,7 @@ function readSheetObjects_(spreadsheet, sheetName) {
     for (let j = 0; j < header.length; j += 1) {
       const key = String(header[j] || '').trim();
       if (!key) continue;
-      row[key] = normalizeSheetCellValue_(values[i][j]);
+      row[key] = normalizeCell((values[i] || [])[j]);
       if (String(row[key] || '') !== '') hasValue = true;
     }
     if (hasValue) rows.push(row);
@@ -943,45 +861,11 @@ function sanitizeForClient_(value) {
   return value;
 }
 
-function serializeWorkFiles_(items) {
-  return (items || []).filter(Boolean).map((work, index) => ({
-    file_id: String(work.fileId || work.file_id || '').trim(),
-    sort_order: Number(work.sortOrder || work.sort_order || index + 1),
-    title: String(work.title || work.workTitle || '').trim(),
-    artist: String(work.artist || work.artistName || '').trim()
-  })).filter((work) => work.file_id);
-}
-
-function compactStoredPayload_(state) {
-  const result = Object.assign({}, state);
-  if (Array.isArray(state.exhibitions)) {
-    result.exhibitions = state.exhibitions.map((item) => {
-      const exhibition = Object.assign({}, item, { workFiles: serializeWorkFiles_(item.workFiles || item.works || []) });
-      delete exhibition.works;
-      return exhibition;
-    });
-  }
-  return result;
-}
-
-function restoreStoredPayload_(state, isDraft) {
-  const result = Object.assign({}, state);
-  if (Array.isArray(state.exhibitions)) {
-    result.exhibitions = state.exhibitions.map((item) => {
-      const source = item.workFiles || item.works || [];
-      const works = isDraft ? normalizeExhibitionWorkFiles_(source) : serializeWorkFiles_(source);
-      return Object.assign({}, item, { workFiles: works, works });
-    });
-  }
-  return result;
-}
-
 function payloadCellHeaders_(count) {
   return Array.from({ length: count }, (_, index) => index === 0 ? 'payload_json' : 'payload_json_' + (index + 1));
 }
 
-function buildPayloadCells_(state) {
-  const json = stableStringify_(compactStoredPayload_(state));
+function buildPayloadCells_(json) {
   if (json.length <= 45000) return [json];
   const chunks = [];
   for (let offset = 0; offset < json.length;) {
@@ -1017,52 +901,19 @@ function readPayloadCells_(row) {
 }
 
 function buildPublicSnapshot_(state) {
-  return {
-    recruitCalendar: state.recruitCalendar,
-    recruitCalendars: state.recruitCalendars,
-    activityArticles: state.activityArticles.map((item) => ({
-      articleId: item.articleId,
-      title: item.title,
-      body: item.body,
-      category: item.category,
-      mediaFolderId: item.mediaFolderId,
-      photoFolderId: item.mediaFolderId,
-      mediaFileIds: item.mediaFileIds || [],
-      published: item.published,
-      createdAt: item.createdAt
-    })),
-    exhibitions: state.exhibitions.map((item) => ({
-      exhibitionId: item.exhibitionId,
-      title: item.title,
-      subtitle: item.subtitle,
-      theme: item.theme,
-      venueName: item.venueName,
-      venueAddress: item.venueAddress,
-      dateLine: item.dateLine,
-      timeLine: item.timeLine,
-      mapEmbedUrl: item.mapEmbedUrl,
-      displayBucket: item.displayBucket,
-      mediaFolderId: item.mediaFolderId,
-      driveFolderId: item.mediaFolderId,
-      dmFileIds: item.dmFileIds || [],
-      published: item.published,
-      startDate: item.startDate,
-      endDate: item.endDate || '',
-      workFiles: serializeWorkFiles_(item.workFiles || item.works || []),
-      works: serializeWorkFiles_(item.workFiles || item.works || [])
-    })),
-    requestCases: state.requestCases.map((item) => ({
-      caseId: item.caseId,
-      title: item.title,
-      body: item.body,
-      category: item.category,
-      mediaFolderId: item.mediaFolderId,
-      photoFolderId: item.mediaFolderId,
-      mediaFileIds: item.mediaFileIds || [],
-      published: item.published,
-      sortOrder: item.sortOrder
-    }))
-  };
+  const snapshot = { formatVersion: CONTENT_FORMAT_VERSION };
+  Object.keys(CONTENT_FIELDS).forEach((name) => {
+    snapshot[name] = (state[name] || []).map((item) => pickFields_(item, CONTENT_FIELDS[name]));
+  });
+  return snapshot;
+}
+
+// 下書きは公開する内容に、編集中だけ使う値（展示会の draftCreatedAt と更新履歴メモ）を足したもの
+function buildDraftPayload_(state) {
+  const draft = buildPublicSnapshot_(state);
+  draft.exhibitions.forEach((item, index) => item.draftCreatedAt = state.exhibitions[index].draftCreatedAt || '');
+  draft.manualChangeNote = state.manualChangeNote || '';
+  return draft;
 }
 
 function stableStringify_(value) {
@@ -1082,9 +933,7 @@ function sortDeep_(value) {
 
 function summarizeChange_(beforeSnapshot, afterSnapshot, manualNote) {
   const messages = [];
-  const beforeRecruit = beforeSnapshot && beforeSnapshot.recruitCalendar ? beforeSnapshot.recruitCalendar.folderId : '';
-  const afterRecruit = afterSnapshot.recruitCalendar ? afterSnapshot.recruitCalendar.folderId : '';
-  if (beforeRecruit !== afterRecruit && afterRecruit) messages.push('新歓イベントカレンダーを更新');
+  if (recruitCalendarChanged_(beforeSnapshot, afterSnapshot)) messages.push('新歓イベントカレンダーを更新');
 
   const beforeActivities = {};
   (beforeSnapshot.activityArticles || []).forEach((item) => beforeActivities[item.articleId] = item);
@@ -1111,6 +960,15 @@ function summarizeChange_(beforeSnapshot, afterSnapshot, manualNote) {
   return messages.length ? messages.join('\n') : '';
 }
 
+
+// 公開中の年度のフォルダが変わったら、新歓カレンダーを更新したとみなす
+function recruitCalendarChanged_(beforeSnapshot, afterSnapshot) {
+  const folderOf = (snapshot) => {
+    const calendar = publishedRecruitCalendar_((snapshot || {}).recruitCalendars);
+    return calendar ? calendar.mediaFolderId : '';
+  };
+  return !!folderOf(afterSnapshot) && folderOf(beforeSnapshot) !== folderOf(afterSnapshot);
+}
 
 function buildAdminDiffSummary_(beforeSnapshot, afterSnapshot, manualNote) {
   const messages = [];
@@ -1149,17 +1007,17 @@ function buildAdminDiffSummary_(beforeSnapshot, afterSnapshot, manualNote) {
       if (!afterMap[id]) pushIf(label + '「' + beforeMap[id].title + '」を削除');
     });
   }
-  const beforeRecruit = beforeSnapshot && beforeSnapshot.recruitCalendar ? beforeSnapshot.recruitCalendar.folderId : '';
-  const afterRecruit = afterSnapshot.recruitCalendar ? afterSnapshot.recruitCalendar.folderId : '';
-  if (beforeRecruit !== afterRecruit && afterRecruit) pushIf('新歓イベントカレンダーを更新');
+  if (recruitCalendarChanged_(beforeSnapshot, afterSnapshot)) pushIf('新歓イベントカレンダーを更新');
   compareCollections(beforeSnapshot.activityArticles || [], afterSnapshot.activityArticles || [], 'articleId', '活動記録・告知', function(item) {
     return { title: item.title, body: item.body, category: item.category, mediaFolderId: item.mediaFolderId, mediaFileIds: item.mediaFileIds, createdAt: item.createdAt, published: item.published };
   });
-  compareCollections(beforeSnapshot.requestCases || [], afterSnapshot.requestCases || [], 'caseId', '取り組み', function(item) {
-    return { title: item.title, body: item.body, mediaFolderId: item.mediaFolderId, mediaFileIds: item.mediaFileIds, sortOrder: item.sortOrder, published: item.published };
+  // ご依頼事例は並び順も内容のうち（並べ替えも「編集」として残す）
+  const withPosition = (items) => (items || []).map((item, position) => Object.assign({ position }, item));
+  compareCollections(withPosition(beforeSnapshot.requestCases), withPosition(afterSnapshot.requestCases), 'caseId', '取り組み', function(item) {
+    return { title: item.title, body: item.body, mediaFolderId: item.mediaFolderId, mediaFileIds: item.mediaFileIds, position: item.position, published: item.published };
   });
   compareCollections(beforeSnapshot.exhibitions || [], afterSnapshot.exhibitions || [], 'exhibitionId', '展示会', function(item) {
-    return { title: item.title, subtitle: item.subtitle, theme: item.theme, venueName: item.venueName, venueAddress: item.venueAddress, dateLine: item.dateLine, timeLine: item.timeLine, mapEmbedUrl: item.mapEmbedUrl, mediaFolderId: item.mediaFolderId, dmFileIds: item.dmFileIds, published: item.published, startDate: item.startDate, endDate: item.endDate || '', workFiles: item.workFiles };
+    return { title: item.title, subtitle: item.subtitle, theme: item.theme, venueName: item.venueName, venueAddress: item.venueAddress, dateLine: item.dateLine, timeLine: item.timeLine, mediaFolderId: item.mediaFolderId, dmFileIds: item.dmFileIds, published: item.published, startDate: item.startDate, endDate: item.endDate || '', works: item.works };
   }, function(before, after) {
     if (before.displayBucket !== after.displayBucket) {
       return after.displayBucket === 'archive' ? '展示会「' + after.title + '」をアーカイブに移動' : '展示会「' + after.title + '」を開催予定に変更';
@@ -1170,11 +1028,3 @@ function buildAdminDiffSummary_(beforeSnapshot, afterSnapshot, manualNote) {
   return messages.length ? messages.join('\n') : '変更なし';
 }
 
-function buildHumanSummary_(state) {
-  return {
-    activityCount: state.activityArticles.length,
-    exhibitionCount: state.exhibitions.length,
-    requestCaseCount: state.requestCases.length,
-    recruitCalendarSelected: !!state.recruitCalendar.mediaFolderId
-  };
-}

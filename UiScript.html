@@ -9,7 +9,6 @@ const appState = {
   maintenance: { storage: null, recommendations: [] },
   state: {
     recruitCalendars: [],
-    recruitCalendar: { folderId: '', label: '' },
     activityArticles: [],
     exhibitions: [],
     requestCases: [],
@@ -70,12 +69,16 @@ async function resumeSession() {
   appState.sessionToken = saved.token;
   appState.viewerName = saved.name || saved.email || '';
   appState.viewerEmail = saved.email || '';
+  /* 読み込みの間は、メールアドレスの欄と確認コードのボタンを隠す */
+  const authShell = document.getElementById('authShell');
+  authShell.classList.add('is-resuming');
   setAuthStatus('前回のログインで開いています…');
   try {
     await loadBootstrap({ resuming: true });
     setAuthStatus('');
     showAppShell();
   } catch (error) {
+    authShell.classList.remove('is-resuming');
     appState.sessionToken = '';
     if (/セッションが切れています/.test(error && error.message ? error.message : String(error))) {
       forgetSession();
@@ -705,7 +708,6 @@ function syncCurrentEditorsToState() {
   try {
     if (document.querySelector('[data-recruit-item]')) {
       appState.state.recruitCalendars = readRecruitFromDom();
-      appState.state.recruitCalendar = (appState.state.recruitCalendars || []).find((item) => item.published !== false) || (appState.state.recruitCalendars || [])[0] || {};
     }
 
     if (document.querySelector('[data-activity-item]')) {
@@ -848,21 +850,16 @@ function orderedFilesByIds(files, ids) {
 }
 
 function mediaIdsForItem(item) {
-  return normalizeIdList((item || {}).mediaFileIds || (item || {}).fileIds);
+  return normalizeIdList((item || {}).mediaFileIds);
 }
 
 function ensureRecruitCalendars() {
   if (Array.isArray(appState.state.recruitCalendars) && appState.state.recruitCalendars.length) return;
-  const base = appState.state.recruitCalendar || {};
-  const year = String(base.year || new Date().getFullYear()).replace(/[^\d]/g, '').slice(0, 4) || String(new Date().getFullYear());
-  appState.state.recruitCalendars = [{
-    year,
-    label: year + '年度 新歓イベントカレンダー',
-    mediaFolderId: base.mediaFolderId || base.folderId || '',
-    folderId: base.mediaFolderId || base.folderId || '',
-    mediaFileIds: normalizeIdList(base.mediaFileIds),
-    published: base.published !== false
-  }];
+  appState.state.recruitCalendars = [{ year: String(new Date().getFullYear()), mediaFolderId: '', mediaFileIds: [], published: true }];
+}
+
+function recruitCalendarLabel(year) {
+  return year ? year + '年度 新歓イベントカレンダー' : '新歓イベントカレンダー';
 }
 
 function activityCategoryLabel(category) {
@@ -1107,8 +1104,7 @@ function getContentRef(kind, index) {
     const item = (appState.state.recruitCalendars || [])[index] || (appState.state.recruitCalendars || [])[0];
     return {
       item,
-      folderKey: 'mediaFolderId',
-      title: item.label || '新歓イベントカレンダー',
+      title: recruitCalendarLabel(item.year),
       dialogTitle: '画像の設定',
       subtitle: '新歓イベントカレンダー'
     };
@@ -1117,7 +1113,6 @@ function getContentRef(kind, index) {
     const item = (appState.state.activityArticles || [])[index];
     return {
       item,
-      folderKey: 'mediaFolderId',
       title: item && item.title ? item.title : '活動記録・告知',
       dialogTitle: '画像の設定',
       subtitle: '活動記録・告知'
@@ -1127,7 +1122,6 @@ function getContentRef(kind, index) {
     const item = (appState.state.requestCases || [])[index];
     return {
       item,
-      folderKey: 'mediaFolderId',
       title: item && item.title ? item.title : '取り組み事例',
       dialogTitle: '画像の設定',
       subtitle: '取り組み事例'
@@ -1138,20 +1132,19 @@ function getContentRef(kind, index) {
     const item = sorted[index];
     return {
       item,
-      folderKey: 'mediaFolderId',
       title: item && item.title ? item.title : '展示会',
       dialogTitle: '画像・作品情報の設定',
       subtitle: '展示会'
     };
   }
-  return { item: null, folderKey: '', title: '', dialogTitle: '画像の設定', subtitle: '' };
+  return { item: null, title: '', dialogTitle: '画像の設定', subtitle: '' };
 }
 
 function currentMediaContext() {
   const active = appState.activeMedia || {};
   const ref = getContentRef(active.kind, active.index);
   return Object.assign({}, active, ref, {
-    folderId: ref.item && ref.folderKey ? String(ref.item[ref.folderKey] || '') : ''
+    folderId: ref.item ? String(ref.item.mediaFolderId || '') : ''
   });
 }
 
@@ -1292,10 +1285,7 @@ function renderExhibitionMediaSettings(files, context) {
   const item = context.item || {};
   const dmIds = normalizeIdList(item.dmFileIds);
   const catalog = getCatalogDraft(context);
-  const works = (item.workFiles || item.works || []).map((work, index) => {
-    const fileId = work.fileId || work.file_id;
-    return Object.assign({}, work, { fileId, sortOrder: Number(work.sortOrder || work.sort_order || index + 1) });
-  }).filter((work) => work.fileId && fileById(files, work.fileId)).sort((a, b) => a.sortOrder - b.sortOrder);
+  const works = (item.works || []).filter((work) => fileById(files, work.fileId));
   return [
     '<div class="media-section">',
     '<h3>DM画像</h3>',
@@ -1401,8 +1391,8 @@ function renderExhibitionWorkRow(file, work, index, count, catalog, works) {
     '<div class="small-note">表示順 ' + (index + 1) + ' / ' + formatBytes(file.size || 0) + '</div>',
     '<div class="form-grid compact-media-grid">',
     renderCatalogSelect(work, catalog, works),
-    '<div class="field"><label>作品名</label><input data-field="workTitle" value="' + escapeHtml(work.title || work.workTitle || '') + '"></div>',
-    '<div class="field"><label>作者名</label><input data-field="artistName" value="' + escapeHtml(work.artist || work.artistName || '') + '"></div>',
+    '<div class="field"><label>作品名</label><input data-field="title" value="' + escapeHtml(work.title || '') + '"></div>',
+    '<div class="field"><label>作者名</label><input data-field="artist" value="' + escapeHtml(work.artist || '') + '"></div>',
     '</div>',
     '<div class="media-file-actions">',
     '<button class="button subtle" type="button" onclick="moveExhibitionWork(\'' + escapeJs(file.id) + '\', -1)" ' + (index === 0 ? 'disabled' : '') + '>前へ</button>',
@@ -1438,8 +1428,8 @@ function catalogItemLabel(item) {
 }
 
 function matchCatalogItemKey(work, items) {
-  const title = String(work.title || work.workTitle || '').trim();
-  const artist = String(work.artist || work.artistName || '').trim();
+  const title = String(work.title || '').trim();
+  const artist = String(work.artist || '').trim();
   if (!title && !artist) return '';
   const found = (items || []).find((item) => item.title === title && item.artist === artist);
   return found ? found.key : '';
@@ -1621,7 +1611,7 @@ async function buildCatalogRequest(files) {
 function normalizeCatalogDraft(result) {
   const items = (result.items || []).map((item, index) => ({
     key: 'catalog-' + index + '-' + String(item.sortOrder || index + 1),
-    sortOrder: Number(item.sortOrder || item.sort_order || index + 1) || index + 1,
+    sortOrder: Number(item.sortOrder) || index + 1,
     artist: String(item.artist || '').trim(),
     title: String(item.title || '').trim(),
     size: String(item.size || '').trim(),
@@ -1680,8 +1670,8 @@ function onCatalogItemSelect(select) {
   const item = (draft.items || []).find((candidate) => candidate.key === key);
   row.setAttribute('data-catalog-key', key);
   if (item) {
-    row.querySelector('[data-field="workTitle"]').value = item.title || '';
-    row.querySelector('[data-field="artistName"]').value = item.artist || '';
+    row.querySelector('[data-field="title"]').value = item.title || '';
+    row.querySelector('[data-field="artist"]').value = item.artist || '';
   }
   syncMediaEditorRowsToState();
   updateCatalogSortButtonState();
@@ -1704,7 +1694,7 @@ function sortExhibitionWorksByCatalogOrder() {
   if (!context.item || !draft) return;
   syncMediaEditorRowsToState();
   const items = draft.items || [];
-  const linkedWorks = (context.item.workFiles || []).filter((work) => work.catalogKey).slice();
+  const linkedWorks = (context.item.works || []).filter((work) => work.catalogKey);
   if (linkedWorks.length < 2) {
     setMediaStatus('作品番号順に並べるには、目録を2件以上の作品画像に紐づけてください。', 'error');
     return;
@@ -1714,11 +1704,8 @@ function sortExhibitionWorksByCatalogOrder() {
     const itemB = items.find((item) => item.key === b.catalogKey);
     return Number(itemA ? itemA.sortOrder : 0) - Number(itemB ? itemB.sortOrder : 0);
   });
-  const unlinkedWorks = (context.item.workFiles || []).filter((work) => !work.catalogKey);
-  context.item.workFiles = linkedWorks.concat(unlinkedWorks).map((work, index) => (
-    Object.assign({}, work, { sortOrder: index + 1 })
-  ));
-  context.item.works = context.item.workFiles;
+  const unlinkedWorks = (context.item.works || []).filter((work) => !work.catalogKey);
+  context.item.works = linkedWorks.concat(unlinkedWorks);
   markDirty();
   syncActiveMediaHiddenFields();
   renderMediaDialog(context.folderId ? (appState.mediaCache[context.folderId] || []) : []);
@@ -1800,11 +1787,10 @@ async function onMediaDelete(fileId, name) {
 
 function applyMediaResult(result, mutation) {
   const context = currentMediaContext();
-  if (!context.item || !context.folderKey) return;
+  if (!context.item) return;
   const folderId = result && result.folderId ? result.folderId : '';
-  const oldFolderId = context.item[context.folderKey] || '';
-  context.item[context.folderKey] = folderId;
-  context.item.folderId = folderId;
+  const oldFolderId = context.item.mediaFolderId || '';
+  context.item.mediaFolderId = folderId;
   if (oldFolderId && oldFolderId !== folderId) invalidateFolderCache(oldFolderId);
   if (folderId) {
     appState.mediaCache[folderId] = result.files || [];
@@ -1814,27 +1800,18 @@ function applyMediaResult(result, mutation) {
   if (context.kind === 'exhibition') {
     const currentIds = new Set((result.files || []).map((file) => file.id));
     let dmFileIds = normalizeIdList(context.item.dmFileIds).filter((id) => currentIds.has(id));
-    let workFiles = (context.item.workFiles || context.item.works || []).filter((work) => currentIds.has(work.fileId || work.file_id));
+    const works = (context.item.works || []).filter((work) => currentIds.has(work.fileId));
     if (mutation && mutation.type === 'upload') {
       const imageIds = (mutation.newIds || []).filter((id) => currentIds.has(id));
       if (mutation.role === 'dm') {
         dmFileIds = dmFileIds.concat(imageIds).slice(0, 2);
       } else if (mutation.role === 'work') {
-        const start = workFiles.length;
-        imageIds.forEach((id, offset) => {
-          if (!workFiles.some((work) => (work.fileId || work.file_id) === id)) {
-            workFiles.push({ fileId: id, sortOrder: start + offset + 1, title: '', artist: '' });
-          }
-        });
+        imageIds.filter((id) => !works.some((work) => work.fileId === id))
+          .forEach((id) => works.push({ fileId: id, title: '', artist: '' }));
       }
     }
     context.item.dmFileIds = dmFileIds;
-    context.item.workFiles = workFiles
-      .map((work) => Object.assign({}, work, { fileId: work.fileId || work.file_id }))
-      .filter((work) => work.fileId)
-      .sort((a, b) => Number(a.sortOrder || a.sort_order || 0) - Number(b.sortOrder || b.sort_order || 0))
-      .map((work, index) => Object.assign({}, work, { sortOrder: index + 1 }));
-    context.item.works = context.item.workFiles;
+    context.item.works = works;
   } else {
     /* 登録は、今の登録のうち残っているものと、今回アップロードしたものだけ（フォルダの画像を全部は登録しない） */
     const currentIds = new Set((result.files || []).filter((file) => file.kind === 'image').map((file) => file.id));
@@ -1872,24 +1849,18 @@ function syncMediaEditorRowsToState() {
   if (!isMediaDialogOpen()) return;
   const context = currentMediaContext();
   if (!context.item || context.kind !== 'exhibition') return;
-  const workFiles = [];
-  document.querySelectorAll('[data-exhibition-media-row]').forEach((row, index) => {
-    const fileId = row.getAttribute('data-file-id') || '';
-    workFiles.push({
-      fileId,
-      sortOrder: index + 1,
-      title: row.querySelector('[data-field="workTitle"]').value.trim(),
-      artist: row.querySelector('[data-field="artistName"]').value.trim(),
-      catalogKey: row.querySelector('[data-field="catalogItem"]') ? row.querySelector('[data-field="catalogItem"]').value : (row.getAttribute('data-catalog-key') || '')
-    });
-  });
-  context.item.workFiles = workFiles;
-  context.item.works = context.item.workFiles;
+  /* catalogKey は目録との紐づけで、画面の中だけで使う（保存するときにサーバーが外す） */
+  context.item.works = Array.from(document.querySelectorAll('[data-exhibition-media-row]')).map((row) => ({
+    fileId: row.getAttribute('data-file-id') || '',
+    title: row.querySelector('[data-field="title"]').value.trim(),
+    artist: row.querySelector('[data-field="artist"]').value.trim(),
+    catalogKey: row.querySelector('[data-field="catalogItem"]') ? row.querySelector('[data-field="catalogItem"]').value : (row.getAttribute('data-catalog-key') || '')
+  }));
 }
 
 function syncActiveMediaHiddenFields() {
   const context = currentMediaContext();
-  if (!context.item || !context.folderKey) return;
+  if (!context.item) return;
 
   const selectorMap = {
     recruit: '[data-recruit-item]',
@@ -1901,13 +1872,13 @@ function syncActiveMediaHiddenFields() {
   if (!element) return;
 
   const folderInput = element.querySelector('[data-field="mediaFolderId"]');
-  if (folderInput) folderInput.value = context.item[context.folderKey] || '';
+  if (folderInput) folderInput.value = context.item.mediaFolderId || '';
 
   if (context.kind === 'exhibition') {
     const dmInput = element.querySelector('[data-field="dmFileIds"]');
-    const workInput = element.querySelector('[data-field="workFiles"]');
+    const workInput = element.querySelector('[data-field="works"]');
     if (dmInput) dmInput.value = JSON.stringify(normalizeIdList(context.item.dmFileIds));
-    if (workInput) workInput.value = JSON.stringify(context.item.workFiles || context.item.works || []);
+    if (workInput) workInput.value = JSON.stringify(context.item.works || []);
     return;
   }
 
@@ -1974,15 +1945,12 @@ function moveExhibitionWork(fileId, delta) {
   const context = currentMediaContext();
   if (!context.item) return;
   syncMediaEditorRowsToState();
-  const works = (context.item.workFiles || []).slice().sort((a, b) => a.sortOrder - b.sortOrder);
+  const works = (context.item.works || []).slice();
   const index = works.findIndex((work) => work.fileId === fileId);
   const next = index + delta;
   if (index < 0 || next < 0 || next >= works.length) return;
-  const tmp = works[index];
-  works[index] = works[next];
-  works[next] = tmp;
-  context.item.workFiles = works.map((work, idx) => Object.assign({}, work, { sortOrder: idx + 1 }));
-  context.item.works = context.item.workFiles;
+  [works[index], works[next]] = [works[next], works[index]];
+  context.item.works = works;
   markDirty();
   syncActiveMediaHiddenFields();
   renderMediaDialog(context.folderId ? (appState.mediaCache[context.folderId] || []) : []);
@@ -2232,7 +2200,7 @@ function updateRecruitYearTitle(input) {
   const item = input && input.closest ? input.closest('.editor-item') : null;
   const title = item ? item.querySelector('[data-live-title]') : null;
   const year = String(input.value || '').replace(/[^\d]/g, '').slice(0, 4);
-  if (title) title.textContent = year ? year + '年度 新歓イベントカレンダー' : '新歓イベントカレンダー';
+  if (title) title.textContent = recruitCalendarLabel(year);
   loadRecruitPreview();
 }
 
@@ -2276,7 +2244,7 @@ function renderRecruitEditor() {
 function renderRecruitEditorItem(item, index) {
   const published = item.published !== false;
   const year = String(item.year || '').replace(/[^\d]/g, '').slice(0, 4);
-  const label = year ? year + '年度 新歓イベントカレンダー' : '新歓イベントカレンダー';
+  const label = recruitCalendarLabel(year);
   return `
     <article class="editor-item" data-recruit-item data-index="${index}" data-published="${published ? 'true' : 'false'}">
       <div class="editor-item-head">
@@ -2296,7 +2264,7 @@ function renderRecruitEditorItem(item, index) {
         </div>
         <div class="field full">
           <label>画像</label>
-          <input data-field="mediaFolderId" type="hidden" value="${escapeHtml(item.mediaFolderId || item.folderId || '')}">
+          <input data-field="mediaFolderId" type="hidden" value="${escapeHtml(item.mediaFolderId || '')}">
           <input data-field="mediaFileIds" type="hidden" value="${escapeHtml(JSON.stringify(mediaIdsForItem(item)))}">
           <button class="button subtle" type="button" onclick="openMediaDialog('recruit', ${index})">画像の設定</button>
         </div>
@@ -2311,13 +2279,13 @@ async function loadRecruitPreview(forceRefresh = false) {
   const preview = document.getElementById('recruitPreview');
 
   if (!preview || !ensurePreviewOpen('recruit', preview)) return;
-  const folderId = recruit.mediaFolderId || recruit.folderId || '';
+  const folderId = recruit.mediaFolderId || '';
   if (!folderId) {
     preview.innerHTML = '<div class="preview-empty">画像は未設定です。</div>';
     return;
   }
 
-  const label = recruit.label || '新歓イベントカレンダー';
+  const label = recruitCalendarLabel(recruit.year);
   preview.innerHTML = '<div class="preview-empty">画像を読み込んでいます…</div>';
 
   try {
@@ -2348,7 +2316,6 @@ function addRecruitYear() {
   const nextYear = String(years.length ? Math.max.apply(null, years) + 1 : new Date().getFullYear());
   appState.state.recruitCalendars.push({
     year: nextYear,
-    label: nextYear + '年度 新歓イベントカレンダー',
     mediaFolderId: '',
     mediaFileIds: [],
     published: !(appState.state.recruitCalendars || []).length
@@ -2440,7 +2407,7 @@ function renderActivityEditorItem(item, index) {
         </div>
         <div class="field full">
           <label>画像</label>
-          <input data-field="mediaFolderId" type="hidden" value="${escapeHtml(item.mediaFolderId || item.photoFolderId || '')}">
+          <input data-field="mediaFolderId" type="hidden" value="${escapeHtml(item.mediaFolderId || '')}">
           <input data-field="mediaFileIds" type="hidden" value="${escapeHtml(JSON.stringify(mediaIdsForItem(item)))}">
           <button class="button subtle" type="button" onclick="openMediaDialog('activity', ${index})">画像の設定</button>
         </div>
@@ -2453,7 +2420,7 @@ async function renderActivityPreview(items) {
   const visible = (items || []).filter((item) => item.published !== false).slice().sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   if (!visible.length) return '<div class="preview-empty">公開中の記事はありません。</div>';
   return Promise.all(visible.map(async (item) => {
-    const folderId = item.mediaFolderId || item.photoFolderId || '';
+    const folderId = item.mediaFolderId || '';
     const files = folderId ? await getFolderImagesCached(folderId) : [];
     const registered = folderId ? orderedFilesByIds(files, mediaIdsForItem(item)) : [];
     const imageResult = { total: registered.length, items: registered.slice(0, GENERAL_IMAGE_LIMIT) };
@@ -2586,10 +2553,9 @@ function renderExhibitionEditorItem(item, index) {
         </div>
         <div class="field full">
           <label>画像・作品情報</label>
-          <input data-field="mediaFolderId" type="hidden" value="${escapeHtml(item.mediaFolderId || item.driveFolderId || '')}">
+          <input data-field="mediaFolderId" type="hidden" value="${escapeHtml(item.mediaFolderId || '')}">
           <input data-field="dmFileIds" type="hidden" value="${escapeHtml(JSON.stringify(normalizeIdList(item.dmFileIds)))}">
-          <input data-field="workFiles" type="hidden" value="${escapeHtml(JSON.stringify(item.workFiles || item.works || []))}">
-          <input data-field="mapEmbedUrl" type="hidden" value="${escapeHtml(item.mapEmbedUrl || '')}">
+          <input data-field="works" type="hidden" value="${escapeHtml(JSON.stringify(item.works || []))}">
           <button class="button subtle" type="button" onclick="openMediaDialog('exhibition', ${index})">画像・作品情報の設定</button>
         </div>
       </div>
@@ -2608,7 +2574,7 @@ async function renderExhibitionPreview(items) {
 
   if (upcoming.length) {
     const upcomingCards = await Promise.all(upcoming.map(async (item, idx) => {
-      const images = await getFolderImagesCached(item.mediaFolderId || item.driveFolderId);
+      const images = await getFolderImagesCached(item.mediaFolderId);
       const dm = normalizeIdList(item.dmFileIds).map((id) => fileById(images, id)).filter(Boolean);
       return buildExhibitionPreviewCardHtml(item, idx === 0 ? 'NEXT EXHIBITION' : 'UPCOMING', dm);
     }));
@@ -2616,19 +2582,19 @@ async function renderExhibitionPreview(items) {
   }
 
   if (recent) {
-    const images = await getFolderImagesCached(recent.mediaFolderId || recent.driveFolderId);
+    const images = await getFolderImagesCached(recent.mediaFolderId);
     const dm = normalizeIdList(recent.dmFileIds).map((id) => fileById(images, id)).filter(Boolean);
-    const workImages = (recent.workFiles || recent.works || []).map((work) => {
-      const found = fileById(images, work.fileId || work.file_id);
-      return found ? { file: found, title: work.title || work.workTitle, artist: work.artist || work.artistName } : null;
+    const workImages = (recent.works || []).map((work) => {
+      const found = fileById(images, work.fileId);
+      return found ? { file: found, title: work.title, artist: work.artist } : null;
     }).filter(Boolean);
     sections.push(buildExhibitionPreviewCardHtml(recent, 'RECENT EXHIBITION', dm, '', buildWorkGalleryPreviewHtml(workImages)));
   }
 
   const archiveCards = await Promise.all(archiveRest.map(async (item) => {
-    const archiveImages = await getFolderImagesCached(item.mediaFolderId || item.driveFolderId);
+    const archiveImages = await getFolderImagesCached(item.mediaFolderId);
     const archiveDm = normalizeIdList(item.dmFileIds).map((id) => fileById(archiveImages, id)).filter(Boolean);
-    const folderId = item.mediaFolderId || item.driveFolderId || '';
+    const folderId = item.mediaFolderId || '';
     const link = folderId
       ? `<a class="preview-drive-link" href="${escapeHtml(driveFolderUrl(folderId))}" target="_blank" rel="noopener noreferrer">Google Driveで作品を観る ↗</a>`
       : '';
@@ -2661,13 +2627,11 @@ function addExhibition() {
     venueAddress: '',
     dateLine: '',
     timeLine: '',
-    mapEmbedUrl: '',
     mediaFolderId: '',
     dmFileIds: [],
-    workFiles: [],
+    works: [],
     published: true,
-    draftCreatedAt: new Date(Date.now() + 3600 * 1000).toISOString(),
-    works: []
+    draftCreatedAt: new Date(Date.now() + 3600 * 1000).toISOString()
   });
   renderExhibitionsEditor();
 }
@@ -2853,7 +2817,7 @@ function renderRequestEditorItem(item, index) {
         </div>
         <div class="field full">
           <label>画像</label>
-          <input data-field="mediaFolderId" type="hidden" value="${escapeHtml(item.mediaFolderId || item.photoFolderId || '')}">
+          <input data-field="mediaFolderId" type="hidden" value="${escapeHtml(item.mediaFolderId || '')}">
           <input data-field="mediaFileIds" type="hidden" value="${escapeHtml(JSON.stringify(mediaIdsForItem(item)))}">
           <button class="button subtle" type="button" onclick="openMediaDialog('request', ${index})">画像の設定</button>
         </div>
@@ -2867,7 +2831,7 @@ async function renderRequestPreview(items) {
   const visible = (items || []).filter((item) => item.published !== false);
   if (!visible.length) return '<div class="preview-empty">公開中の事例はありません。</div>';
   const cards = await Promise.all(visible.map(async (item, index) => {
-    const folderId = item.mediaFolderId || item.photoFolderId || '';
+    const folderId = item.mediaFolderId || '';
     const files = folderId ? await getFolderImagesCached(folderId) : [];
     const registered = folderId ? orderedFilesByIds(files, mediaIdsForItem(item)) : [];
     const imageResult = { total: registered.length, items: registered.slice(0, GENERAL_IMAGE_LIMIT) };
@@ -3013,9 +2977,7 @@ function readRecruitFromDom() {
     const year = item.querySelector('[data-field="year"]').value.replace(/[^\d]/g, '').slice(0, 4);
     return {
       year,
-      label: year ? year + '年度 新歓イベントカレンダー' : '新歓イベントカレンダー',
       mediaFolderId: item.querySelector('[data-field="mediaFolderId"]').value,
-      folderId: item.querySelector('[data-field="mediaFolderId"]').value,
       mediaFileIds: normalizeIdList(item.querySelector('[data-field="mediaFileIds"]').value),
       published: item.getAttribute('data-published') !== 'false'
     };
@@ -3029,7 +2991,6 @@ function readActivitiesFromDom() {
     body: item.querySelector('[data-field="body"]').value.trim(),
     category: item.querySelector('[data-field="category"]').value,
     mediaFolderId: item.querySelector('[data-field="mediaFolderId"]').value,
-    photoFolderId: item.querySelector('[data-field="mediaFolderId"]').value,
     mediaFileIds: normalizeIdList(item.querySelector('[data-field="mediaFileIds"]').value),
     published: item.getAttribute('data-published') !== 'false',
     createdAt: item.getAttribute('data-created-at') || new Date().toISOString()
@@ -3049,14 +3010,11 @@ function readExhibitionsFromDom() {
     venueAddress: item.querySelector('[data-field="venueAddress"]').value.trim(),
     dateLine: item.querySelector('[data-field="dateLine"]').value.trim(),
     timeLine: item.querySelector('[data-field="timeLine"]').value.trim(),
-    mapEmbedUrl: item.querySelector('[data-field="mapEmbedUrl"]').value.trim(),
     mediaFolderId: item.querySelector('[data-field="mediaFolderId"]').value,
-    driveFolderId: item.querySelector('[data-field="mediaFolderId"]').value,
     dmFileIds: normalizeIdList(item.querySelector('[data-field="dmFileIds"]').value),
     published: item.getAttribute('data-published') !== 'false',
     draftCreatedAt: item.getAttribute('data-created-order') || '',
-    workFiles: JSON.parse(item.querySelector('[data-field="workFiles"]').value || '[]'),
-    works: JSON.parse(item.querySelector('[data-field="workFiles"]').value || '[]')
+    works: JSON.parse(item.querySelector('[data-field="works"]').value || '[]')
   })));
 }
 
@@ -3066,7 +3024,6 @@ function readRequestsFromDom() {
     title: item.querySelector('[data-field="title"]').value.trim(),
     body: item.querySelector('[data-field="body"]').value.trim(),
     mediaFolderId: item.querySelector('[data-field="mediaFolderId"]').value,
-    photoFolderId: item.querySelector('[data-field="mediaFolderId"]').value,
     mediaFileIds: normalizeIdList(item.querySelector('[data-field="mediaFileIds"]').value),
     published: item.getAttribute('data-published') !== 'false'
   }));
@@ -3105,10 +3062,8 @@ function buildPayloadFromDom() {
     syncMediaEditorRowsToState();
     syncActiveMediaHiddenFields();
   }
-  const recruitCalendars = readRecruitFromDom();
   return {
-    recruitCalendars,
-    recruitCalendar: (recruitCalendars.find((item) => item.published !== false) || recruitCalendars[0] || {}),
+    recruitCalendars: readRecruitFromDom(),
     activityArticles: readActivitiesFromDom(),
     exhibitions: readExhibitionsFromDom(),
     requestCases: readRequestsFromDom(),

@@ -343,6 +343,14 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   if (!same(registration.dialogAfterDelete, expected) || !same(registration.dialogReopened, expected)) problems.push(step + ': 画像の一覧に、外した画像が出ているか、残すはずの画像がありません ' + JSON.stringify(registration));
   if (registration.previewCount !== expected.length) problems.push(step + ': プレビューの画像の数が登録と合いません ' + JSON.stringify(registration));
   if (!same(registration.folderAfterPublish.slice().sort(), expected.slice().sort())) problems.push(step + ': 公開後のフォルダが登録と合いません ' + JSON.stringify(registration));
+  /* what the screen sends uses only the names of the saved content (version 2) */
+  step = '送る内容の名前';
+  const oldNames = await page.evaluate(() => {
+    const json = JSON.stringify(buildPayloadFromDom());
+    return ['workFiles', 'photoFolderId', 'driveFolderId', 'folderId', 'label', 'recruitCalendar', 'sortOrder', 'file_id']
+      .filter((name) => json.indexOf('"' + name + '"') !== -1);
+  });
+  if (oldNames.length) problems.push(step + ': 古い名前が含まれています ' + oldNames.join(', '));
   /* the calendar preview shows every image: › moves to the next one */
   step = '新歓カレンダーのプレビュー';
   await page.evaluate(() => { activatePanel('recruit'); openPreview('recruit'); });
@@ -384,7 +392,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   await showCatalog();
   await shot('mobile-dialog-catalog');
   /* typing a work title with the keyboard open */
-  await page.evaluate(() => document.querySelector('[data-field="workTitle"]').focus());
+  await page.evaluate(() => document.querySelector('.media-work-card [data-field="title"]').focus());
   await simulateKeyboard(true);
   await wait(200);
   await checkKeyboardLayout('mobile-dialog-keyboard');
@@ -594,7 +602,8 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
     app: !document.getElementById('appShell').classList.contains('hidden'),
     login: !document.getElementById('authShell').classList.contains('hidden'),
     message: document.getElementById('authStatus').textContent,
-    saved: sessionStorage.getItem('ryobiCmsSession')
+    saved: sessionStorage.getItem('ryobiCmsSession'),
+    emailField: getComputedStyle(document.getElementById('authEmail').closest('.field')).display !== 'none'
   }));
   const resumed = await shells();
   if (!resumed.app || resumed.login) problems.push(step + ': 再読み込みでログインが切れました ' + JSON.stringify(resumed));
@@ -602,7 +611,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   await reloadKeepingSession();
   await watchErrors();
   const expired = await shells();
-  if (expired.app || !expired.login || !/有効期限/.test(expired.message) || expired.saved) problems.push(step + ': 期限切れのログインの扱いが違います ' + JSON.stringify(expired));
+  if (expired.app || !expired.login || !/有効期限/.test(expired.message) || expired.saved || !expired.emailField) problems.push(step + ': 期限切れのログインの扱いが違います ' + JSON.stringify(expired));
   await shot('desktop-login-expired');
   await checkErrors();
   await load(url + '#login');

@@ -114,9 +114,8 @@ function setup() {
   folder.setSharing('ANYONE_WITH_LINK');
   const image = new File('1_Old_Artist.jpg', folder);
   const item = {
-    exhibitionId: 'exhibition', title: 'Exhibition', mediaFolderId: folder.id,
-    driveFolderId: folder.id, dmFileIds: [],
-    workFiles: [{ fileId: image.id, sortOrder: 1, title: 'Old', artist: 'Artist' }], published: true
+    exhibitionId: 'exhibition', title: 'Exhibition', mediaFolderId: folder.id, dmFileIds: [],
+    works: [{ fileId: image.id, title: 'Old', artist: 'Artist' }], published: true
   };
   const state = { exhibitions: [item] };
   function upload(names = ['new.jpg'], extra = {}) {
@@ -158,7 +157,7 @@ test('publication keeps exactly registered DM/work IDs and privately preserves a
   const result = upload(['dm.jpg', 'selected.jpg', 'abandoned.jpg']);
   const [dm, work, abandoned] = result.uploadedFileIds;
   item.dmFileIds = [dm];
-  item.workFiles.push({ fileId: work, sortOrder: 2, title: 'New', artist: 'Artist' });
+  item.works.push({ fileId: work, title: 'New', artist: 'Artist' });
   const staging = ctx.getExhibitionAuxFolder_(folder.id, 'staging', false);
   ctx.finalizeManagedFolders_(state);
   assert.deepEqual(ids(folder), [image.id, dm, work].sort());
@@ -198,9 +197,9 @@ test('delete and draft save never mutate published images; older draft can still
   ctx.normalizePayload_ = payload => payload;
   ctx.saveDraftRecord_ = payload => { saved = payload; };
   ctx.buildHumanSummary_ = () => '';
-  item.workFiles[0].title = 'Changed';
+  item.works[0].title = 'Changed';
   ctx.saveDraft('session', state);
-  assert.equal(saved.exhibitions[0].workFiles[0].title, 'Changed');
+  assert.equal(saved.exhibitions[0].works[0].title, 'Changed');
   assert.equal(image.name, '1_Old_Artist.jpg');
 });
 
@@ -245,7 +244,7 @@ test('saved IDs in recovery can be restored after an interrupted publication', (
   const { ctx, folder, image, item, state, File } = setup();
   const extra = new File('extra.jpg', folder);
   ctx.finalizeManagedFolders_(state);
-  item.workFiles.push({ fileId: extra.id, title: 'Restored', artist: 'Artist', sortOrder: 2 });
+  item.works.push({ fileId: extra.id, title: 'Restored', artist: 'Artist' });
   ctx.finalizeManagedFolders_(state);
   assert.deepEqual(ids(folder), [image.id, extra.id].sort());
   assert.equal(extra.name, '2_Restored_Artist.jpg');
@@ -253,13 +252,12 @@ test('saved IDs in recovery can be restored after an interrupted publication', (
 
 test('publishing without any images clears an empty folder but preserves files privately', () => {
   const { ctx, folder, image, item, state } = setup();
-  item.workFiles = [];
+  item.works = [];
   const emptyFolders = ctx.finalizeManagedFolders_(state);
   assert.equal(folder.trashed, false);
   assert.deepEqual(Array.from(emptyFolders), [folder.id]);
   assert.equal(folder.access, 'PRIVATE');
   assert.equal(item.mediaFolderId, '');
-  assert.equal(item.driveFolderId, '');
   assert.equal(image.trashed, false);
   assert.equal(image.parent.access, 'PRIVATE');
   emptyFolders.forEach(ctx.trashFolderIfEmpty_);
@@ -273,7 +271,7 @@ test('new exhibitions remain private before publication and retain their IDs aft
   const id = result.uploadedFileIds[0];
   assert.equal(folder.access, 'PRIVATE');
   assert.equal(ids(folder).length, 0);
-  const item = { title: 'New', mediaFolderId: folder.id, dmFileIds: [id], workFiles: [], published: true };
+  const item = { title: 'New', mediaFolderId: folder.id, dmFileIds: [id], works: [], published: true };
   ctx.finalizeManagedFolders_({ exhibitions: [item] });
   assert.equal(item.mediaFolderId, result.folderId);
   assert.equal(files.get(id).parent, folder);
@@ -282,21 +280,20 @@ test('new exhibitions remain private before publication and retain their IDs aft
 
 test('sheet failure leaves the empty media folder available for publication retry', () => {
   const { ctx, folder, item, state } = setup();
-  item.workFiles = [];
+  item.works = [];
   ctx.readContentState_ = () => ({});
   ctx.normalizePayload_ = payload => JSON.parse(JSON.stringify(payload));
   ctx.readPublishedState_ = () => ({ payload: {}, sha256: '' });
   ctx.buildPublicSnapshot_ = payload => payload;
   ctx.stableStringify_ = JSON.stringify;
   ctx.sha256Hex_ = value => value;
-  ctx.writeStateToSheets_ = () => { throw new Error('Sheet failure'); };
+  ctx.SpreadsheetApp = { flush() {} };
+  ctx.writePublishedState_ = () => { throw new Error('Sheet failure'); };
   assert.throws(() => ctx.publishState('session', state), /Sheet failure/);
   assert.equal(folder.trashed, false);
   assert.equal(item.mediaFolderId, folder.id);
 
-  let saved;
   let snapshot;
-  ctx.writeStateToSheets_ = payload => { saved = payload; };
   ctx.syncChangeLogTitles_ = () => {};
   ctx.summarizeChange_ = () => '';
   ctx.writePublishedState_ = json => { snapshot = JSON.parse(json); };
@@ -306,7 +303,6 @@ test('sheet failure leaves the empty media folder available for publication retr
   ctx.compactContentSheetGrids_ = () => {};
   ctx.dispatchGithubWorkflow_ = () => ({});
   ctx.publishState('session', state);
-  assert.equal(saved.exhibitions[0].mediaFolderId, '');
   assert.equal(snapshot.exhibitions[0].mediaFolderId, '');
   assert.equal(folder.trashed, true);
 });
@@ -387,14 +383,14 @@ test('client retains only explicitly uploaded IDs and preserves removals on the 
   const source = fs.readFileSync(path.join(__dirname, '..', 'UiScript.html'), 'utf8')
     .replace(/^<script>\s*/, '').replace(/\s*<\/script>\s*$/, '');
   vm.runInContext(source, ctx);
-  const item = { mediaFolderId: 'folder', dmFileIds: [], workFiles: [{ fileId: 'kept', title: 'Title' }] };
-  ctx.currentMediaContext = () => ({ kind: 'exhibition', item, folderKey: 'mediaFolderId' });
+  const item = { mediaFolderId: 'folder', dmFileIds: [], works: [{ fileId: 'kept', title: 'Title' }] };
+  ctx.currentMediaContext = () => ({ kind: 'exhibition', item });
   ctx.syncActiveMediaHiddenFields = () => {};
   ctx.refreshPreviewForKind = () => {};
   ctx.applyMediaResult({ folderId: 'folder', files: ['kept', 'orphan', 'removed', 'added'].map(id => ({ id, kind: 'image' })) },
     { type: 'upload', role: 'work', newIds: ['added'] });
-  assert.deepEqual(Array.from(item.workFiles, work => work.fileId), ['kept', 'added']);
-  assert.equal(item.workFiles[0].title, 'Title');
+  assert.deepEqual(Array.from(item.works, work => work.fileId), ['kept', 'added']);
+  assert.equal(item.works[0].title, 'Title');
 });
 
 test('media lists say which images the browser can load from Drive by itself', () => {
@@ -434,8 +430,8 @@ test('publishing opens the folders of published recruit, activity and request it
     exhibitions: [],
     activityArticles: [{ articleId: 'p', title: 'Published', mediaFolderId: published.id, mediaFileIds: withImage(published), published: true },
       { articleId: 'h', title: 'Hidden', mediaFolderId: hidden.id, mediaFileIds: withImage(hidden), published: false }],
-    recruitCalendars: [{ year: '2026', label: '2026', mediaFolderId: thisYear.id, mediaFileIds: withImage(thisYear), published: true },
-      { year: '2025', label: '2025', mediaFolderId: lastYear.id, mediaFileIds: withImage(lastYear), published: false }],
+    recruitCalendars: [{ year: '2026', mediaFolderId: thisYear.id, mediaFileIds: withImage(thisYear), published: true },
+      { year: '2025', mediaFolderId: lastYear.id, mediaFileIds: withImage(lastYear), published: false }],
     requestCases: []
   });
   assert.equal(published.access, 'ANYONE_WITH_LINK');
@@ -451,7 +447,7 @@ test('publishing again without changes leaves Drive alone; only changed items ar
   const state = {
     exhibitions: [item],
     recruitCalendars: [],
-    recruitCalendar: {},
+   
     activityArticles: [
       { articleId: 'a1', title: 'First', mediaFolderId: first.id, mediaFileIds: [new File('1.jpg', first).id], published: true },
       { articleId: 'a2', title: 'Second', mediaFolderId: second.id, mediaFileIds: [new File('2.jpg', second).id], published: true }
@@ -483,11 +479,11 @@ test('publishing again without changes leaves Drive alone; only changed items ar
 
 test('an exhibition with a changed work list is reconciled even when its title is the same', () => {
   const { ctx, folder, image, item, upload } = setup();
-  const state = { exhibitions: [item], recruitCalendars: [], recruitCalendar: {}, activityArticles: [], requestCases: [] };
+  const state = { exhibitions: [item], recruitCalendars: [], activityArticles: [], requestCases: [] };
   ctx.finalizeManagedFolders_(state);
   const previous = JSON.parse(JSON.stringify(ctx.buildPublicSnapshot_(state)));
   const added = upload().uploadedFileIds[0];
-  item.workFiles.push({ fileId: added, sortOrder: 2, title: 'New', artist: 'Artist' });
+  item.works.push({ fileId: added, title: 'New', artist: 'Artist' });
   ctx.finalizeManagedFolders_(state, previous);
   assert.deepEqual(ids(folder), [image.id, added].sort());
 });
@@ -509,7 +505,7 @@ test('cleanup after a publish lists, and in trash mode trashes, only what the pu
   const justNow = new File('just-now.jpg', recovery);
   justNow.description = 'cms-unregistered-at:' + new Date(publishStartedAt + 1000).toISOString();
   const state = {
-    exhibitions: [item], recruitCalendars: [], recruitCalendar: {}, requestCases: [],
+    exhibitions: [item], recruitCalendars: [], requestCases: [],
     activityArticles: [{ articleId: 'a', title: 'Kept', mediaFolderId: kept.id, published: true }]
   };
 
@@ -539,10 +535,10 @@ test('cleanup after a publish lists, and in trash mode trashes, only what the pu
 test('images set aside are stamped, and the stamp is cleared when they are registered again', () => {
   const { ctx, folder, image, item, state, File } = setup();
   const other = new File('2_Other_Artist.jpg', folder);
-  item.workFiles = [{ fileId: other.id, sortOrder: 1, title: 'Other', artist: 'Artist' }];
+  item.works = [{ fileId: other.id, title: 'Other', artist: 'Artist' }];
   ctx.finalizeManagedFolders_(state);
   assert.match(image.description, /^cms-unregistered-at:/);
-  item.workFiles = [{ fileId: image.id, sortOrder: 1, title: 'Old', artist: 'Artist' }, { fileId: other.id, sortOrder: 2, title: 'Other', artist: 'Artist' }];
+  item.works = [{ fileId: image.id, title: 'Old', artist: 'Artist' }, { fileId: other.id, title: 'Other', artist: 'Artist' }];
   ctx.finalizeManagedFolders_(state);
   assert.equal(image.parent, folder);
   assert.equal(image.description, '');

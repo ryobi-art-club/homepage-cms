@@ -245,7 +245,7 @@ homepage リポジトリに push しても、サイトは自動では作り直�
 | Python のライブラリ（サイト側） | 大きな版上げが出ていないか | homepage の `requirements.txt` は大きな版上げで壊れないよう上限を付けている。上限を上げるときは手元でビルドを確かめる |
 | GitHub Actions の部品 | 古い版の警告が出ていないか | homepage の Actions の実行結果に警告が出たら、`deploy.yml` の `actions/…@v5` などを上げる |
 | Drive の容量 | 残りが少なくないか | 管理画面のホーム |
-| 使わなくなった列 | 片付けてよいか | 展示会のシートの `map_embed_url` は、地図の埋め込みをやめたので使っていない。しばらく問題なければ、管理画面（`Store.js` と `UiScript.html`）から扱いを外してから列を消す |
+| 使わなくなったシート | 片付けてよいか | `Recruit`・`ActivityArticles`・`Exhibitions`・`RequestCases` は、内容を `_PublishedState` にまとめたので使っていない（[8-4](#8-4-スプレッドシートの構成)）。消して構わない |
 
 ---
 
@@ -386,7 +386,7 @@ homepage-cms/
 
 | 関数（画面から呼ばれるもの） | 役割 |
 |---|---|
-| `getBootstrapData` | 画面を開いたときに必要なものをまとめて返す（内容、下書き、公開履歴、Drive の容量）。以前は Drive のフォルダの一覧も返していたが、画面で使っておらず、読み込みの時間の大部分を占めていたので外した（2026年10月） |
+| `getBootstrapData` | 画面を開いたときに必要なものをまとめて返す（内容、下書き、公開履歴、Drive の容量）。シートは `prefetchSheets_` で、Sheets API の1回の問い合わせでまとめて読む（GAS の「サービス」の Sheets を使う。`appsscript.json` の `enabledAdvancedServices` に書いてある。UrlFetchApp で直接 API を呼ぶ方法は、API が有効になっておらず失敗した）（SpreadsheetApp は1枚につき4回ほど問い合わせるため、8秒のうち7秒がシートの読み込みだった。2026年10月に計測）。まとめて読めないとき（シートがない、など）は、これまでどおり1枚ずつ読む。以前は Drive のフォルダの一覧も返していたが、画面で使っておらず遅かったので外した |
 | `saveDraft` / `loadDraft` | 下書きの保存・読み込み（`_Drafts` シート） |
 | `previewSiteHistory` | 公開したらサイトの更新履歴がどうなるかの予測 |
 | `publishState` | 公開処理（下の流れ） |
@@ -395,17 +395,16 @@ homepage-cms/
 
 ```
 入力の確認と整形（normalizePayload_）
-  → 前回の公開から変わった項目だけ、フォルダ名と共有を整え、展示会の画像を公開用のフォルダへ移す（finalizeManagedFolders_）
-  → 内容のシートに書き込む（writeStateToSheets_）
-  → 前回の公開との違いを調べ、サイトの更新履歴（ChangeLog）と操作ログ（_AdminLog）に書く
-  → 公開した内容の控えを保存する（_PublishedState）
+  → 前回の公開から変わった項目だけ、フォルダ名と共有を整え、画像を公開用のフォルダへ移す（finalizeManagedFolders_）
+  → 内容が変わっていれば、内容を保存する（_PublishedState）。そのあとサイトの更新履歴（ChangeLog）に書く
+  → 操作ログ（_AdminLog）に書く
   → 下書きを全部消す（clearDrafts_）、使われなくなった下書き用フォルダを片付ける
   → GitHub Actions を起動する（dispatchGithubWorkflow_）
 ```
 
 Drive とスプレッドシートの更新全体は、途中で失敗してもまとめて元に戻る仕組みにはなっていません。ただし、もう一度「公開する」を押せば続きから正しい状態になるように作っています。
 
-**変わった分だけ処理する**：公開のたびに全部の項目のフォルダや画像を確認すると、コンテンツが増えるほど公開が遅くなります（2026年10月の時点で、変更なしの公開に約2分かかっていた）。そこで、前回公開した内容の控え（`_PublishedState`）と比べ、Drive に関わる部分（タイトル・公開／非公開・フォルダ・展示会の DM と作品）が変わった項目だけを処理します（`buildDriveChangeFilter_`）。前回の公開が途中で失敗した場合は控えが更新されないので、次の公開で改めて処理されます。
+**変わった分だけ処理する**：公開のたびに全部の項目のフォルダや画像を確認すると、コンテンツが増えるほど公開が遅くなります（2026年10月の時点で、変更なしの公開に約2分かかっていた）。そこで、前回公開した内容（`_PublishedState`）と比べ、Drive に関わる部分（タイトル・公開／非公開・フォルダ・展示会の DM と作品）が変わった項目だけを処理します（`buildDriveChangeFilter_`）。前回の公開が途中で失敗した場合は控えが更新されないので、次の公開で改めて処理されます。
 
 **公開のあとの片付け**：サイトの更新を始めたあと（公開が成功したあと）に、`collectGarbage_` が片付けをします。対象と決まりは [8-6](#8-6-google-drive-のフォルダ構成) を見てください。20秒で打ち切り、残りは次の公開で続けます。片付けで失敗しても、公開はエラーにしません。何を片付けたかは、`_AdminLog` のその公開の行の `cleanup` の列に書きます。
 
@@ -518,72 +517,72 @@ GAS エディタの「プロジェクトの設定」→「スクリプト プロ
 
 シートは、最初に保存・公開したときに自動で作られます。シート名は `Config.js` の `CONTENT_SHEETS` にあります。列は1行目の見出しの名前で読むので、列の順番は関係ありません。
 
-**内容のシート**（公開サイトのビルドも読む）
+**内容は `_PublishedState` の1か所に置きます**
 
-`Recruit`（新歓カレンダー）
+公開した内容（新歓カレンダー・活動記録・展示会・ご依頼事例）は、`_PublishedState` に JSON で保存します。管理画面もサイトのビルドも、ここから読みます。
 
-| 列 | 内容 |
-|---|---|
-| `year` | 年度（例：`2026`） |
-| `media_folder_id` | 画像フォルダの ID |
-| `media_file_ids` | 使う画像のファイル ID の一覧（JSON。並び順どおり） |
-| `published` | `TRUE` / `FALSE`（`TRUE` は1行だけ） |
-| `updated_at` | 更新日時 |
+- 2026年10月までは、同じ内容を `Recruit`・`ActivityArticles`・`Exhibitions`・`RequestCases` の4枚のシートにも表の形で書いていました。二重持ちだったので1か所にまとめ、4枚のシートは消しました。
+- `_PublishedState` がまだないとき（作り直した直後）は、内容が空のまま始まります。
+- `_PublishedState` が壊れていて読めないときは、管理画面もサイトのビルドも空の内容を出さずにエラーで止まります。空のまま公開して、サイトの内容を全部消してしまうのを防ぐためです。スプレッドシートの「ファイル」→「変更履歴」から戻してください。
 
-`ActivityArticles`（活動記録・告知）
+`_PublishedState` の列
 
 | 列 | 内容 |
 |---|---|
-| `article_id` | 記事の ID |
-| `title` | タイトル（120字まで） |
-| `category` | `record` / `event` / `other` |
-| `body` | 本文（4000字まで。改行可） |
-| `media_folder_id` / `media_file_ids` | 画像フォルダと、使う画像の一覧 |
-| `published` | 公開中か |
-| `created_at` / `updated_at` | 作成日時（初回公開日として表示）・更新日時 |
+| `updated_at` / `revision` | 最後に内容が変わった公開の日時・通し番号 |
+| `sha256` | 内容のハッシュ。公開のとき、前回から変わったかを調べる |
+| `payload_json`（`_2`、`_3`…） | 内容の JSON（下の「保存形式」） |
 
-`Exhibitions`（展示会）
+**内容の JSON の形（版2）**：管理画面とサイトのビルドの約束です。項目を変えるときは、管理画面の `Store.js` の `CONTENT_FIELDS` と、homepage の `fetch_google_content.py` と、両方の README を一緒に直します。
 
-| 列 | 内容 |
+```json
+{
+  "formatVersion": 2,
+  "recruitCalendars": [{ "year": "2026", "mediaFolderId": "…", "mediaFileIds": ["…"], "published": true }],
+  "activityArticles": [{ "articleId": "activity-…", "title": "…", "category": "record", "body": "…",
+                         "mediaFolderId": "…", "mediaFileIds": ["…"], "published": true, "createdAt": "2026-10-30T07:50:18.481Z" }],
+  "exhibitions": [{ "exhibitionId": "exhibition-…", "title": "…", "subtitle": "…", "theme": "…",
+                    "venueName": "…", "venueAddress": "…", "dateLine": "…", "timeLine": "…",
+                    "displayBucket": "upcoming", "mediaFolderId": "…", "dmFileIds": ["…"],
+                    "works": [{ "fileId": "…", "title": "…", "artist": "…" }],
+                    "published": true, "startDate": "2026-11-07", "endDate": "" }],
+  "requestCases": [{ "caseId": "request-…", "title": "…", "body": "…", "mediaFolderId": "", "mediaFileIds": [], "published": true }]
+}
+```
+
+| 種類 | 項目の決まり |
 |---|---|
-| `exhibition_id` | 展示会の ID |
-| `title` / `subtitle` | 展示会名（140字まで）・サブタイトル |
-| `theme` | 概要（1000字まで。改行可） |
-| `venue_name` / `venue_address` | 会場名・住所。サイトでは住所が Google マップを開くリンクになる |
-| `date_line` | サイトに出す会期。ふつうは管理画面が開始日・終了日から作る（例：`2026年8月1日(土)〜8月8日(土)`）。日付で書けない会期は手入力 |
-| `time_line` | 時間帯（例：`11:00〜18:00`） |
-| `map_embed_url` | **使っていない**（以前の地図の埋め込み。[5. 定期的な点検](#5-定期的な点検)） |
-| `display_bucket` | `upcoming`（開催予定）/ `archive`（アーカイブ） |
-| `media_folder_id` | 展示会の画像フォルダの ID |
-| `dm_file_ids` | DM 画像の ID（表・裏の2つまで） |
-| `work_files` | 作品画像の一覧（JSON。ファイル ID・作品名・作者名・並び順） |
-| `published` | 公開中か |
-| `start_date` / `end_date` | 開始日・終了日（`yyyy-MM-dd`。1日だけの展示は終了日が空欄） |
-| `updated_at` | 更新日時 |
+| 全体 | 名前は `mediaFolderId` のように単語の頭を大文字にしてつなぐ。1つの値には1つの名前だけ。ほかの値から決まる値は保存しない。並び順は一覧（配列）の順番そのもの |
+| 新歓カレンダー | 年度の新しい順。`published` が `true` なのは1つだけ。表示名（「2026年度 新歓イベントカレンダー」）は年度から作る（`recruitCalendarLabel_`） |
+| 活動記録・告知 | 作成日（`createdAt`。初回公開日として表示）の新しい順。`title` は120字、`body` は4000字まで。`category` は `record` / `event` / `other` |
+| 展示会 | 開催予定→アーカイブ、それぞれ開始日の順。`title` は140字、`theme`（概要）は1000字まで。`dmFileIds` は表・裏の2つまで。`works`（作品）は表示する順に並べる。`dateLine`（会期）はふつう管理画面が開始日・終了日から作る。`startDate`・`endDate` は `yyyy-MM-dd`（1日だけの展示は終了日が空） |
+| ご依頼事例 | 管理画面で並べた順。`title` は120字、`body` は4000字まで |
+| 画像 | `mediaFileIds`（展示会は `dmFileIds` と `works`）が、その項目で使う画像。フォルダにあっても、ここにない画像は使わない |
 
-`RequestCases`（ご依頼事例）
+**下書き**（`_Drafts`）も同じ形です。展示会には、日付のない下書きを並べるための `draftCreatedAt` が付きます。ほかに、更新履歴のメモ（`manualChangeNote`）を持ちます。
 
-| 列 | 内容 |
-|---|---|
-| `case_id` | 事例の ID |
-| `title` / `body` | タイトル（120字まで）・本文（4000字まで） |
-| `media_folder_id` / `media_file_ids` | 画像フォルダと、使う画像の一覧 |
-| `sort_order` | 表示順（小さいほど上） |
-| `published` | 公開中か |
-| `updated_at` | 更新日時 |
+**古い形（版1）を読む処理**：2026年10月までの形（`formatVersion` がないもの）は、フォルダの ID に別名（`photoFolderId`・`driveFolderId`・`folderId`）があり、作品の一覧が `workFiles`（`file_id`・`sort_order`）で、番号（`sortOrder`）・新歓の写し（`recruitCalendar`）・表示名（`label`）なども持っていました。これを版2に直す処理は、管理画面の `upgradeContent_` と、サイトのビルドの `upgrade_content` の2つだけに置いています。版2で一度公開すれば版1のデータは残らないので、そのあと消す予定です（設計書「段階3」）。
 
-`ChangeLog`（サイトの更新履歴）：`timestamp`（公開日時）、`summary`（変更内容）、`actor_name`・`actor_email_input`（操作した人）、`revision`
+**そのほかのシート**
 
-**内部用のシート**（名前が `_` で始まる。サイトは読まない）
+| シート | 内容 | サイトのビルドが読むか |
+|---|---|---|
+| `ChangeLog` | サイトの更新履歴：`timestamp`（公開日時）、`summary`（変更内容）、`actor_name`（操作した人）。ビルドが読むので、メールアドレスは置かない（2026年10月に `actor_email_input`・`revision` の列を外した） | 読む |
+| `_Drafts` | 下書き。公開すると全部消える | 読まない |
+| `_AdminLog` | 操作ログ（誰がいつ公開し、何を変えたか。メールアドレスも残る）。ホームの「公開履歴」に出る | 読まない |
+| `_ProofreadChecked` | 誤字チェック済みの文章のハッシュ。シートを消すと、全文章が次の公開で再チェックされる | 読まない |
 
-| シート | 内容 |
-|---|---|
-| `_Drafts` | 下書き。公開すると全部消える |
-| `_PublishedState` | 前回公開した内容の控えと、そのハッシュ（変更の有無を調べる） |
-| `_AdminLog` | 操作ログ（誰がいつ公開し、何を変えたか）。ホームの「公開履歴」に出る |
-| `_ProofreadChecked` | 誤字チェック済みの文章のハッシュ。シートを消すと、全文章が次の公開で再チェックされる |
+**下書きと公開内容の保存形式**：`_Drafts` と `_PublishedState` は内容を JSON でセルに保存します。1つのセルには5万字までしか入らないため、45,000字を超えたら20,000字ずつ `payload_json_2`、`payload_json_3`、… の列に分けて保存し（`buildPayloadCells_`）、`payload_json` には `{"storage_format":"chunked-json-v1","chunk_count":n}` を書きます。読むときにつなげます（`readPayloadCells_`。サイトのビルドでは `read_published_content`）。列は自動で増えます。
 
-**下書きと控えの保存形式**：`_Drafts` と `_PublishedState` は内容を JSON でセルに保存します。1つのセルには5万字までしか入らないため、長いときは `payload_json`、`payload_json_2`、… の列に分けて保存し、読むときにつなげます。列は自動で増えます。
+**スプレッドシートまわりの制約**（2026年10月に確認）
+
+| 制約 | 値 | このシステムでの状況 |
+|---|---|---|
+| 1つのセルの文字数 | 50,000字（超えて書き込むとエラー） | 上のとおり分けて保存する。書き込む前にも確かめる（`validateSheetCellLengths_`） |
+| 1つのスプレッドシートの大きさ | 2,000万セル、または100MB | 内容全体で3万字ほど（2026年10月）。増えるのは年に1〜2万字ほどの見込みで、当たらない |
+| Sheets API の読み取り回数 | 1分あたりプロジェクト全体で300回・1人60回 | 管理画面を開くたびに1回 |
+| Sheets API の1回の大きさ | 2MB 以下を推奨 | 同上の見込みで、何十年も当たらない |
+| GAS の1回の処理時間 | 6分 | 公開は変更がなければ20秒ほど |
 
 **シートの書き込み方**：先に全部消してから書くのではなく、範囲をまとめて上書きし、余った部分を空欄にします。公開のたびに、内容のシートの末尾の空いた行・列を片付けます。
 
