@@ -63,7 +63,6 @@ module.exports = {
     viewerEmail: 'member@example.com',
     viewerName: '部員A',
     previewUrl: '#',
-    options: { roots: {}, recruitCalendars: [], activityPhotoFolders: [], exhibitionFolders: [], requestPhotoFolders: [], geminiModel: 'preview' },
     state,
     drafts: [
       { draftId: 'd1', savedAt: '2026-10-27T09:12:00.000Z', savedByName: '部員B', savedByEmail: 'b@example.com', payload: JSON.parse(JSON.stringify(state)) },

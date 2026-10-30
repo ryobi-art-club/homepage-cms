@@ -57,8 +57,16 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
     await collectCoverage();
     await startCoverage();
     await page.goto(target, { waitUntil: 'networkidle0' });
+    /* start logged out: the login is kept in this tab's sessionStorage */
+    await page.evaluate(() => sessionStorage.clear());
     /* moving between URLs that differ only in the hash does not reload the page */
     await page.reload({ waitUntil: 'networkidle0' });
+  };
+  const reloadKeepingSession = async () => {
+    await collectCoverage();
+    await startCoverage();
+    await page.reload({ waitUntil: 'networkidle0' });
+    await wait(600);
   };
 
   let step = '';
@@ -287,6 +295,62 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   await click("onMediaUpload('image')", { wait: 600 });
   await click('onMediaDelete');
   await click('closeMediaDialog');
+  await checkErrors();
+
+  /* only the registered images count: an upload is added to the list, a deleted image leaves the
+     list, the dialog and the preview, and the other images stay, before and after publishing */
+  step = '画像の登録（追加・削除・公開）';
+  const registration = await page.evaluate(async () => {
+    const article = () => appState.state.activityArticles[0];
+    const dialogIds = () => Array.from(document.querySelectorAll('#mediaDialog [onclick^="onMediaDelete"]'))
+      .map((button) => button.getAttribute('onclick').match(/onMediaDelete\('([^']+)'/)[1]);
+    activatePanel('activities');
+    await openMediaDialog('activity', 0);
+    const before = article().mediaFileIds.slice();
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([new Uint8Array([137, 80, 78, 71])], 'added.png', { type: 'image/png' }));
+    document.getElementById('mediaUploadInput_image').files = transfer.files;
+    await onMediaUpload('image');
+    const afterUpload = article().mediaFileIds.slice();
+    const added = afterUpload.filter((id) => before.indexOf(id) === -1);
+    const removed = before[0];
+    await onMediaDelete(removed, '');
+    const afterDelete = article().mediaFileIds.slice();
+    const dialogAfterDelete = dialogIds();
+    closeMediaDialog();
+    /* reopening reads the folder again: the deleted image is still in Drive but is not listed */
+    await openMediaDialog('activity', 0);
+    const dialogReopened = dialogIds();
+    closeMediaDialog();
+    openPreview('activity');
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const previewImages = document.querySelectorAll('#activityPreview .preview-article')[0];
+    const previewCount = previewImages ? previewImages.querySelectorAll('img').length : -1;
+    const payload = JSON.parse(JSON.stringify(appState.state));
+    /* publish in the mock only, and put the other folders back for the later steps */
+    const savedFolders = JSON.parse(JSON.stringify(window.PREVIEW_DATA.folders));
+    const savedBootstrap = JSON.parse(JSON.stringify(window.PREVIEW_DATA.bootstrap));
+    window.MOCK_BACKEND.publishState('', payload);
+    const folderAfterPublish = window.PREVIEW_DATA.folders[article().mediaFolderId].map((file) => file.id);
+    Object.keys(savedFolders).forEach((id) => { if (id !== article().mediaFolderId) window.PREVIEW_DATA.folders[id] = savedFolders[id]; });
+    window.PREVIEW_DATA.bootstrap.drafts = savedBootstrap.drafts;
+    return { before, afterUpload, added, removed, afterDelete, dialogAfterDelete, dialogReopened, previewCount, folderAfterPublish };
+  });
+  const expected = registration.before.slice(1).concat(registration.added);
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  if (registration.added.length !== 1) problems.push(step + ': アップロードした画像が登録されていません ' + JSON.stringify(registration));
+  if (!same(registration.afterDelete, expected)) problems.push(step + ': 削除後の登録が想定と違います ' + JSON.stringify(registration));
+  if (!same(registration.dialogAfterDelete, expected) || !same(registration.dialogReopened, expected)) problems.push(step + ': 画像の一覧に、外した画像が出ているか、残すはずの画像がありません ' + JSON.stringify(registration));
+  if (registration.previewCount !== expected.length) problems.push(step + ': プレビューの画像の数が登録と合いません ' + JSON.stringify(registration));
+  if (!same(registration.folderAfterPublish.slice().sort(), expected.slice().sort())) problems.push(step + ': 公開後のフォルダが登録と合いません ' + JSON.stringify(registration));
+  /* the calendar preview shows every image: › moves to the next one */
+  step = '新歓カレンダーのプレビュー';
+  await page.evaluate(() => { activatePanel('recruit'); openPreview('recruit'); });
+  await wait(600);
+  await page.click('#recruitPreview .preview-recruit-step.is-next');
+  await wait(800);
+  const scrolled = await page.evaluate(() => document.querySelector('#recruitPreview .preview-recruit-track').scrollLeft);
+  if (!(scrolled > 0)) problems.push(step + ': 次の画像に進めません');
   await checkErrors();
 
   /* --- exhibition dialog: reorder, upload, catalog import (text, then Excel), delete --- */
@@ -520,6 +584,27 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   await page.evaluate((id) => showError(new Error('ファイル取得に失敗しました: File not found: ' + id), '画像の削除', 'media'), longId);
   await wait(200);
   await shot('error-4-media-dialog');
+
+  /* a reload keeps the login while it is valid; an expired one goes back to the login screen quietly */
+  step = 'ログインの維持';
+  await page.evaluate(() => { const card = document.getElementById('errorReportCard'); if (card) card.remove(); });
+  await reloadKeepingSession();
+  await watchErrors();
+  const shells = () => page.evaluate(() => ({
+    app: !document.getElementById('appShell').classList.contains('hidden'),
+    login: !document.getElementById('authShell').classList.contains('hidden'),
+    message: document.getElementById('authStatus').textContent,
+    saved: sessionStorage.getItem('ryobiCmsSession')
+  }));
+  const resumed = await shells();
+  if (!resumed.app || resumed.login) problems.push(step + ': 再読み込みでログインが切れました ' + JSON.stringify(resumed));
+  await page.evaluate(() => sessionStorage.setItem('ryobiCmsSession', JSON.stringify({ token: 'expired', email: 'member@example.com' })));
+  await reloadKeepingSession();
+  await watchErrors();
+  const expired = await shells();
+  if (expired.app || !expired.login || !/有効期限/.test(expired.message) || expired.saved) problems.push(step + ': 期限切れのログインの扱いが違います ' + JSON.stringify(expired));
+  await shot('desktop-login-expired');
+  await checkErrors();
   await load(url + '#login');
   for (const [label, viewport] of [['desktop', DESKTOP], ['mobile', MOBILE]]) {
     await setScreen(viewport);

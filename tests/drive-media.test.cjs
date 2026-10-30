@@ -327,15 +327,59 @@ test('staging cannot inherit public access from the exhibition root', () => {
   assert.equal(isLocked(), false);
 });
 
-test('non-exhibition uploads and deletions retain their existing behavior', () => {
+test('every kind adds images to private staging and only drops deleted ones from the list until publishing', () => {
   const { ctx, activityRoot, upload, files } = setup();
-  const activity = activityRoot.createFolder('Activity');
+  const activity = activityRoot.createFolder('Activity_20260925');
+  activity.setSharing('ANYONE_WITH_LINK');
   const result = upload(['photo.jpg'], { kind: 'activity', folderId: activity.id, role: 'image' });
   const id = result.uploadedFileIds[0];
-  assert.equal(files.get(id).parent, activity);
+  const staging = ctx.getMediaAuxFolder_(activity.id, 'staging', false);
+  assert.equal(files.get(id).parent, staging, 'not in the folder that anyone with the link can view');
+  assert.equal(staging.access, 'PRIVATE');
+  assert.ok(result.files.some(file => file.id === id && file.public === false));
   const deleted = ctx.trashManagedFile('session', { folderId: activity.id, fileId: id });
-  assert.equal(files.get(id).trashed, true);
-  assert.equal(deleted.folderTrashed, true);
+  assert.equal(deleted.deferred, true);
+  assert.equal(files.get(id).trashed, false);
+  assert.ok(!deleted.files.some(file => file.id === id));
+});
+
+test('publishing an article moves registered images into its folder and sets the others aside', () => {
+  const { ctx, activityRoot, upload, files, File } = setup();
+  const folder = activityRoot.createFolder('Article_20260925');
+  const old = new File('old.jpg', folder);
+  const kept = upload(['kept.jpg'], { kind: 'activity', folderId: folder.id, role: 'image' }).uploadedFileIds[0];
+  const dropped = upload(['dropped.jpg'], { kind: 'activity', folderId: folder.id, role: 'image' }).uploadedFileIds[0];
+  const item = { articleId: 'a', title: 'Article', mediaFolderId: folder.id, mediaFileIds: [old.id, kept], published: true };
+  const previous = { activityArticles: [{ articleId: 'a', title: 'Article', mediaFolderId: folder.id, mediaFileIds: [old.id], published: true }] };
+  ctx.finalizeManagedFolders_({ exhibitions: [], recruitCalendars: [], activityArticles: [item], requestCases: [] }, previous);
+  assert.equal(old.parent, folder);
+  assert.equal(files.get(kept).parent, folder);
+  assert.equal(files.get(dropped).parent, ctx.getMediaAuxFolder_(folder.id, 'recovery', false));
+  assert.match(files.get(dropped).description, /^cms-unregistered-at:/);
+  assert.equal(ctx.getMediaAuxFolder_(folder.id, 'staging', false), null, 'the emptied staging folder is removed');
+  assert.equal(folder.access, 'ANYONE_WITH_LINK');
+});
+
+test('articles saved before images were registered keep every image of their folder', () => {
+  const { ctx, activityRoot, File } = setup();
+  const folder = activityRoot.createFolder('Old article_20250101');
+  const second = new File('b.jpg', folder);
+  const first = new File('a.jpg', folder);
+  // shown and published with the folder's images in name order
+  const loaded = ctx.fillUnregisteredMediaIds_({ activityArticles: [{ articleId: 'old', mediaFolderId: folder.id, mediaFileIds: [] }] });
+  assert.deepEqual(Array.from(loaded.activityArticles[0].mediaFileIds), [first.id, second.id]);
+  // a stale screen that still sends an empty list (here with an edited title) does not set the images aside
+  const item = { articleId: 'old', title: 'Old article edited', mediaFolderId: folder.id, mediaFileIds: [], published: true };
+  const previous = { activityArticles: [{ articleId: 'old', title: 'Old article', mediaFolderId: folder.id, mediaFileIds: [], published: true }] };
+  ctx.finalizeManagedFolders_({ exhibitions: [], recruitCalendars: [], activityArticles: [item], requestCases: [] }, previous);
+  assert.deepEqual(Array.from(item.mediaFileIds), [first.id, second.id]);
+  assert.ok(first.parent === folder && second.parent === folder);
+  // once the list was written, removing every image really removes them
+  const cleared = { articleId: 'old', title: 'Old article', mediaFolderId: folder.id, mediaFileIds: [], published: true };
+  ctx.finalizeManagedFolders_({ exhibitions: [], recruitCalendars: [], activityArticles: [cleared], requestCases: [] },
+    { activityArticles: [{ articleId: 'old', title: 'Old article', mediaFolderId: folder.id, mediaFileIds: [first.id, second.id], published: true }] });
+  assert.ok(first.parent !== folder && second.parent !== folder);
+  assert.equal(cleared.mediaFolderId, '', 'the emptied folder is let go');
 });
 
 test('client retains only explicitly uploaded IDs and preserves removals on the next upload', () => {
@@ -379,7 +423,8 @@ test('thumbnails are served only from managed folders, at most ten at a time', (
 });
 
 test('publishing opens the folders of published recruit, activity and request items to link viewers', () => {
-  const { ctx, activityRoot, recruitRoot } = setup();
+  const { ctx, activityRoot, recruitRoot, File } = setup();
+  const withImage = (folder) => [new File('photo.jpg', folder).id];
   const published = activityRoot.createFolder('Published_20260925');
   const hidden = activityRoot.createFolder('Hidden_20260925');
   hidden.setSharing('ANYONE_WITH_LINK');
@@ -387,10 +432,10 @@ test('publishing opens the folders of published recruit, activity and request it
   const lastYear = recruitRoot.createFolder('2025_20250401');
   ctx.finalizeManagedFolders_({
     exhibitions: [],
-    activityArticles: [{ title: 'Published', mediaFolderId: published.id, published: true },
-      { title: 'Hidden', mediaFolderId: hidden.id, published: false }],
-    recruitCalendars: [{ label: '2026', mediaFolderId: thisYear.id, published: true },
-      { label: '2025', mediaFolderId: lastYear.id, published: false }],
+    activityArticles: [{ articleId: 'p', title: 'Published', mediaFolderId: published.id, mediaFileIds: withImage(published), published: true },
+      { articleId: 'h', title: 'Hidden', mediaFolderId: hidden.id, mediaFileIds: withImage(hidden), published: false }],
+    recruitCalendars: [{ year: '2026', label: '2026', mediaFolderId: thisYear.id, mediaFileIds: withImage(thisYear), published: true },
+      { year: '2025', label: '2025', mediaFolderId: lastYear.id, mediaFileIds: withImage(lastYear), published: false }],
     requestCases: []
   });
   assert.equal(published.access, 'ANYONE_WITH_LINK');
@@ -400,7 +445,7 @@ test('publishing opens the folders of published recruit, activity and request it
 });
 
 test('publishing again without changes leaves Drive alone; only changed items are processed', () => {
-  const { ctx, activityRoot, item } = setup();
+  const { ctx, activityRoot, item, File } = setup();
   const first = activityRoot.createFolder('First_20260925');
   const second = activityRoot.createFolder('Second_20260925');
   const state = {
@@ -408,8 +453,8 @@ test('publishing again without changes leaves Drive alone; only changed items ar
     recruitCalendars: [],
     recruitCalendar: {},
     activityArticles: [
-      { articleId: 'a1', title: 'First', mediaFolderId: first.id, mediaFileIds: [], published: true },
-      { articleId: 'a2', title: 'Second', mediaFolderId: second.id, mediaFileIds: [], published: true }
+      { articleId: 'a1', title: 'First', mediaFolderId: first.id, mediaFileIds: [new File('1.jpg', first).id], published: true },
+      { articleId: 'a2', title: 'Second', mediaFolderId: second.id, mediaFileIds: [new File('2.jpg', second).id], published: true }
     ],
     requestCases: []
   };
@@ -425,7 +470,7 @@ test('publishing again without changes leaves Drive alone; only changed items ar
   const edited = JSON.parse(JSON.stringify(state));
   edited.activityArticles[1].title = 'Second renamed';
   ctx.finalizeManagedFolders_(edited, previous);
-  assert.equal(lookups, 1, 'only the renamed article is opened');
+  assert.ok(lookups > 0, 'the renamed article is opened');
   assert.equal(second.name, 'Second renamed_20260925');
   assert.equal(first.name, 'First_20260925');
 

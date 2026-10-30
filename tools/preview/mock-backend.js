@@ -4,8 +4,8 @@
 (function () {
   const data = window.PREVIEW_DATA;
   const clone = (value) => JSON.parse(JSON.stringify(value));
-  /* Folders anyone with the link can view (published items). Images elsewhere, and exhibition images
-     added before publishing (staged), are private: the screen asks getMediaThumbnails for them. */
+  /* Folders anyone with the link can view (published items). Images elsewhere, and images added
+     before publishing (staged), are private: the screen asks getMediaThumbnails for them. */
   const publicFolders = new Set(data.publicFolders || []);
   const media = (folderId) => clone(data.folders[folderId] || []).map((file) =>
     Object.assign(file, { public: publicFolders.has(folderId) && !file.staged, folderId }));
@@ -22,7 +22,10 @@
       if (!code) throw new Error('確認コードを入力してください。');
       return { ok: true, sessionToken: 'preview', email, name: data.bootstrap.viewerName, expiresInMinutes: 360 };
     },
-    getBootstrapData: () => clone(data.bootstrap),
+    getBootstrapData: (token) => {
+      if (token === 'expired') throw new Error('セッションが切れています。もう一度認証してください。');
+      return clone(data.bootstrap);
+    },
     getFolderMedia: (_, folderId) => media(folderId),
     getFolderImages: (_, folderId) => media(folderId).filter((file) => file.kind === 'image'),
     thumbnailRequests: 0,
@@ -62,12 +65,17 @@
       data.bootstrap.drafts = [];
       /* published items' folders become viewable by link, like the real publish */
       const state = data.bootstrap.state;
+      /* registered images move into the folder; the others are set aside (they leave the list) */
+      const reconcile = (item, registered) => {
+        if (!item.mediaFolderId || !data.folders[item.mediaFolderId]) return;
+        const keep = new Set(registered || []);
+        data.folders[item.mediaFolderId] = data.folders[item.mediaFolderId].filter((file) => file.kind !== 'image' || keep.has(file.id));
+        data.folders[item.mediaFolderId].forEach((file) => { file.staged = false; });
+      };
+      (state.exhibitions || []).forEach((item) => reconcile(item, (item.dmFileIds || []).concat((item.workFiles || []).map((work) => work.fileId))));
+      (state.recruitCalendars || []).concat(state.activityArticles || [], state.requestCases || []).forEach((item) => reconcile(item, item.mediaFileIds));
       publicFolders.clear();
-      (state.exhibitions || []).filter((item) => item.published !== false).forEach((item) => {
-        publicFolders.add(item.mediaFolderId);
-        (data.folders[item.mediaFolderId] || []).forEach((file) => { file.staged = false; });
-      });
-      (state.activityArticles || []).concat(state.requestCases || []).filter((item) => item.published !== false)
+      (state.exhibitions || []).concat(state.activityArticles || [], state.requestCases || []).filter((item) => item.published !== false)
         .forEach((item) => publicFolders.add(item.mediaFolderId));
       (state.recruitCalendars || []).filter((item) => item.published === true).forEach((item) => publicFolders.add(item.mediaFolderId));
       return { ok: true, message: '公開を開始しました。', changeSummary: summary, actionsUrl: '#' };
@@ -80,16 +88,16 @@
         const id = nextId('upload');
         const kind = /^image\//.test(file.mimeType) ? 'image' : 'file';
         const src = 'data:' + file.mimeType + ';base64,' + file.data;
-        /* exhibition uploads go to the private staging folder until publishing */
-        data.folders[folderId] = (data.folders[folderId] || []).concat({ id, name: file.name, mimeType: file.mimeType, kind, size: file.data.length, url: '#', thumbnailUrl: kind === 'image' ? src : '', staged: request.kind === 'exhibition' });
+        /* uploads go to the private staging folder until publishing */
+        data.folders[folderId] = (data.folders[folderId] || []).concat({ id, name: file.name, mimeType: file.mimeType, kind, size: file.data.length, url: '#', thumbnailUrl: kind === 'image' ? src : '', staged: true });
         return id;
       });
       return Object.assign(folderResponse(folderId), { uploadedFileIds });
     },
     trashManagedFile: (_, request) => {
       const folderId = request.folderId || '';
-      /* 展示会の画像は公開まで残し、一覧から外すだけ（本物と同じ） */
-      if (/^f-ex-/.test(folderId)) {
+      /* 画像は公開まで残し、一覧から外すだけ（本物と同じ） */
+      if (data.folders[folderId]) {
         const result = folderResponse(folderId);
         result.files = result.files.filter((file) => file.id !== request.fileId);
         result.deferred = true;

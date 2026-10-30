@@ -1,13 +1,10 @@
 function getBootstrapData(sessionToken) {
   const session = requireSession_(sessionToken);
-  const state = readContentState_();
+  const state = fillUnregisteredMediaIds_(readContentState_());
   return sanitizeForClient_({
     viewerEmail: session.email,
     viewerName: session.name || session.email,
     previewUrl: getConfig_().SITE_PREVIEW_URL,
-    options: Object.assign(listDriveFolders(sessionToken), {
-      geminiModel: getConfig_().GEMINI_MODEL
-    }),
     state: state,
     drafts: readDrafts_(),
     adminLog: readAdminLog_(),
@@ -156,7 +153,25 @@ function loadDraft(sessionToken, draftId) {
   const drafts = readDrafts_();
   const match = drafts.find((item) => item.draftId === draftId);
   if (!match) throw new Error('指定した下書きが見つかりません。');
-  return match.payload;
+  return fillUnregisteredMediaIds_(match.payload);
+}
+
+// The CMS shows and publishes only registered images (mediaFileIds). Items saved before images were
+// registered have an empty list and a folder of images; give them the folder's images in the order
+// the CMS used to show them, so nothing disappears. A publish then writes the list to the sheet.
+function fillUnregisteredMediaIds_(state) {
+  [['recruit', state.recruitCalendars], ['activity', state.activityArticles], ['request', state.requestCases]].forEach(([kind, items]) => {
+    (items || []).forEach((item) => {
+      const folderId = itemMediaFolderId_(item);
+      if (!folderId || registeredMediaIds_(kind, item).length) return;
+      try {
+        item.mediaFileIds = folderImageIdsInOrder_(getDriveFolderWithRetry_(folderId, '素材フォルダ取得'));
+      } catch (error) {
+        console.warn('画像の一覧を補えませんでした', error);
+      }
+    });
+  });
+  return state;
 }
 
 

@@ -7,13 +7,6 @@ const appState = {
   drafts: [],
   adminLog: [],
   maintenance: { storage: null, recommendations: [] },
-  options: {
-    roots: {},
-    recruitCalendars: [],
-    activityPhotoFolders: [],
-    exhibitionFolders: [],
-    requestPhotoFolders: []
-  },
   state: {
     recruitCalendars: [],
     recruitCalendar: { folderId: '', label: '' },
@@ -43,7 +36,55 @@ const statusRuntime = {
 
 document.addEventListener('DOMContentLoaded', () => {
   bindGlobalEvents();
+  resumeSession();
 });
+
+/* ログインはこのタブだけに覚えておき（sessionStorage）、再読み込みしても有効期限（サーバーの
+   SESSION_TTL_MINUTES）の間は確認コードなしで続ける。タブを閉じると消える。
+   ブラウザが保存を許さないときは、これまでどおり毎回ログインする */
+const SESSION_STORAGE_KEY = 'ryobiCmsSession';
+
+function rememberSession() {
+  try {
+    sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
+      token: appState.sessionToken,
+      name: appState.viewerName,
+      email: appState.viewerEmail
+    }));
+  } catch (error) { /* 保存できなくても、ログインはできる */ }
+}
+
+function forgetSession() {
+  try { sessionStorage.removeItem(SESSION_STORAGE_KEY); } catch (error) { /* 同上 */ }
+}
+
+function showAppShell() {
+  document.getElementById('authShell').classList.add('hidden');
+  document.getElementById('appShell').classList.remove('hidden');
+}
+
+async function resumeSession() {
+  let saved = null;
+  try { saved = JSON.parse(sessionStorage.getItem(SESSION_STORAGE_KEY) || 'null'); } catch (error) { saved = null; }
+  if (!saved || !saved.token) return;
+  appState.sessionToken = saved.token;
+  appState.viewerName = saved.name || saved.email || '';
+  appState.viewerEmail = saved.email || '';
+  setAuthStatus('前回のログインで開いています…');
+  try {
+    await loadBootstrap({ resuming: true });
+    setAuthStatus('');
+    showAppShell();
+  } catch (error) {
+    appState.sessionToken = '';
+    if (/セッションが切れています/.test(error && error.message ? error.message : String(error))) {
+      forgetSession();
+      setAuthStatus('ログインの有効期限が切れました。もう一度ログインしてください。');
+    } else {
+      showError(error, 'データの読み込み', 'auth');
+    }
+  }
+}
 
 function bindGlobalEvents() {
   document.getElementById('requestOtpButton').addEventListener('click', onRequestOtp);
@@ -802,9 +843,7 @@ function orderedFilesByIds(files, ids) {
       used.add(found.id);
     }
   });
-  imageFiles.forEach((file) => {
-    if (!used.has(file.id)) ordered.push(file);
-  });
+  /* 登録した画像（ids）だけを返す。フォルダには、公開前に追加した画像や外した画像も入っているため */
   return ordered;
 }
 
@@ -926,19 +965,36 @@ function buildWorkGalleryPreviewHtml(works) {
   `;
 }
 
+/* 新歓カレンダーは全部の画像を横に並べ、スクロールして確かめる。
+   枠の縦横比は、公開サイトのスマホ表示と同じく、いちばん縦長の画像に合わせる（16:9〜4:5） */
 function buildRecruitPreviewHtml(images) {
-  const source = (images || []).slice(0, 10);
+  const source = (images || []).slice(0, GENERAL_IMAGE_LIMIT);
   if (!source.length) return '';
-  const first = source[0];
-  /* 公開サイトと同じく、枠の縦横比を画像に合わせる（16:9〜4:5） */
-  const fitFrame = ` onload="this.parentElement.style.aspectRatio = Math.min(16 / 9, Math.max(0.8, this.naturalWidth / this.naturalHeight))"`;
-  const dots = source.length > 1 ? `<div class="preview-recruit-dots">${source.map((_, index) => `<span class="${index === 0 ? 'is-active' : ''}"></span>`).join('')}</div>` : '';
+  const controls = source.length > 1 ? `
+      <button class="preview-recruit-step is-prev" type="button" aria-label="前の画像" onclick="stepRecruitPreview(this, -1)">‹</button>
+      <button class="preview-recruit-step is-next" type="button" aria-label="次の画像" onclick="stepRecruitPreview(this, 1)">›</button>
+      <div class="preview-recruit-count">全${source.length}枚</div>` : '';
   return `
     <div class="preview-recruit-carousel">
-      ${mediaImageHtml(first, fitFrame)}
-      ${dots}
+      <div class="preview-recruit-track">${source.map((image) => `<div class="preview-recruit-slide">${mediaImageHtml(image, ' onload="fitRecruitPreviewFrame(this)"')}</div>`).join('')}</div>
+      ${controls}
     </div>
   `;
+}
+
+function stepRecruitPreview(button, delta) {
+  const track = button.parentElement.querySelector('.preview-recruit-track');
+  if (track) track.scrollBy({ left: delta * track.clientWidth, behavior: 'smooth' });
+}
+
+function fitRecruitPreviewFrame(img) {
+  const frame = img.closest('.preview-recruit-carousel');
+  if (!frame || !img.naturalWidth) return;
+  const ratio = Math.min(16 / 9, Math.max(0.8, img.naturalWidth / img.naturalHeight));
+  const current = Number(frame.getAttribute('data-ratio') || 99);
+  if (ratio >= current) return;
+  frame.setAttribute('data-ratio', String(ratio));
+  frame.style.aspectRatio = String(ratio);
 }
 
 function buildMetaListHtml(item) {
@@ -1780,11 +1836,12 @@ function applyMediaResult(result, mutation) {
       .map((work, index) => Object.assign({}, work, { sortOrder: index + 1 }));
     context.item.works = context.item.workFiles;
   } else {
+    /* 登録は、今の登録のうち残っているものと、今回アップロードしたものだけ（フォルダの画像を全部は登録しない） */
     const currentIds = new Set((result.files || []).filter((file) => file.kind === 'image').map((file) => file.id));
-    let ids = normalizeIdList(context.item.mediaFileIds).filter((id) => currentIds.has(id));
-    (result.files || []).filter((file) => file.kind === 'image').forEach((file) => {
-      if (ids.indexOf(file.id) === -1) ids.push(file.id);
-    });
+    const ids = normalizeIdList(context.item.mediaFileIds).filter((id) => currentIds.has(id));
+    if (mutation && mutation.type === 'upload') {
+      (mutation.newIds || []).filter((id) => currentIds.has(id) && ids.indexOf(id) === -1).forEach((id) => ids.push(id));
+    }
     context.item.mediaFileIds = ids;
   }
 
@@ -1965,6 +2022,7 @@ async function onVerifyOtp() {
     appState.sessionToken = result.sessionToken;
     appState.viewerName = result.name || result.email;
     appState.viewerEmail = result.email;
+    rememberSession();
 
     document.getElementById('viewerName').textContent = result.name || result.email;
     document.getElementById('viewerEmail').textContent = result.email;
@@ -1973,8 +2031,7 @@ async function onVerifyOtp() {
 
     await loadBootstrap();
 
-    document.getElementById('authShell').classList.add('hidden');
-    document.getElementById('appShell').classList.remove('hidden');
+    showAppShell();
   } catch (error) {
     showError(error, 'ログイン', 'auth');
 
@@ -1985,7 +2042,8 @@ async function onVerifyOtp() {
   }
 }
 
-async function loadBootstrap() {
+/* resuming（覚えていたログインで開くとき）は、エラーを表示せずに呼び出し元へ返す */
+async function loadBootstrap(options = {}) {
   if (!appState.sessionToken && !window.MOCK_BACKEND) return;
   try {
     setStatus('最新データを読み込んでいます…');
@@ -1993,7 +2051,6 @@ async function loadBootstrap() {
     appState.viewerEmail = data.viewerEmail;
     appState.viewerName = data.viewerName || data.viewerEmail;
     appState.previewUrl = data.previewUrl || '';
-    appState.options = data.options;
     appState.state = data.state;
     appState.loadedState = JSON.parse(JSON.stringify(data.state || {}));
     appState.drafts = data.drafts || [];
@@ -2005,6 +2062,7 @@ async function loadBootstrap() {
     clearDirty();
     setStatus('読み込み完了');
   } catch (error) {
+    if (options.resuming) throw error;
     showError(error, 'データの読み込み');
   }
 }
@@ -2264,14 +2322,15 @@ async function loadRecruitPreview(forceRefresh = false) {
 
   try {
     const files = await getFolderImagesCached(folderId, forceRefresh);
-    const images = orderedFilesByIds(files, mediaIdsForItem(recruit)).slice(0, GENERAL_IMAGE_LIMIT);
+    const registered = orderedFilesByIds(files, mediaIdsForItem(recruit));
+    const images = registered.slice(0, GENERAL_IMAGE_LIMIT);
     showPreviewHtml(preview, `
       <div class="preview-site">
         <article class="preview-site-card">
           <span class="preview-site-kicker">WELCOME CALENDAR</span>
           <h4>${escapeHtml(label)}</h4>
           ${buildRecruitPreviewHtml(images)}
-          ${folderImageWarning(files.length, GENERAL_IMAGE_LIMIT, '画像')}
+          ${folderImageWarning(registered.length, GENERAL_IMAGE_LIMIT, '画像')}
         </article>
       </div>
     `);
@@ -2396,7 +2455,8 @@ async function renderActivityPreview(items) {
   return Promise.all(visible.map(async (item) => {
     const folderId = item.mediaFolderId || item.photoFolderId || '';
     const files = folderId ? await getFolderImagesCached(folderId) : [];
-    const imageResult = folderId ? { total: files.length, items: orderedFilesByIds(files, mediaIdsForItem(item)).slice(0, GENERAL_IMAGE_LIMIT) } : { total: 0, items: [] };
+    const registered = folderId ? orderedFilesByIds(files, mediaIdsForItem(item)) : [];
+    const imageResult = { total: registered.length, items: registered.slice(0, GENERAL_IMAGE_LIMIT) };
     return buildArticlePreviewHtml(
       escapeHtml(activityCategoryLabel(item.category)), formatDate(item.createdAt),
       item.title || 'タイトル未入力', item.body || '本文未入力',
@@ -2809,7 +2869,8 @@ async function renderRequestPreview(items) {
   const cards = await Promise.all(visible.map(async (item, index) => {
     const folderId = item.mediaFolderId || item.photoFolderId || '';
     const files = folderId ? await getFolderImagesCached(folderId) : [];
-    const imageResult = folderId ? { total: files.length, items: orderedFilesByIds(files, mediaIdsForItem(item)).slice(0, GENERAL_IMAGE_LIMIT) } : { total: 0, items: [] };
+    const registered = folderId ? orderedFilesByIds(files, mediaIdsForItem(item)) : [];
+    const imageResult = { total: registered.length, items: registered.slice(0, GENERAL_IMAGE_LIMIT) };
     return buildArticlePreviewHtml(
       '過去の取り組み事例', `表示順 ${index + 1}`,
       item.title || 'タイトル未入力', item.body || '本文未入力',
@@ -3058,7 +3119,6 @@ function buildPayloadFromDom() {
 
 async function refreshMetaAfterDraftSave(currentPayload) {
   const data = await serverCall('getBootstrapData', appState.sessionToken);
-  appState.options = data.options;
   appState.previewUrl = data.previewUrl || '';
   appState.drafts = data.drafts || [];
   appState.adminLog = data.adminLog || [];
