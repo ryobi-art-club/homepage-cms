@@ -1,0 +1,923 @@
+<script>
+/* 画面の土台：状態・サーバーの呼び出し・ステータス・エラー表示・ログイン・共通の道具 */
+
+const appState = {
+  sessionToken: '',
+  viewerEmail: '',
+  viewerName: '',
+  previewUrl: '',
+  drafts: [],
+  adminLog: [],
+  maintenance: { storage: null, recommendations: [] },
+  state: {
+    recruitCalendars: [],
+    activityArticles: [],
+    exhibitions: [],
+    requestCases: [],
+    changeLog: [],
+    manualChangeNote: ''
+  },
+  imageCache: {},
+  mediaCache: {},
+  thumbnailCache: {},
+  previewOpen: {},
+  catalogDrafts: {},
+  statusHistory: [],
+  dirty: false,
+  suppressDirty: false
+};
+
+const STATUS_MIN_VISIBLE_MS = 1000;
+
+const STATUS_HISTORY_LIMIT = 30;
+
+const statusRuntime = {
+  queue: [],
+  processing: false,
+  token: 0
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+  bindGlobalEvents();
+  resumeSession();
+});
+
+/* ログインはこのタブだけに覚えておき（sessionStorage）、再読み込みしても有効期限（サーバーの
+   SESSION_TTL_MINUTES）の間は確認コードなしで続ける。タブを閉じると消える。
+   ブラウザが保存を許さないときは、これまでどおり毎回ログインする */
+const SESSION_STORAGE_KEY = 'ryobiCmsSession';
+
+function rememberSession() {
+  try {
+    sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
+      token: appState.sessionToken,
+      name: appState.viewerName,
+      email: appState.viewerEmail
+    }));
+  } catch (error) { /* 保存できなくても、ログインはできる */ }
+}
+
+function forgetSession() {
+  try { sessionStorage.removeItem(SESSION_STORAGE_KEY); } catch (error) { /* 同上 */ }
+}
+
+function showAppShell() {
+  document.getElementById('authShell').classList.add('hidden');
+  document.getElementById('appShell').classList.remove('hidden');
+}
+
+async function resumeSession() {
+  let saved = null;
+  try { saved = JSON.parse(sessionStorage.getItem(SESSION_STORAGE_KEY) || 'null'); } catch (error) { saved = null; }
+  if (!saved || !saved.token) return;
+  appState.sessionToken = saved.token;
+  appState.viewerName = saved.name || saved.email || '';
+  appState.viewerEmail = saved.email || '';
+  /* 読み込みの間は、メールアドレスの欄と確認コードのボタンを隠す */
+  const authShell = document.getElementById('authShell');
+  authShell.classList.add('is-resuming');
+  setAuthStatus('前回のログインで開いています…');
+  try {
+    await loadBootstrap({ resuming: true });
+    setAuthStatus('');
+    showAppShell();
+  } catch (error) {
+    authShell.classList.remove('is-resuming');
+    appState.sessionToken = '';
+    if (/セッションが切れています/.test(error && error.message ? error.message : String(error))) {
+      forgetSession();
+      setAuthStatus('ログインの有効期限が切れました。もう一度ログインしてください。');
+    } else {
+      showError(error, 'データの読み込み', 'auth');
+    }
+  }
+}
+
+function bindGlobalEvents() {
+  document.getElementById('requestOtpButton').addEventListener('click', onRequestOtp);
+  document.getElementById('verifyOtpButton').addEventListener('click', onVerifyOtp);
+  document.getElementById('saveDraftButton').addEventListener('click', onSaveDraft);
+  document.getElementById('publishButton').addEventListener('click', onPublish);
+  document.getElementById('statusHistoryButton').addEventListener('click', (event) => {
+    event.stopPropagation();
+    toggleStatusHistory();
+  });
+  /* ステータスを押すと、全文が読める「履歴」を開く（ボタンを押したときは、そのボタンの動きだけにする） */
+  document.getElementById('statusMessage').addEventListener('click', (event) => {
+    if (event.target.closest('button')) return;
+    event.stopPropagation();
+    toggleStatusHistory(true);
+  });
+  document.getElementById('statusHistoryPanel').addEventListener('click', (event) => {
+    event.stopPropagation();
+  });
+  document.querySelectorAll('[data-panel-target]').forEach((button) => {
+    button.addEventListener('click', () => {
+      activatePanel(button.getAttribute('data-panel-target'));
+      /* スマホでは切り替えた先のタブを一番上から見せる */
+      if (isNarrowScreen()) window.scrollTo(0, 0);
+    });
+  });
+  bindNarrowNavAutoHide();
+  bindKeyboardAwareLayout();
+  document.addEventListener('click', (event) => {
+    const area = document.getElementById('statusArea');
+    if (area && !area.contains(event.target)) toggleStatusHistory(false);
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') toggleStatusHistory(false);
+  });
+  document.addEventListener('input', (event) => {
+    if (event.target.closest && event.target.closest('#appShell')) markDirty();
+  });
+  document.addEventListener('change', (event) => {
+    if (event.target.closest && event.target.closest('#appShell')) markDirty();
+  });
+  window.addEventListener('beforeunload', (event) => {
+    if (!appState.dirty) return;
+    event.preventDefault();
+    event.returnValue = '';
+  });
+}
+
+/* スマホ（UiStyles の max-width: 720px と同じ幅）では、タブをステータスの下に固定し、
+   下へスクロールしている間だけ隠す。上へ少し戻すと出てくる */
+const NARROW_SCREEN_QUERY = '(max-width: 720px)';
+
+const NAV_SCROLL_THRESHOLD = 6;
+
+function isNarrowScreen() {
+  return window.matchMedia(NARROW_SCREEN_QUERY).matches;
+}
+
+function bindNarrowNavAutoHide() {
+  const topbar = document.querySelector('.topbar');
+  if (!topbar) return;
+  /* タブを固定する位置（ボタンとステータスの高さ）。ログイン後に表示されたときや、メッセージで高さが変わったときに合わせる */
+  /* 小数点以下を切り捨て、タブがステータスの下にわずかに潜るようにする（切り上げると、すき間から内容が透けて見える） */
+  const updateOffset = () => document.documentElement.style.setProperty('--topbar-height', Math.floor(topbar.getBoundingClientRect().height) + 'px');
+  updateOffset();
+  window.addEventListener('resize', updateOffset);
+  if (window.ResizeObserver) new ResizeObserver(updateOffset).observe(topbar);
+  let lastY = window.scrollY;
+  window.addEventListener('scroll', () => {
+    const y = window.scrollY;
+    const delta = y - lastY;
+    if (Math.abs(delta) < NAV_SCROLL_THRESHOLD) return;
+    document.body.classList.toggle('is-nav-hidden', isNarrowScreen() && delta > 0 && y > topbar.offsetHeight);
+    lastY = y;
+  }, { passive: true });
+}
+
+/* スマホでキーボードが開いている間は body.keyboard-open を付ける。
+   見えている範囲（visualViewport）の高さと位置を CSS 変数にし、ダイアログをキーボードの上に収める。
+   キーボードが閉じているときの高さを覚えておき、それより大きく縮んだら開いているとみなす */
+const KEYBOARD_MIN_HEIGHT = 150;
+
+function bindKeyboardAwareLayout() {
+  const viewport = window.visualViewport;
+  if (!viewport) return;
+  let fullHeight = viewport.height;
+  const update = () => {
+    fullHeight = Math.max(fullHeight, viewport.height);
+    const open = isNarrowScreen() && fullHeight - viewport.height > KEYBOARD_MIN_HEIGHT;
+    const wasOpen = document.body.classList.contains('keyboard-open');
+    document.body.classList.toggle('keyboard-open', open);
+    document.documentElement.style.setProperty('--visible-height', Math.round(viewport.height) + 'px');
+    document.documentElement.style.setProperty('--visible-top', Math.round(viewport.offsetTop) + 'px');
+    /* ダイアログが縮んだあと、入力中の欄が隠れないよう見える位置まで送る */
+    const active = document.activeElement;
+    if (open && !wasOpen && active && active.closest && active.closest('.media-modal')) {
+      setTimeout(() => active.scrollIntoView({ block: 'nearest' }), 50);
+    }
+  };
+  viewport.addEventListener('resize', update);
+  viewport.addEventListener('scroll', update);
+  window.addEventListener('orientationchange', () => {
+    fullHeight = 0;
+    setTimeout(update, 300);
+  });
+  update();
+}
+
+function activatePanel(panelId) {
+  document.querySelectorAll('[data-panel-target]').forEach((button) => {
+    button.classList.toggle('is-active', button.getAttribute('data-panel-target') === panelId);
+  });
+  document.querySelectorAll('[data-panel]').forEach((panel) => {
+    panel.classList.toggle('is-active', panel.getAttribute('data-panel') === panelId);
+  });
+  if (panelId === 'logs') {
+    renderLogs();
+  }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/* ステータスは1行に収めて作業する場所を広く残す。2行目以降や入りきらない分は「…」で省略し、
+   メッセージを押すと開く「履歴」で全文を読む。入力チェックのエラー（直す項目の一覧）だけは複数行のまま出す */
+function renderStatusMessage(message, kind = 'default', report = null) {
+  const status = document.getElementById('statusMessage');
+  status.textContent = '';
+  const text = String(message == null ? '' : message);
+  const lines = text.split('\n');
+  const oneLine = kind !== 'error' && !report;
+  appendStatusContent(status, oneLine ? lines[0] + (lines.length > 1 ? ' …' : '') : text, report);
+  if (oneLine) {
+    const span = status.querySelector('span');
+    span.className = 'status-summary';
+    span.title = text;
+  }
+  status.setAttribute('data-kind', kind);
+  status.style.color = kind === 'error' ? '#ffd5d5' : (kind === 'success' ? '#0a0a0a' : '');
+  status.style.background = kind === 'error' ? 'rgba(243,108,108,0.18)' : (kind === 'success' ? 'rgba(136,196,132,0.92)' : 'rgba(255,255,255,0.04)');
+}
+
+function statusTimeLabel(date) {
+  return [
+    String(date.getHours()).padStart(2, '0'),
+    String(date.getMinutes()).padStart(2, '0'),
+    String(date.getSeconds()).padStart(2, '0')
+  ].join(':');
+}
+
+function pushStatusHistory(message, kind = 'default', report = null) {
+  appState.statusHistory.unshift({
+    message: String(message == null ? '' : message),
+    kind,
+    report,
+    time: statusTimeLabel(new Date())
+  });
+  appState.statusHistory = appState.statusHistory.slice(0, STATUS_HISTORY_LIMIT);
+  renderStatusHistory();
+}
+
+function renderStatusHistory() {
+  const list = document.getElementById('statusHistoryList');
+  if (!list) return;
+  if (!appState.statusHistory.length) {
+    list.innerHTML = '<div class="status-history-empty">まだ履歴はありません。</div>';
+    return;
+  }
+  list.innerHTML = appState.statusHistory.map((item, index) => [
+    '<div class="status-history-item is-' + escapeHtml(item.kind || 'default') + '">',
+    '<div class="status-history-meta">',
+    '<span>' + escapeHtml(item.time || '') + '</span>',
+    '<span>' + escapeHtml(item.kind === 'error' ? 'エラー' : (item.kind === 'success' ? '完了' : '情報')) + '</span>',
+    item.report ? '<button class="status-copy-button" type="button" data-history-report="' + index + '" aria-label="報告用にコピー" title="報告用にコピー">' + COPY_ICON + '</button>' : '',
+    '</div>',
+    '<div class="status-history-message">' + escapeHtml(item.message || '') + '</div>',
+    '</div>'
+  ].join('')).join('');
+  list.querySelectorAll('[data-history-report]').forEach((button) => {
+    const item = appState.statusHistory[Number(button.getAttribute('data-history-report'))];
+    button.addEventListener('click', () => copyErrorReport(item && item.report, button));
+  });
+}
+
+function toggleStatusHistory(force) {
+  const panel = document.getElementById('statusHistoryPanel');
+  const button = document.getElementById('statusHistoryButton');
+  if (!panel || !button) return;
+  const nextOpen = typeof force === 'boolean' ? force : panel.classList.contains('hidden');
+  /* 履歴とエラーの詳細はどちらもステータスの下に開くので、同時には開かない */
+  if (nextOpen) closeErrorReportCard('');
+  panel.classList.toggle('hidden', !nextOpen);
+  button.setAttribute('aria-expanded', nextOpen ? 'true' : 'false');
+  if (nextOpen) renderStatusHistory();
+}
+
+function clearStatusQueue() {
+  statusRuntime.queue = [];
+  statusRuntime.token += 1;
+  statusRuntime.processing = false;
+}
+
+async function processStatusQueue() {
+  if (statusRuntime.processing) return;
+  statusRuntime.processing = true;
+  const token = statusRuntime.token;
+  while (statusRuntime.queue.length) {
+    const item = statusRuntime.queue.shift();
+    renderStatusMessage(item.message, item.kind);
+    await sleep(item.minMs);
+    if (token !== statusRuntime.token) return;
+  }
+  statusRuntime.processing = false;
+}
+
+function setStatus(message, kind = 'default', options = {}) {
+  if (kind === 'error' || options.immediate) {
+    clearStatusQueue();
+    pushStatusHistory(options.historyMessage || message, kind, options.report || null);
+    renderStatusMessage(message, kind, options.report || null);
+    return;
+  }
+  pushStatusHistory(message, kind);
+  statusRuntime.queue.push({
+    message,
+    kind,
+    minMs: options.minMs || STATUS_MIN_VISIBLE_MS
+  });
+  processStatusQueue();
+}
+
+function setAuthStatus(message, kind = 'default', report = null) {
+  const box = document.getElementById('authStatus');
+  box.textContent = '';
+  appendStatusContent(box, message, report);
+  box.style.color = kind === 'error' ? '#ffd5d5' : (kind === 'success' ? '#0a0a0a' : 'rgba(255,255,255,0.82)');
+  box.style.background = kind === 'error' ? 'rgba(243,108,108,0.18)' : (kind === 'success' ? 'rgba(136,196,132,0.92)' : 'rgba(255,255,255,0.04)');
+}
+
+function escapeHtml(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+/* ---------- エラー表示と管理者への報告 ----------
+   どの操作で何が起きたかと、利用者がまず試すことを表示する。
+   システム側の問題（important）は管理者へ自動通知し、どのエラーも報告用の文面をコピーできるようにする。
+   報告文にはセッショントークンなどの秘密情報を含めない。 */
+const ERROR_RULES = [
+  { pattern: /セッションが切れています/, important: false, hint: '一定時間操作がなかったため、ログインが切れました。ページを再読み込みして、もう一度ログインしてください。' },
+  { pattern: /Excel 読み込み用ライブラリ/, important: true, hint: 'Excel の目録は今は読み込めません。Excel の「名前を付けて保存」で CSV 形式にして選び直すか、PDF・画像の目録を使ってください。' },
+  { pattern: /Lock timeout|ロックのタイムアウト/i, important: false, hint: 'ほかの人の保存・公開か、直前に押した操作がまだ続いていました。1分ほど待ってから、もう一度お試しください。' },
+  { pattern: /NetworkError|Failed to fetch|network/i, important: false, hint: '通信が途切れた可能性があります。インターネット接続を確認して、もう一度お試しください。' },
+  { pattern: /too many times|quota|Limit Exceeded|Bandwidth/i, important: true, hint: 'Google の1日あたりの利用上限に達した可能性があります。時間をおいて（翌日に）もう一度お試しください。' },
+  { pattern: /Script Properties|allowlist シート|共有設定/, important: true, hint: 'CMS の設定に問題があります。管理者に連絡してください。' },
+  { pattern: /GitHub|GH_|installation token/, important: true, hint: '内容はスプレッドシートに保存済みですが、サイトへの反映を開始できませんでした。しばらくしてから、もう一度「公開」を押してください。' },
+  { pattern: /Gemini API/, important: false, hint: '目録の自動読み取りが一時的に失敗しました。少し待ってもう一度お試しください。作品名・作者名は手入力もできます。' },
+  { pattern: /に失敗しました|復元できません|Invalid (chunk|payload)/, important: true, hint: 'Google Drive やスプレッドシートの操作に失敗しました。少し待ってもう一度お試しください。' }
+];
+
+const UNEXPECTED_ERROR_HINT = '想定外のエラーです。もう一度お試しいただき、続く場合は管理者に連絡してください。';
+
+const ERROR_NOTIFY_MESSAGES = {
+  sending: '管理者に通知しています…',
+  sent: '管理者に自動でメール通知しました。急ぎの場合は、「エラー内容をコピー」を押して直接連絡してください。',
+  duplicate: '同じエラーは少し前に管理者へ通知済みです。',
+  not_configured: '管理者への自動通知は設定されていません。「エラー内容をコピー」を押して、管理者に送ってください。',
+  limit: '本日の自動通知の上限に達しました。「エラー内容をコピー」を押して、管理者に送ってください。',
+  failed: '管理者へ自動で通知できませんでした。「エラー内容をコピー」を押して、管理者に送ってください。',
+  manual: 'このエラーは管理者に自動で通知していません。解決しない場合は「エラー内容をコピー」を押して、管理者に送ってください。',
+  copy_failed: '自動でコピーできませんでした。下の枠内の文章を選択してコピーし、管理者に送ってください。'
+};
+
+function errorMessageText(error) {
+  const raw = error && error.message ? error.message : String(error == null ? '' : error);
+  return raw.replace(/^(Exception|Error|ScriptError):\s*/, '').trim() || '不明なエラー';
+}
+
+function formatReportTime(date) {
+  return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('/') + ' ' + statusTimeLabel(date);
+}
+
+function activePanelLabel() {
+  if (typeof document === 'undefined' || typeof document.querySelector !== 'function') return '';
+  const button = document.querySelector('[data-panel-target].is-active');
+  /* スマホ用の短い名前ではなく、正式なタブ名を報告に使う */
+  const label = button && (button.querySelector('.nav-label-full') || button);
+  return label ? String(label.textContent || '').replace(/\s+/g, ' ').trim() : '';
+}
+
+function describeError(error, operation, now = new Date()) {
+  const message = errorMessageText(error);
+  const rule = ERROR_RULES.find((item) => item.pattern.test(message));
+  const unexpected = !rule && !/[ぁ-んァ-ヶ一-龠]/.test(message);
+  const report = {
+    id: 'E-' + now.getTime().toString(36).toUpperCase().slice(-6) + Math.random().toString(36).slice(2, 4).toUpperCase(),
+    time: formatReportTime(now),
+    operation: String(operation || '操作'),
+    message,
+    hint: rule ? rule.hint : (unexpected ? UNEXPECTED_ERROR_HINT : ''),
+    important: rule ? rule.important : unexpected,
+    panel: activePanelLabel(),
+    userAgent: typeof navigator !== 'undefined' ? String(navigator.userAgent || '').slice(0, 300) : ''
+  };
+  report.text = [
+    '【凌美会 管理画面 エラー報告】',
+    'エラーID: ' + report.id,
+    '日時: ' + report.time,
+    '操作: ' + report.operation,
+    '内容: ' + report.message,
+    report.panel ? '画面: ' + report.panel : '',
+    report.userAgent ? 'ブラウザ: ' + report.userAgent : ''
+  ].filter(Boolean).join('\n');
+  return report;
+}
+
+/* エラーは3段階で見せる。
+   1. 利用者が見ている場所（ステータス・画像ダイアログ・ログイン画面）のどれか1か所に、1行の要約と「詳細」
+   2. 「詳細」かシステム側の問題（important）で、要約のすぐ下にエラー報告カード（対処・内容・通知状況・コピー）
+   3. カード内の折りたたみに、管理者向けの報告文
+   catch 節から呼ぶ。target は 'auth'（ログイン画面）か 'media'（画像設定ダイアログ）、省略時は画面上部のステータス */
+function errorSummary(report) {
+  return '「' + report.operation + '」ができませんでした。' + (report.hint || report.message);
+}
+
+function showError(error, operation, target = '') {
+  const report = describeError(error, operation);
+  report.target = target;
+  const summary = errorSummary(report);
+  const full = '「' + report.operation + '」ができませんでした。\n' + report.message + (report.hint ? '\n' + report.hint : '');
+  if (target === 'auth') {
+    setAuthStatus(summary, 'error', report);
+  } else if (target === 'media') {
+    pushStatusHistory(full, 'error', report);
+    setMediaStatus(summary, 'error', report);
+  } else {
+    setStatus(summary, 'error', { report, historyMessage: full });
+  }
+  if (report.important) notifyErrorReport(report);
+  return report;
+}
+
+/* 要約は1行に収め（はみ出す分は「…」）、全文は title で見られるようにする */
+function appendStatusContent(container, message, report) {
+  const text = document.createElement('span');
+  text.textContent = message || '';
+  container.appendChild(text);
+  if (!report) return;
+  text.className = 'status-summary';
+  text.title = message || '';
+  container.appendChild(createReportDetailButton(report));
+  container.appendChild(createReportCopyButton(report));
+}
+
+function createReportDetailButton(report) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'status-detail-button';
+  button.textContent = '詳細';
+  button.setAttribute('aria-expanded', 'false');
+  button.addEventListener('click', () => {
+    const card = document.getElementById('errorReportCard');
+    if (card && card.getAttribute('data-report-id') === report.id) {
+      closeErrorReportCard();
+      return;
+    }
+    openErrorReportCard(report, report.notifyState || 'manual');
+  });
+  return button;
+}
+
+async function notifyErrorReport(report) {
+  if (!appState.sessionToken) {
+    openErrorReportCard(report, 'failed');
+    return;
+  }
+  openErrorReportCard(report, 'sending');
+  try {
+    const result = await serverCall('reportError', appState.sessionToken, {
+      id: report.id,
+      time: report.time,
+      operation: report.operation,
+      message: report.message,
+      panel: report.panel,
+      userAgent: report.userAgent
+    });
+    const state = result && result.notified ? (result.duplicate ? 'duplicate' : 'sent') : (result && result.reason) || 'failed';
+    updateErrorReportCard(report, ERROR_NOTIFY_MESSAGES[state] ? state : 'failed');
+  } catch (error) {
+    console.warn('エラーの自動通知に失敗しました', error);
+    updateErrorReportCard(report, 'failed');
+  }
+}
+
+async function copyText(text) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (error) {
+    /* GAS の iframe ではクリップボード API が使えないことがあるため、下の方法で再試行する */
+  }
+  const area = document.createElement('textarea');
+  area.value = text;
+  area.setAttribute('readonly', '');
+  area.style.position = 'fixed';
+  area.style.opacity = '0';
+  document.body.appendChild(area);
+  area.select();
+  let copied = false;
+  try {
+    copied = document.execCommand('copy');
+  } catch (error) {
+    copied = false;
+  }
+  area.remove();
+  return copied;
+}
+
+/* メッセージ横のコピーボタンは場所を取らないようアイコンだけにし、説明は aria-label と title で伝える */
+const COPY_ICON = '<i class="fa-regular fa-copy" aria-hidden="true"></i>';
+
+const COPIED_ICON = '<i class="fa-solid fa-check" aria-hidden="true"></i>';
+
+async function copyErrorReport(report, button) {
+  if (!report) return;
+  if (!(await copyText(report.text))) {
+    openErrorReportCard(report, 'copy_failed');
+    return;
+  }
+  if (button) {
+    const iconOnly = button.classList.contains('status-copy-button');
+    const original = button.innerHTML;
+    button.innerHTML = iconOnly ? COPIED_ICON : 'コピーしました';
+    if (iconOnly) button.setAttribute('aria-label', 'コピーしました');
+    button.disabled = true;
+    setTimeout(() => {
+      button.innerHTML = original;
+      if (iconOnly) button.setAttribute('aria-label', '報告用にコピー');
+      button.disabled = false;
+    }, 2000);
+  }
+}
+
+function createReportCopyButton(report) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'status-copy-button';
+  button.setAttribute('aria-label', '報告用にコピー');
+  button.title = '報告用にコピー';
+  button.innerHTML = COPY_ICON;
+  button.addEventListener('click', () => copyErrorReport(report, button));
+  return button;
+}
+
+/* エラー報告カード。利用者は要約を見ているので、要約のすぐ下に開く。
+   画面上部のステータスでは履歴パネルと同じく内容に重ねて開き、画像ダイアログとログイン画面では要約の下に差し込む。
+   気づかないうちに消えないよう、閉じるのは「×」「閉じる」か、もう一度「詳細」を押したときだけ */
+function errorReportCardPlace(report) {
+  if (report.target === 'auth') return { parent: document.getElementById('authStatus'), inline: true };
+  if (report.target === 'media') {
+    const dialog = document.getElementById('mediaDialog');
+    if (dialog && !dialog.classList.contains('hidden')) return { parent: document.getElementById('mediaDialogStatus'), inline: true };
+  }
+  return { parent: document.getElementById('statusArea'), inline: false };
+}
+
+/* target を指定したときは、その場所に開いているカードだけを閉じる */
+function closeErrorReportCard(target) {
+  const card = document.getElementById('errorReportCard');
+  if (!card) return;
+  if (typeof target === 'string' && card.getAttribute('data-target') !== target) return;
+  card.remove();
+  document.querySelectorAll('.status-detail-button[aria-expanded="true"]').forEach((button) => button.setAttribute('aria-expanded', 'false'));
+}
+
+function openErrorReportCard(report, state) {
+  closeErrorReportCard();
+  const place = errorReportCardPlace(report);
+  if (!place.parent) return;
+  if (!place.inline) toggleStatusHistory(false);
+  const card = document.createElement('section');
+  card.id = 'errorReportCard';
+  card.className = 'error-report-card ' + (place.inline ? 'is-inline' : 'is-dropdown');
+  card.setAttribute('role', 'alert');
+  card.setAttribute('data-target', report.target || '');
+  if (place.inline) {
+    place.parent.insertAdjacentElement('afterend', card);
+  } else {
+    place.parent.appendChild(card);
+  }
+  const detailButton = place.parent.querySelector('.status-detail-button');
+  if (detailButton) detailButton.setAttribute('aria-expanded', 'true');
+  card.setAttribute('data-report-id', report.id);
+  card.innerHTML = [
+    '<div class="error-report-head">',
+    '<strong>「' + escapeHtml(report.operation) + '」ができませんでした</strong>',
+    '<button class="icon-action-button" type="button" data-error-report-close aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button>',
+    '</div>',
+    report.hint ? '<p class="error-report-hint">' + escapeHtml(report.hint) + '</p>' : '',
+    '<p class="error-report-message"><span>エラーの内容</span>' + escapeHtml(report.message) + '</p>',
+    '<p class="error-report-notify" data-error-report-notify></p>',
+    '<details class="error-report-details"' + (state === 'copy_failed' ? ' open' : '') + '>',
+    '<summary>報告用の内容を表示</summary>',
+    '<textarea readonly rows="6" aria-label="報告用の内容">' + escapeHtml(report.text) + '</textarea>',
+    '</details>',
+    '<div class="error-report-actions">',
+    '<button class="button success" type="button" data-error-report-copy>エラー内容をコピー</button>',
+    '<button class="button ghost" type="button" data-error-report-close>閉じる</button>',
+    '</div>'
+  ].join('');
+  card.querySelectorAll('[data-error-report-close]').forEach((button) => button.addEventListener('click', () => closeErrorReportCard()));
+  const copyButton = card.querySelector('[data-error-report-copy]');
+  copyButton.addEventListener('click', () => copyErrorReport(report, copyButton));
+  updateErrorReportCard(report, state);
+  if (state === 'copy_failed') card.querySelector('textarea').select();
+}
+
+function updateErrorReportCard(report, state) {
+  /* コピー失敗の表示は通知状況ではないので、あとで「詳細」を開いたときには持ち越さない */
+  if (state !== 'copy_failed') report.notifyState = state;
+  const card = document.getElementById('errorReportCard');
+  if (!card || card.getAttribute('data-report-id') !== report.id) return;
+  card.querySelector('[data-error-report-notify]').textContent = ERROR_NOTIFY_MESSAGES[state] || '';
+}
+
+function richTextLinkPattern() {
+  const slashPair = String.fromCharCode(92, 47, 92, 47);
+  return new RegExp('\\[([^\\]\\n]+)\\]\\((https?:' + slashPair + '[^\\s)]+)\\)', 'g');
+}
+
+function renderInlineRichText(value) {
+  const text = String(value == null ? '' : value);
+  const pattern = richTextLinkPattern();
+  let html = '';
+  let lastIndex = 0;
+  let match;
+  while ((match = pattern.exec(text)) !== null) {
+    html += escapeHtml(text.slice(lastIndex, match.index));
+    html += '<a href="' + escapeHtml(match[2]) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(match[1]) + '</a>';
+    lastIndex = pattern.lastIndex;
+  }
+  html += escapeHtml(text.slice(lastIndex));
+  return html;
+}
+
+function renderRichText(value) {
+  const text = String(value == null ? '' : value);
+  return text.split(/\r?\n/).map(renderInlineRichText).join('<br>');
+}
+
+function formatDate(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0')
+  ].join('.');
+}
+
+function serverCall(functionName, ...args) {
+  if (window.MOCK_BACKEND && typeof window.MOCK_BACKEND[functionName] === 'function') {
+    return Promise.resolve(window.MOCK_BACKEND[functionName](...args));
+  }
+  return new Promise((resolve, reject) => {
+    google.script.run
+      .withSuccessHandler(resolve)
+      .withFailureHandler((error) => reject(new Error(error && error.message ? error.message : String(error))))
+      [functionName](...args);
+  });
+}
+
+async function getFolderImagesCached(folderId, forceRefresh = false) {
+  if (!folderId) return [];
+
+  if (!forceRefresh && appState.imageCache[folderId]) {
+    return appState.imageCache[folderId];
+  }
+
+  const images = await serverCall('getFolderImages', appState.sessionToken, folderId);
+  appState.imageCache[folderId] = images || [];
+  return appState.imageCache[folderId];
+}
+
+async function getFolderMediaCached(folderId, forceRefresh = false) {
+  if (!folderId) return [];
+
+  if (!forceRefresh && appState.mediaCache[folderId]) {
+    return appState.mediaCache[folderId];
+  }
+
+  const files = await serverCall('getFolderMedia', appState.sessionToken, folderId);
+  appState.mediaCache[folderId] = files || [];
+  appState.imageCache[folderId] = (files || []).filter((file) => file.kind === 'image');
+  return appState.mediaCache[folderId];
+}
+
+function markDirty() {
+  if (appState.suppressDirty) return;
+  appState.dirty = true;
+}
+
+function clearDirty() {
+  appState.dirty = false;
+}
+
+function syncCurrentEditorsToState() {
+  try {
+    if (document.querySelector('[data-recruit-item]')) {
+      appState.state.recruitCalendars = readRecruitFromDom();
+    }
+
+    if (document.querySelector('[data-activity-item]')) {
+      appState.state.activityArticles = readActivitiesFromDom();
+    }
+
+    if (document.querySelector('[data-exhibition-item]')) {
+      appState.state.exhibitions = readExhibitionsFromDom();
+    }
+
+    if (document.querySelector('[data-request-item]')) {
+      appState.state.requestCases = readRequestsFromDom();
+    }
+
+    syncManualChangeNote();
+  } catch (error) {
+    console.warn('編集中データの同期を一部スキップしました', error);
+  }
+}
+
+function sortExhibitions(items) {
+  const weight = { upcoming: 0, archive: 1 };
+  return (items || []).slice().sort((a, b) => {
+    const bucketA = Object.prototype.hasOwnProperty.call(weight, a.displayBucket) ? weight[a.displayBucket] : 99;
+    const bucketB = Object.prototype.hasOwnProperty.call(weight, b.displayBucket) ? weight[b.displayBucket] : 99;
+    if (bucketA !== bucketB) return bucketA - bucketB;
+    const hasDateA = !!String(a.startDate || '').trim();
+    const hasDateB = !!String(b.startDate || '').trim();
+    if (!hasDateA && !hasDateB) return String(b.draftCreatedAt || '').localeCompare(String(a.draftCreatedAt || ''));
+    if (!hasDateA) return -1;
+    if (!hasDateB) return 1;
+    if (a.displayBucket === 'upcoming') return String(a.startDate || '').localeCompare(String(b.startDate || ''));
+    return String(b.startDate || '').localeCompare(String(a.startDate || ''));
+  });
+}
+
+function visibleChipHtml(published) {
+  return `<span class="visibility-chip${published ? '' : ' is-hidden'}">${published ? '公開中' : '非公開'}</span>`;
+}
+
+function normalizeIdList(value) {
+  if (typeof value === 'string') {
+    try { value = JSON.parse(value); } catch (error) { value = []; }
+  }
+  if (!Array.isArray(value)) return [];
+  const out = [];
+  value.forEach((item) => {
+    const text = String(item || '').trim();
+    if (text && out.indexOf(text) === -1) out.push(text);
+  });
+  return out;
+}
+
+const TRASH_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:block"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M9 6V4h6v2"></path></svg>';
+
+const URL_PROTOCOL = 'https:' + String.fromCharCode(47, 47);
+
+/* onclick="...('値')" の値用。JS 文字列としてエスケープした上で、属性の " や & が崩れないよう HTML エスケープもする */
+function escapeJs(value) {
+  return escapeHtml(String(value == null ? '' : value)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\r?\n/g, '\\n'));
+}
+
+function driveFolderUrl(folderId) {
+  return URL_PROTOCOL + 'drive.google.com/drive/folders/' + encodeURIComponent(folderId || '');
+}
+
+/* 公開サイトと同じく、住所は Google が公式に案内している地図の検索 URL へのリンクにする */
+function googleMapsSearchUrl(query) {
+  return URL_PROTOCOL + 'www.google.com/maps/search/?api=1&query=' + encodeURIComponent(query);
+}
+
+/* 会期表示は開始日・終了日から作る。例: 2026年11月14日(土)〜11月18日(水)（年が変わるときは終了日にも年を付ける） */
+const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
+
+function parseIsoDate(value) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])) : null;
+}
+
+function formatJapaneseDate(date, withYear) {
+  return (withYear ? date.getFullYear() + '年' : '') + (date.getMonth() + 1) + '月' + date.getDate() + '日(' + WEEKDAY_LABELS[date.getDay()] + ')';
+}
+
+function formatExhibitionDateLine(startDate, endDate) {
+  const start = parseIsoDate(startDate);
+  if (!start) return '';
+  const end = parseIsoDate(endDate);
+  if (!end || end.getTime() <= start.getTime()) return formatJapaneseDate(start, true);
+  return formatJapaneseDate(start, true) + '〜' + formatJapaneseDate(end, end.getFullYear() !== start.getFullYear());
+}
+
+async function onRequestOtp() {
+  const email = document.getElementById('authEmail').value.trim();
+  try {
+    setAuthStatus('確認コードを送信しています…');
+    const result = await serverCall('requestOtp', email);
+    setAuthStatus(result.email + ' に確認コードを送信しました。', 'success');
+    document.getElementById('otpField').classList.remove('hidden');
+  } catch (error) {
+    showError(error, '確認コードの送信', 'auth');
+  }
+}
+
+async function onVerifyOtp() {
+  const button = document.getElementById('verifyOtpButton');
+  const email = document.getElementById('authEmail').value.trim();
+  const otp = document.getElementById('authOtp').value.trim();
+
+  if (button.disabled) return;
+
+  button.disabled = true;
+  button.textContent = '認証中…';
+
+  let verified = false;
+
+  try {
+    setAuthStatus('認証を確認しています…');
+    const result = await serverCall('verifyOtp', email, otp);
+
+    verified = true;
+    appState.sessionToken = result.sessionToken;
+    appState.viewerName = result.name || result.email;
+    appState.viewerEmail = result.email;
+    rememberSession();
+
+    document.getElementById('viewerName').textContent = result.name || result.email;
+    document.getElementById('viewerEmail').textContent = result.email;
+
+    setAuthStatus('認証に成功しました。データを読み込んでいます…', 'success');
+
+    await loadBootstrap();
+
+    showAppShell();
+  } catch (error) {
+    showError(error, 'ログイン', 'auth');
+
+    if (!verified) {
+      button.disabled = false;
+      button.textContent = '認証して続行';
+    }
+  }
+}
+
+/* resuming（覚えていたログインで開くとき）は、エラーを表示せずに呼び出し元へ返す */
+async function loadBootstrap(options = {}) {
+  if (!appState.sessionToken && !window.MOCK_BACKEND) return;
+  try {
+    setStatus('最新データを読み込んでいます…');
+    const data = await serverCall('getBootstrapData', appState.sessionToken);
+    appState.viewerEmail = data.viewerEmail;
+    appState.viewerName = data.viewerName || data.viewerEmail;
+    appState.previewUrl = data.previewUrl || '';
+    appState.state = data.state;
+    appState.loadedState = JSON.parse(JSON.stringify(data.state || {}));
+    appState.drafts = data.drafts || [];
+    appState.adminLog = data.adminLog || [];
+    appState.maintenance = data.maintenance || { storage: null, recommendations: [] };
+    const nameEl = document.getElementById('viewerName'); if (nameEl) nameEl.textContent = appState.viewerName || '-';
+    const emailEl = document.getElementById('viewerEmail'); if (emailEl) emailEl.textContent = appState.viewerEmail || '-';
+    renderAll();
+    clearDirty();
+    setStatus('読み込み完了');
+  } catch (error) {
+    if (options.resuming) throw error;
+    showError(error, 'データの読み込み');
+  }
+}
+
+function renderAll() {
+  renderDashboard();
+  renderRecruitEditor();
+  renderActivitiesEditor();
+  renderExhibitionsEditor();
+  renderRequestsEditor();
+  renderLogs();
+  const link = document.getElementById('openPreviewLink');
+  if (appState.previewUrl) {
+    link.href = appState.previewUrl;
+    link.classList.remove('hidden');
+  }
+}
+
+function formatBytes(bytes) {
+  const value = Number(bytes || 0);
+  if (!value) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let size = value;
+  let unit = 0;
+  while (size >= 1024 && unit < units.length - 1) {
+    size /= 1024;
+    unit += 1;
+  }
+  return `${size.toFixed(unit >= 3 ? 1 : 0)} ${units[unit]}`;
+}
+
+/* 毎回は読まない説明はたたんでおき、見出し横の「？」で開く。
+   data-help を付けた要素の中の .help-text が開閉の対象になる */
+const HELP_BUTTON = '<button class="help-button" type="button" onclick="toggleHelp(this)" aria-expanded="false" aria-label="説明を表示" title="説明を表示"><i class="fa-regular fa-circle-question" aria-hidden="true"></i></button>';
+
+function toggleHelp(button) {
+  const box = button.closest('[data-help]');
+  if (!box) return;
+  const open = !box.classList.contains('is-help-open');
+  box.classList.toggle('is-help-open', open);
+  button.setAttribute('aria-expanded', open ? 'true' : 'false');
+  button.setAttribute('aria-label', open ? '説明を閉じる' : '説明を表示');
+}
+</script>

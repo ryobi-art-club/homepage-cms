@@ -1,0 +1,336 @@
+<script>
+/* 下書き保存・誤字チェック・公開 */
+
+function validatePayloadForSubmit(payload) {
+  const messages = [];
+  function contentTitle(value, fallback, index) {
+    return String(value || '').trim() || fallback + ' ' + (index + 1);
+  }
+  function add(label, field, hint) {
+    messages.push(label + '：' + field + (hint ? '（' + hint + '）' : ''));
+  }
+
+  (payload.activityArticles || []).forEach((item, index) => {
+    if (!String(item.title || '').trim()) add('活動記録・告知「' + contentTitle(item.title, '新規記事', index) + '」', '記事タイトル');
+  });
+
+  (payload.exhibitions || []).forEach((item, index) => {
+    const label = '展示会「' + contentTitle(item.title, '新規展示会', index) + '」';
+    if (!String(item.title || '').trim()) add(label, '展示会名');
+    if (item.startDate && item.endDate && item.endDate < item.startDate) add(label, '終了日', '開始日より前の日付になっています');
+  });
+
+  (payload.requestCases || []).forEach((item, index) => {
+    if (!String(item.title || '').trim()) add('取り組み事例「' + contentTitle(item.title, '新規事例', index) + '」', '取り組みタイトル');
+  });
+
+  if (!messages.length) return true;
+  setStatus('入力が必要な項目があります。\n- ' + messages.join('\n- '), 'error');
+  return false;
+}
+
+function buildPayloadFromDom() {
+  if (isMediaDialogOpen()) {
+    syncMediaEditorRowsToState();
+    syncActiveMediaHiddenFields();
+  }
+  return {
+    recruitCalendars: readRecruitFromDom(),
+    activityArticles: readActivitiesFromDom(),
+    exhibitions: readExhibitionsFromDom(),
+    requestCases: readRequestsFromDom(),
+    manualChangeNote: (document.getElementById('manualChangeNote') ? document.getElementById('manualChangeNote').value.trim() : (appState.state.manualChangeNote || ''))
+  };
+}
+
+async function refreshMetaAfterDraftSave(currentPayload) {
+  const data = await serverCall('getBootstrapData', appState.sessionToken);
+  appState.previewUrl = data.previewUrl || '';
+  appState.drafts = data.drafts || [];
+  appState.adminLog = data.adminLog || [];
+  appState.maintenance = data.maintenance || appState.maintenance || { storage: null, recommendations: [] };
+  appState.state = {
+    ...(data.state || {}),
+    ...(currentPayload || {}),
+    changeLog: (data.state && data.state.changeLog) || appState.state.changeLog || []
+  };
+  renderAll();
+  clearDirty();
+}
+
+async function loadDraftIntoEditor(draftId) {
+  if (!confirm('現在の編集内容を下書きの内容で置き換えます。読み込みますか？')) return;
+  try {
+    setStatus('下書きを読み込んでいます…');
+    const payload = await serverCall('loadDraft', appState.sessionToken, draftId);
+    appState.state = { ...appState.state, ...payload };
+    renderAll();
+    markDirty();
+    setStatus('下書きを読み込みました。', 'success');
+  } catch (error) {
+    showError(error, '下書きの読み込み');
+  }
+}
+
+/* 保存・公開の処理中は、もう一方も含めてボタンを押せなくする（二重に動くと、2回目がロック待ちで失敗するため） */
+const SUBMIT_BUTTON_IDS = ['saveDraftButton', 'publishButton'];
+
+async function runExclusiveSubmit(busyButtonId, busyLabel, task) {
+  if (appState.submitting) return;
+  appState.submitting = true;
+  const busyButton = document.getElementById(busyButtonId);
+  const originalLabel = busyButton ? busyButton.textContent : '';
+  SUBMIT_BUTTON_IDS.forEach((id) => {
+    const button = document.getElementById(id);
+    if (button) button.disabled = true;
+  });
+  if (busyButton) busyButton.textContent = busyLabel;
+  try {
+    await task();
+  } finally {
+    appState.submitting = false;
+    SUBMIT_BUTTON_IDS.forEach((id) => {
+      const button = document.getElementById(id);
+      if (button) button.disabled = false;
+    });
+    if (busyButton) busyButton.textContent = originalLabel;
+  }
+}
+
+function onSaveDraft() {
+  return runExclusiveSubmit('saveDraftButton', '保存中…', async () => {
+    try {
+      const payload = buildPayloadFromDom();
+      if (!confirm('現在の内容を新しい下書きとして保存しますか？')) return;
+      setStatus('下書きを保存しています…');
+      const result = await serverCall('saveDraft', appState.sessionToken, payload);
+      setStatus(result.message, 'success');
+      await refreshMetaAfterDraftSave(payload);
+      clearDirty();
+    } catch (error) {
+      showError(error, '下書きの保存');
+    }
+  });
+}
+
+function collectProofreadFields() {
+  const fields = [];
+  function addElement(id, label, element) {
+    if (!element) return;
+    fields.push({
+      id,
+      label,
+      getText: () => element.value,
+      setText: (value) => {
+        element.value = value;
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    });
+  }
+  function itemTitle(item, fallback) {
+    const input = item.querySelector('[data-field="title"]');
+    return (input && input.value.trim()) || fallback;
+  }
+  function eachPublished(selector, callback) {
+    document.querySelectorAll(selector).forEach((item, index) => {
+      if (item.getAttribute('data-published') !== 'false') callback(item, index);
+    });
+  }
+
+  eachPublished('[data-exhibition-item]', (item, index) => {
+    const name = '展示会「' + itemTitle(item, '新規展示会') + '」';
+    addElement('exhibition:' + index + ':title', name + ' › 展示会名', item.querySelector('[data-field="title"]'));
+    addElement('exhibition:' + index + ':subtitle', name + ' › サブタイトル', item.querySelector('[data-field="subtitle"]'));
+    addElement('exhibition:' + index + ':theme', name + ' › テーマ', item.querySelector('[data-field="theme"]'));
+  });
+  eachPublished('[data-activity-item]', (item, index) => {
+    const name = '活動記録・告知「' + itemTitle(item, '新規記事') + '」';
+    addElement('activity:' + index + ':title', name + ' › 記事タイトル', item.querySelector('[data-field="title"]'));
+    addElement('activity:' + index + ':body', name + ' › 本文', item.querySelector('[data-field="body"]'));
+  });
+  eachPublished('[data-request-item]', (item, index) => {
+    const name = '取り組み事例「' + itemTitle(item, '新規事例') + '」';
+    addElement('request:' + index + ':title', name + ' › 取り組みタイトル', item.querySelector('[data-field="title"]'));
+    addElement('request:' + index + ':body', name + ' › 本文', item.querySelector('[data-field="body"]'));
+  });
+
+  const noteElement = document.getElementById('manualChangeNote');
+  if (noteElement) {
+    addElement('manualChangeNote', '更新履歴メモ', noteElement);
+  } else {
+    fields.push({
+      id: 'manualChangeNote',
+      label: '更新履歴メモ',
+      getText: () => appState.state.manualChangeNote || '',
+      setText: (value) => {
+        appState.state.manualChangeNote = value;
+        markDirty();
+      }
+    });
+  }
+  return fields.filter((field) => String(field.getText() || '').trim());
+}
+
+/* 公開前の誤字脱字チェック。キャンセルなら null を返す。 */
+/* 続行するなら、公開成功後にチェック済みとして記録する文章（指摘のなかった文章と、利用者が「問題ない」とした文章）の配列を返す。 */
+/* チェック自体が失敗した場合は公開を止めない。 */
+async function runProofreadBeforePublish() {
+  const fields = collectProofreadFields();
+  if (!fields.length) return [];
+  setStatus('誤字脱字をチェックしています…', 'default', { immediate: true });
+  let result;
+  try {
+    result = await serverCall('proofreadForPublish', appState.sessionToken, fields.map((field) => ({
+      id: field.id,
+      label: field.label,
+      text: field.getText()
+    })));
+  } catch (error) {
+    setStatus('誤字脱字チェックができなかったため、チェックせずに公開します。（' + (error.message || error) + '）');
+    return [];
+  }
+
+  if (result.error) {
+    setStatus('誤字脱字チェックの一部ができませんでした。残り' + result.remainingCount + '項目は次回の公開時にチェックします。（' + result.error + '）');
+  } else if (result.remainingCount) {
+    setStatus('チェック対象が多いため、残り' + result.remainingCount + '項目は次回の公開時にチェックします。');
+  }
+
+  const fieldsById = {};
+  fields.forEach((field) => { fieldsById[field.id] = field; });
+  const cleanTexts = (result.cleanFieldIds || [])
+    .filter((id) => fieldsById[id])
+    .map((id) => fieldsById[id].getText());
+
+  const groups = [];
+  const groupById = {};
+  (result.issues || []).forEach((issue) => {
+    const field = fieldsById[issue.fieldId];
+    if (!field) return;
+    if (!groupById[field.id]) {
+      groupById[field.id] = { field, issues: [] };
+      groups.push(groupById[field.id]);
+    }
+    groupById[field.id].issues.push(issue);
+  });
+  if (!groups.length) return cleanTexts;
+
+  const decision = await openProofreadDialog(groups);
+  if (decision.action === 'cancel') {
+    setStatus('公開をキャンセルしました。');
+    return null;
+  }
+
+  const approvedTexts = [];
+  groups.forEach((group) => {
+    const text = decision.texts[group.field.id];
+    if (typeof text === 'string' && text !== group.field.getText()) group.field.setText(text);
+    if (decision.approved[group.field.id]) approvedTexts.push(group.field.getText());
+  });
+  return cleanTexts.concat(approvedTexts);
+}
+
+function proofreadEditorRows(field) {
+  return /:body$|:theme$|^manualChangeNote$/.test(field.id) ? 8 : 2;
+}
+
+function openProofreadDialog(groups) {
+  return new Promise((resolve) => {
+    const issueCount = groups.reduce((sum, group) => sum + group.issues.length, 0);
+    const dialog = document.createElement('div');
+    dialog.className = 'media-modal proofread-modal';
+    dialog.innerHTML = [
+      '<div class="media-modal-backdrop"></div>',
+      '<div class="media-modal-panel proofread-panel" role="dialog" aria-modal="true" aria-labelledby="proofreadDialogTitle">',
+      '<div class="media-modal-head">',
+      '<div>',
+      '<h2 id="proofreadDialogTitle">誤字脱字の可能性があります（' + issueCount + '件）</h2>',
+      '<div class="small-note">指摘を参考に、必要なら下の文章を直してください。直さなければそのまま公開します。</div>',
+      '</div>',
+      '<button class="icon-action-button" type="button" data-proofread-action="cancel" aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button>',
+      '</div>',
+      '<div class="media-modal-body proofread-list">',
+      groups.map((group, index) => [
+        '<section class="proofread-item">',
+        '<div class="small-note">' + escapeHtml(group.field.label) + '</div>',
+        '<ul class="proofread-issues">',
+        group.issues.map((issue) => [
+          '<li>',
+          '「<del>' + escapeHtml(issue.original) + '</del>」→「<ins>' + escapeHtml(issue.suggestion) + '</ins>」？',
+          issue.reason ? ' <span class="proofread-reason">' + escapeHtml(issue.reason) + '</span>' : '',
+          '</li>'
+        ].join('')).join(''),
+        '</ul>',
+        '<textarea data-proofread-field="' + escapeHtml(group.field.id) + '" rows="' + proofreadEditorRows(group.field) + '" aria-label="' + escapeHtml(group.field.label) + '">' + escapeHtml(group.field.getText()) + '</textarea>',
+        '<label class="proofread-approve" for="proofreadApprove' + index + '">',
+        '<input type="checkbox" id="proofreadApprove' + index + '" data-proofread-approve="' + escapeHtml(group.field.id) + '">',
+        '<span>この内容で問題ない（今後この文章は指摘しない）</span>',
+        '</label>',
+        '</section>'
+      ].join('')).join(''),
+      '</div>',
+      '<div class="proofread-actions">',
+      '<button class="button ghost" type="button" data-proofread-action="cancel">キャンセル</button>',
+      '<button class="button success" type="button" data-proofread-action="publish">この内容で公開</button>',
+      '</div>',
+      '</div>'
+    ].join('');
+
+    function finish(action) {
+      const texts = {};
+      const approved = {};
+      dialog.querySelectorAll('[data-proofread-field]').forEach((textarea) => {
+        texts[textarea.getAttribute('data-proofread-field')] = textarea.value;
+      });
+      dialog.querySelectorAll('[data-proofread-approve]').forEach((input) => {
+        approved[input.getAttribute('data-proofread-approve')] = input.checked;
+      });
+      if (action === 'cancel') {
+        const edited = groups.some((group) => texts[group.field.id] !== group.field.getText());
+        if (edited && !confirm('モーダル内で直した内容は破棄されます。キャンセルしますか？')) return;
+      }
+      dialog.remove();
+      document.body.classList.remove('media-modal-open');
+      resolve({ action, texts, approved });
+    }
+    dialog.addEventListener('click', (event) => {
+      const target = event.target.closest('[data-proofread-action]');
+      if (target) finish(target.getAttribute('data-proofread-action'));
+    });
+    document.body.appendChild(dialog);
+    document.body.classList.add('media-modal-open');
+  });
+}
+
+function onPublish() {
+  return runExclusiveSubmit('publishButton', '公開中…', publishContent);
+}
+
+async function publishContent() {
+  try {
+    let payload = buildPayloadFromDom();
+    if (!validatePayloadForSubmit(payload)) return;
+    if (!confirm('この内容で公開しますか？')) return;
+    const proofreadTexts = await runProofreadBeforePublish();
+    if (!proofreadTexts) return;
+    payload = buildPayloadFromDom();
+    setStatus('公開処理を開始しています…');
+    const result = await serverCall('publishState', appState.sessionToken, payload);
+    if (proofreadTexts.length) {
+      /* チェック済みの記録は公開成功後にだけ行う。失敗しても公開には影響しない。 */
+      serverCall('markProofreadChecked', appState.sessionToken, proofreadTexts)
+        .catch((error) => console.warn('誤字チェック済みの記録に失敗しました', error));
+    }
+    await loadBootstrap();
+    setStatus('公開処理を完了しました。数分後にサイトに反映されます。' + (result.changeSummary ? '\n' + result.changeSummary : ''), 'success');
+    clearDirty();
+  } catch (error) {
+    showError(error, '公開');
+  }
+}
+
+function syncManualChangeNote() {
+  const field = document.getElementById('manualChangeNote');
+  appState.state.manualChangeNote = field ? field.value.replace(/\r\n?/g, '\n').replace(/^\n+|\n+$/g, '') : '';
+}
+</script>

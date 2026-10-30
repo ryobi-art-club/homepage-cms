@@ -1,15 +1,10 @@
-const fs = require('node:fs');
-const path = require('node:path');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
+const sources = require('./files.cjs');
 
 function loadClient() {
-  const ctx = vm.createContext({ document: { addEventListener() {} } });
-  const source = fs.readFileSync(path.join(__dirname, '..', 'UiScript.html'), 'utf8')
-    .replace(/^<script>\s*/, '').replace(/\s*<\/script>\s*$/, '');
-  vm.runInContext(source, ctx);
-  return ctx;
+  return sources.loadClient();
 }
 
 test('the period text is built from the start and end dates', () => {

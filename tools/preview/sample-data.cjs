@@ -1,6 +1,5 @@
-// Sample content for the preview. It deliberately includes the cases that tend to break layouts:
-// long titles and text, a long URL, many images and works, a panorama, missing work titles,
-// unpublished items and empty optional fields.
+// プレビューの見本の内容。表示が崩れやすい場合をわざと入れている：長いタイトルや文章、長い URL、
+// たくさんの画像と作品、横に長い画像、作品名の抜け、非公開の項目、空の任意項目
 
 const svg = (w, h, hue, label) => 'data:image/svg+xml;utf8,' + encodeURIComponent(
   `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect width="100%" height="100%" fill="hsl(${hue},35%,45%)"/>` +
@@ -8,7 +7,7 @@ const svg = (w, h, hue, label) => 'data:image/svg+xml;utf8,' + encodeURIComponen
 
 const file = (id, w, h, hue) => ({ id, name: id + '.jpg', mimeType: 'image/jpeg', kind: 'image', size: 820000 + w * 50, url: '#', thumbnailUrl: svg(w, h, hue, id) });
 
-/* 24 works with mixed aspect ratios, one panorama */
+/* 縦横比がいろいろな24作品（1つは横に長い） */
 const shapes = [[1200, 900], [800, 1100], [900, 900], [1000, 1400], [1400, 1000], [2400, 900]];
 const manyWorks = Array.from({ length: 24 }, (_, i) => file('work-' + (i + 1), ...shapes[i % shapes.length], (i * 37) % 360));
 
@@ -74,10 +73,9 @@ module.exports = {
     maintenance: { storage: { available: true, level: 'notice', used: 12.4e9, limit: 15e9, remaining: 2.6e9, usageRatio: 0.83, message: 'Drive の空き容量が少なくなっています。' }, recommendations: [] }
   },
   folders,
-  /* Drive folders anyone with the link can view: only the published exhibitions, as right after this
-     version is deployed (other kinds become viewable at the next publish) */
+  /* リンクを知っている全員が見られる Drive のフォルダ。公開中の展示会だけ */
   publicFolders: ['f-ex-1', 'f-ex-2'],
-  /* result of reading an exhibition catalog (returned whatever file is chosen) */
+  /* 展示会の目録を読み込んだ結果（どのファイルを選んでもこれを返す） */
   catalog: {
     sourceName: '秋季展覧会_出品目録.xlsx',
     model: 'preview',

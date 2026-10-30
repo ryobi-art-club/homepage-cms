@@ -1,4 +1,5 @@
-const APP_NAME = '凌美会 管理画面';
+// 設定：スクリプト プロパティとシートの名前
+
 const CONTENT_SHEETS = {
   recruit: 'Recruit',
   activityArticles: 'ActivityArticles',
@@ -10,6 +11,7 @@ const CONTENT_SHEETS = {
   adminLog: '_AdminLog',
   proofreadChecked: '_ProofreadChecked'
 };
+
 const ALLOWLIST_SHEET_NAME = 'allowlist';
 
 function getConfig_() {
@@ -46,7 +48,7 @@ function getConfig_() {
   config.GH_FINE_GRAINED_PAT = String(props.getProperty('GH_FINE_GRAINED_PAT') || '').trim();
   config.GEMINI_API_KEY = String(props.getProperty('GEMINI_API_KEY') || '').trim();
   config.GEMINI_MODEL = String(props.getProperty('GEMINI_MODEL') || 'gemini-3.1-flash-lite').trim();
-  // 'trash' moves cleanup targets to the Drive trash; anything else only writes the list to _AdminLog.
+  // 'trash' なら片付けの対象を Drive のゴミ箱に入れる。それ以外は _AdminLog に一覧を書くだけ
   config.CLEANUP_MODE = String(props.getProperty('CLEANUP_MODE') || '').trim().toLowerCase();
   return config;
 }
@@ -56,48 +58,4 @@ function buildDefaultPreviewUrl_(config) {
   const repo = String(config.GH_REPO || '').trim();
   if (!owner || !repo) return '';
   return 'https://' + owner + '.github.io/' + repo + '/';
-}
-
-function isoNow_() {
-  return new Date().toISOString();
-}
-
-function normalizeEmail_(value) {
-  return String(value || '').trim().toLowerCase();
-}
-
-function sha256Hex_(value) {
-  const raw = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, value, Utilities.Charset.UTF_8);
-  return raw.map((b) => {
-    const v = (b + 256) % 256;
-    return ('0' + v.toString(16)).slice(-2);
-  }).join('');
-}
-
-function parseJson_(value, fallback) {
-  if (!value) return fallback;
-  try {
-    return JSON.parse(value);
-  } catch (error) {
-    return fallback;
-  }
-}
-
-function requireString_(value, label, maxLength) {
-  const normalized = String(value || '').trim();
-  if (!normalized) throw new Error(label + ' を入力してください。');
-  if (maxLength && normalized.length > maxLength) throw new Error(label + ' が長すぎます。');
-  return normalized;
-}
-
-function cleanMultiline_(value, maxLength) {
-  const normalized = String(value || '').replace(/\r/g, '').trim();
-  if (maxLength && normalized.length > maxLength) {
-    throw new Error('入力が長すぎます。');
-  }
-  return normalized;
-}
-
-function include(filename) {
-  return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }

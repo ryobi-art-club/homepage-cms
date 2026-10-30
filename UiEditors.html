@@ -1,0 +1,775 @@
+<script>
+/* タブごとの入力欄：ホーム・新歓・活動記録・展示会・ご依頼・更新履歴 */
+
+function ensureRecruitCalendars() {
+  if (Array.isArray(appState.state.recruitCalendars) && appState.state.recruitCalendars.length) return;
+  appState.state.recruitCalendars = [{ year: String(new Date().getFullYear()), mediaFolderId: '', mediaFileIds: [], published: true }];
+}
+
+function recruitCalendarLabel(year) {
+  return year ? year + '年度 新歓イベントカレンダー' : '新歓イベントカレンダー';
+}
+
+function activityCategoryLabel(category) {
+  const labels = { record: '活動記録', event: 'イベント告知', other: 'その他' };
+  return labels[String(category || 'record')] || 'その他';
+}
+
+function renderStorageCard() {
+  const maintenance = appState.maintenance || {};
+  const storage = maintenance.storage || {};
+  const recommendations = maintenance.recommendations || [];
+  if (!storage.available) {
+    return [
+      '<div class="card storage-card is-unknown">',
+      '<h3>Drive容量</h3>',
+      '<div class="small-note">' + escapeHtml(storage.message || 'Drive容量を取得できませんでした。') + '</div>',
+      '</div>'
+    ].join('');
+  }
+  const pct = storage.limit ? Math.round((storage.usageRatio || 0) * 1000) / 10 : 0;
+  const levelText = {
+    ok: '余裕があります',
+    notice: '注意',
+    warning: '警告',
+    danger: '強い警告'
+  }[storage.level || 'ok'];
+  const showRecommendations = storage.level && storage.level !== 'ok';
+  const recommendationHtml = !showRecommendations
+    ? ''
+    : recommendations.length
+    ? [
+        '<div class="recommendation-list">',
+        '<div class="small-note">退避候補（合計 ' + formatBytes(storage.recommendationBytes || 0) + '）</div>',
+        recommendations.map((item) => [
+          '<div class="recommendation-item">',
+          '<div>',
+          '<span class="recommendation-kind">' + escapeHtml(item.label || '') + '</span>',
+          '<strong>' + escapeHtml(item.title || '') + '</strong>',
+          '<span class="small-note">' + escapeHtml(formatDate(item.date) || '日付なし') + (item.published === false ? ' / 非公開' : '') + ' / ' + formatBytes(item.size || 0) + '</span>',
+          '</div>',
+          '<a class="button subtle" href="' + escapeHtml(item.folderUrl || '#') + '" target="_blank" rel="noopener noreferrer">Driveで開く</a>',
+          '</div>'
+        ].join('')).join(''),
+        '<div class="small-note">' + (
+          storage.recommendationSufficient
+            ? 'すべて退避した場合の見込み残量: ' + formatBytes(storage.projectedRemaining || storage.remaining)
+            : '登録済み素材をすべて退避しても、十分な空き容量に届かない見込みです。'
+        ) + '</div>',
+        '</div>'
+      ].join('')
+    : '<div class="small-note">容量を確保できる退避候補はありません。</div>';
+  return [
+    '<div class="card storage-card is-' + escapeHtml(storage.level || 'ok') + '">',
+    '<div class="storage-head">',
+    '<div data-help>',
+    '<div class="help-title"><h3>Drive容量</h3>' + HELP_BUTTON + '</div>',
+    '<div class="small-note help-text">ホームページ素材以外も含む、実行アカウント全体の容量です。</div>',
+    '</div>',
+    '<span class="storage-badge">' + escapeHtml(levelText) + '</span>',
+    '</div>',
+    '<div class="storage-meter"><span style="width:' + Math.min(100, Math.max(0, pct)) + '%"></span></div>',
+    '<div class="storage-row">',
+    '<span>使用中 ' + formatBytes(storage.used) + ' / ' + formatBytes(storage.limit) + '</span>',
+    '<strong>残り ' + formatBytes(storage.remaining) + '</strong>',
+    '</div>',
+    recommendationHtml,
+    '</div>'
+  ].join('');
+}
+
+function renderDashboard() {
+  const state = appState.state || {};
+  const publishedActivities = (state.activityArticles || []).filter((item) => item.published !== false).length;
+  const publishedExhibitions = (state.exhibitions || []).filter((item) => item.published !== false).length;
+  const publishedRequests = (state.requestCases || []).filter((item) => item.published !== false).length;
+  const draftsHtml = (appState.drafts || []).length ? appState.drafts.map((item) => `
+    <div class="log-item draft-item">
+      <div class="log-date">${formatDate(item.savedAt)} / ${escapeHtml(item.savedByName || item.savedByEmail || '')}</div>
+      <div class="draft-actions-row">
+        <div>下書き ${escapeHtml((item.draftId || '').slice(0, 8))}</div>
+        <button class="button subtle" type="button" onclick="loadDraftIntoEditor('${escapeHtml(item.draftId)}')">読み込む</button>
+      </div>
+    </div>`).join('') : '<div class="small-note">保存済みの下書きはありません。</div>';
+  const adminHtml = (appState.adminLog || []).length ? appState.adminLog.map((item) => `
+    <div class="log-item">
+      <div class="log-date">${formatDate(item.timestamp)} / ${escapeHtml(item.actorName || item.actorEmail || '不明')}</div>
+      <div>${escapeHtml(item.detail || item.action || '')}</div>
+    </div>`).join('') : '<div class="small-note">まだ公開履歴がありません。</div>';
+  const accountHtml = appState.viewerName || appState.viewerEmail
+    ? '<p class="dashboard-account">ログイン中：<strong>' + escapeHtml(appState.viewerName || appState.viewerEmail) + '</strong>' +
+      (appState.viewerEmail && appState.viewerEmail !== appState.viewerName ? '（' + escapeHtml(appState.viewerEmail) + '）' : '') + '</p>'
+    : '';
+  const html = `
+    <div class="stack">
+      ${accountHtml}
+      ${renderStorageCard()}
+      <div class="card">
+        <h2>概要</h2>
+        <div class="kpi-grid">
+          <div class="kpi"><div class="kpi-label">活動記録・告知</div><div class="kpi-value">${publishedActivities}</div></div>
+          <div class="kpi"><div class="kpi-label">展示会</div><div class="kpi-value">${publishedExhibitions}</div></div>
+          <div class="kpi"><div class="kpi-label">取り組み事例</div><div class="kpi-value">${publishedRequests}</div></div>
+          <div class="kpi"><div class="kpi-label">公開履歴</div><div class="kpi-value">${(state.changeLog || []).length}</div></div>
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <h3>下書き一覧</h3>
+          <div class="log-list">${draftsHtml}</div>
+        </div>
+        <div class="card">
+          <h3>公開履歴</h3>
+          <div class="log-list log-list-scroll">${adminHtml}</div>
+        </div>
+      </div>
+    </div>
+  `;
+  document.getElementById('panel-dashboard').innerHTML = html;
+}
+
+function updateEditorCardTitle(input, fallback) {
+  const item = input && input.closest ? input.closest('.editor-item') : null;
+  const title = item ? item.querySelector('[data-live-title]') : null;
+  if (title) title.textContent = input.value.trim() || fallback;
+}
+
+function updateRecruitYearTitle(input) {
+  const item = input && input.closest ? input.closest('.editor-item') : null;
+  const title = item ? item.querySelector('[data-live-title]') : null;
+  const year = String(input.value || '').replace(/[^\d]/g, '').slice(0, 4);
+  if (title) title.textContent = recruitCalendarLabel(year);
+  loadRecruitPreview();
+}
+
+function sortRecruitCalendars(items) {
+  return (items || []).slice().sort((a, b) => String(b.year || '').localeCompare(String(a.year || '')));
+}
+
+function renderRecruitEditor() {
+  ensureRecruitCalendars();
+  const items = sortRecruitCalendars(appState.state.recruitCalendars || []);
+  appState.state.recruitCalendars = items;
+  const panel = document.getElementById('panel-recruit');
+  panel.innerHTML = `
+    <div class="grid-2">
+      <div class="card">
+        <div class="panel-head" data-help>
+          <div>
+            <div class="help-title">
+              <h2>入部希望の方</h2>
+              ${HELP_BUTTON}
+            </div>
+            <p class="panel-lead help-text">年度ごとの新歓イベントカレンダー画像を設定します。表示名は年度から自動で作られます。</p>
+          </div>
+          <div class="item-actions">
+            <button class="button" type="button" onclick="addRecruitYear()">年度を追加</button>
+          </div>
+        </div>
+        <div class="editor-list">
+          ${items.map((item, index) => renderRecruitEditorItem(item, index)).join('')}
+        </div>
+      </div>
+      <div class="card">
+        <h3>プレビュー</h3>
+        <div id="recruitPreview" class="preview-pane preview-frame">${previewPlaceholderHtml('recruit')}</div>
+      </div>
+    </div>
+  `;
+  loadRecruitPreview();
+}
+
+function renderRecruitEditorItem(item, index) {
+  const published = item.published !== false;
+  const year = String(item.year || '').replace(/[^\d]/g, '').slice(0, 4);
+  const label = recruitCalendarLabel(year);
+  return `
+    <article class="editor-item" data-recruit-item data-index="${index}" data-published="${published ? 'true' : 'false'}">
+      <div class="editor-item-head">
+        <div>
+          <div class="item-title" data-live-title>${escapeHtml(label)}</div>
+          <div class="editor-item-meta">${visibleChipHtml(published)}</div>
+        </div>
+        <div class="item-actions">
+          ${published ? '' : `<button class="button hidden-toggle is-hidden" type="button" onclick="toggleRecruitPublished(${index})">この年度を公開</button>`}
+          <button class="button danger icon" type="button" onclick="removeRecruitYear(${index})" aria-label="削除" title="削除">${TRASH_ICON}</button>
+        </div>
+      </div>
+      <div class="form-grid">
+        <div class="field">
+          <label>年度</label>
+          <input data-field="year" inputmode="numeric" value="${escapeHtml(year)}" placeholder="2026" oninput="updateRecruitYearTitle(this)" onchange="syncRecruitFromDomAndRerender()">
+        </div>
+        <div class="field full">
+          <label>画像</label>
+          <input data-field="mediaFolderId" type="hidden" value="${escapeHtml(item.mediaFolderId || '')}">
+          <input data-field="mediaFileIds" type="hidden" value="${escapeHtml(JSON.stringify(mediaIdsForItem(item)))}">
+          <button class="button subtle" type="button" onclick="openMediaDialog('recruit', ${index})">画像の設定</button>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function addRecruitYear() {
+  ensureRecruitCalendars();
+  appState.state.recruitCalendars = readRecruitFromDom();
+  const years = (appState.state.recruitCalendars || [])
+    .map((item) => Number(String(item.year || '').replace(/[^\d]/g, '').slice(0, 4)))
+    .filter((year) => year > 0);
+  const nextYear = String(years.length ? Math.max.apply(null, years) + 1 : new Date().getFullYear());
+  appState.state.recruitCalendars.push({
+    year: nextYear,
+    mediaFolderId: '',
+    mediaFileIds: [],
+    published: !(appState.state.recruitCalendars || []).length
+  });
+  appState.state.recruitCalendars = sortRecruitCalendars(appState.state.recruitCalendars);
+  renderRecruitEditor();
+}
+
+function toggleRecruitPublished(index) {
+  appState.state.recruitCalendars = readRecruitFromDom().map((item, i) => Object.assign({}, item, { published: i === index }));
+  renderRecruitEditor();
+}
+
+function removeRecruitYear(index) {
+  if (!confirm('この年度を削除しますか？')) return;
+  const items = readRecruitFromDom();
+  items.splice(index, 1);
+  if (items.length && !items.some((item) => item.published !== false)) items[0].published = true;
+  appState.state.recruitCalendars = items;
+  renderRecruitEditor();
+}
+
+function syncRecruitFromDomAndRerender() {
+  appState.state.recruitCalendars = sortRecruitCalendars(readRecruitFromDom());
+  renderRecruitEditor();
+}
+
+function renderActivitiesEditor() {
+  const panel = document.getElementById('panel-activities');
+  const items = appState.state.activityArticles || [];
+  panel.innerHTML = `
+    <div class="grid-2">
+      <div class="card">
+        <div class="panel-head" data-help>
+          <div>
+            <div class="help-title">
+              <h2>活動記録・告知</h2>
+              ${HELP_BUTTON}
+            </div>
+            <p class="panel-lead help-text">公開日が新しい順に表示されます。必要に応じて非公開にできます。</p>
+          </div>
+          <div class="item-actions">
+            <button class="button" type="button" onclick="addActivityArticle()">記事を追加</button>
+          </div>
+        </div>
+        <div id="activityEditorList" class="editor-list">
+          ${items.map((item, index) => renderActivityEditorItem(item, index)).join('')}
+        </div>
+      </div>
+      <div class="card">
+        <h3>プレビュー</h3>
+        <div id="activityPreview" class="preview-pane preview-frame">${previewPlaceholderHtml('activity')}</div>
+      </div>
+    </div>
+  `;
+  refreshActivityPreview();
+}
+
+function renderActivityEditorItem(item, index) {
+  const published = item.published !== false;
+  return `
+    <article class="editor-item" data-activity-item data-index="${index}" data-id="${escapeHtml(item.articleId)}" data-created-at="${escapeHtml(item.createdAt || '')}" data-published="${published ? 'true' : 'false'}" data-bucket="${escapeHtml(item.displayBucket || 'archive')}">
+      <div class="editor-item-head">
+        <div>
+          <div class="item-title" data-live-title>${escapeHtml(item.title || '新規記事')}</div>
+          <div class="editor-item-meta">${visibleChipHtml(published)}<span>初回公開日: ${formatDate(item.createdAt)}</span></div>
+        </div>
+        <div class="item-actions">
+          <button class="button hidden-toggle ${published ? '' : 'is-hidden'}" type="button" onclick="toggleActivityPublished(${index})">${published ? '非公開' : '公開に戻す'}</button>
+          <button class="button danger icon" type="button" onclick="removeActivityArticle(${index})" aria-label="削除" title="削除">${TRASH_ICON}</button>
+        </div>
+      </div>
+      <div class="form-grid">
+        <div class="field full">
+          <label>記事タイトル</label>
+          <input data-field="title" value="${escapeHtml(item.title || '')}" oninput="updateEditorCardTitle(this, '新規記事'); refreshActivityPreview()">
+        </div>
+        <div class="field">
+          <label>カテゴリ</label>
+          <select data-field="category" onchange="refreshActivityPreview()">
+            <option value="record" ${String(item.category || 'record') === 'record' ? 'selected' : ''}>活動記録</option>
+            <option value="event" ${String(item.category || 'record') === 'event' ? 'selected' : ''}>イベント告知</option>
+            <option value="other" ${String(item.category || 'record') === 'other' ? 'selected' : ''}>その他</option>
+          </select>
+        </div>
+        <div class="field full">
+          <label>本文</label>
+          <textarea data-field="body" oninput="refreshActivityPreview()">${escapeHtml(item.body || '')}</textarea>
+        </div>
+        <div class="field full">
+          <label>画像</label>
+          <input data-field="mediaFolderId" type="hidden" value="${escapeHtml(item.mediaFolderId || '')}">
+          <input data-field="mediaFileIds" type="hidden" value="${escapeHtml(JSON.stringify(mediaIdsForItem(item)))}">
+          <button class="button subtle" type="button" onclick="openMediaDialog('activity', ${index})">画像の設定</button>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function addActivityArticle() {
+  appState.state.activityArticles = readActivitiesFromDom();
+  appState.state.activityArticles.unshift({
+    articleId: '',
+    title: '',
+    body: '',
+    category: 'record',
+    mediaFolderId: '',
+    mediaFileIds: [],
+    published: true,
+    createdAt: new Date(Date.now() + 3600 * 1000).toISOString()
+  });
+  renderActivitiesEditor();
+}
+
+function toggleActivityPublished(index) {
+  appState.state.activityArticles = readActivitiesFromDom();
+  const item = appState.state.activityArticles[index];
+  if (!item) return;
+  item.published = item.published === false;
+  renderActivitiesEditor();
+}
+
+function removeActivityArticle(index) {
+  if (!confirm('この記事を削除しますか？\n公開済みのコンテンツは削除ではなく非公開推奨です。')) return;
+  appState.state.activityArticles = readActivitiesFromDom();
+  appState.state.activityArticles.splice(index, 1);
+  renderActivitiesEditor();
+}
+
+function renderExhibitionsEditor() {
+  const panel = document.getElementById('panel-exhibitions');
+  const items = sortExhibitions(appState.state.exhibitions || []);
+  panel.innerHTML = `
+    <div class="grid-2">
+      <div class="card">
+        <div class="panel-head" data-help>
+          <div>
+            <div class="help-title">
+              <h2>展示会</h2>
+              ${HELP_BUTTON}
+            </div>
+            <p class="panel-lead help-text">開始日をもとに自動で並びます。開催予定は複数設定でき、近い順に表示されます。直近の展示はアーカイブの最新1件から自動で反映されます。</p>
+          </div>
+          <div class="item-actions">
+            <button class="button" type="button" onclick="addExhibition()">展示会を追加</button>
+          </div>
+        </div>
+        <div id="exhibitionEditorList" class="editor-list">
+          ${items.map((item, index) => renderExhibitionEditorItem(item, index)).join('')}
+        </div>
+      </div>
+      <div class="card">
+        <h3>プレビュー</h3>
+        <div id="exhibitionPreview" class="preview-pane preview-frame">${previewPlaceholderHtml('exhibition')}</div>
+      </div>
+    </div>
+  `;
+  refreshExhibitionPreview();
+}
+
+function renderExhibitionEditorItem(item, index) {
+  const published = item.published !== false;
+  const bucketLabel = item.displayBucket === 'upcoming' ? '開催予定' : 'アーカイブ';
+  return `
+    <article class="editor-item" data-exhibition-item data-index="${index}" data-id="${escapeHtml(item.exhibitionId || '')}" data-published="${published ? 'true' : 'false'}" data-bucket="${escapeHtml(item.displayBucket || 'archive')}" data-created-order="${escapeHtml(item.draftCreatedAt || '')}">
+      <div class="editor-item-head">
+        <div>
+          <div class="item-title" data-live-title>${escapeHtml(item.title || '新規展示会')}</div>
+          <div class="editor-item-meta">${visibleChipHtml(published)}<span>${bucketLabel}</span></div>
+        </div>
+        <div class="item-actions">
+          <button class="button subtle" type="button" onclick="toggleExhibitionBucket(${index})">${item.displayBucket === 'upcoming' ? 'アーカイブへ' : '開催予定へ'}</button>
+          <button class="button hidden-toggle ${published ? '' : 'is-hidden'}" type="button" onclick="toggleExhibitionPublished(${index})">${published ? '非公開' : '公開に戻す'}</button>
+          <button class="button danger icon" type="button" onclick="removeExhibition(${index})" aria-label="削除" title="削除">${TRASH_ICON}</button>
+        </div>
+      </div>
+      <div class="form-grid">
+        <div class="field full">
+          <label>展示会名</label>
+          <input data-field="title" value="${escapeHtml(item.title || '')}" oninput="updateEditorCardTitle(this, '新規展示会'); refreshExhibitionPreview()">
+        </div>
+        <div class="field full">
+          <label>サブタイトル（任意）</label>
+          <input data-field="subtitle" value="${escapeHtml(item.subtitle || '')}" placeholder="例: 第〇回 凌美会展" oninput="refreshExhibitionPreview()">
+        </div>
+        <div class="field full">
+          <label>概要</label>
+          <textarea data-field="theme" oninput="refreshExhibitionPreview()">${escapeHtml(item.theme || '')}</textarea>
+        </div>
+        <div class="field">
+          <label>開始日</label>
+          <input data-field="startDate" type="date" value="${escapeHtml(item.startDate || '')}" onchange="onExhibitionDateChange(this)">
+        </div>
+        <div class="field">
+          <label>終了日（1日だけなら空欄）</label>
+          <input data-field="endDate" type="date" value="${escapeHtml(item.endDate || '')}" onchange="onExhibitionDateChange(this)">
+        </div>
+        <div class="field full">
+          <label>会期表示</label>
+          ${renderDateLineField(item)}
+        </div>
+        <div class="field full">
+          <label>時間帯表示</label>
+          <input data-field="timeLine" value="${escapeHtml(item.timeLine || '')}" placeholder="例: 11:00 - 19:00 / 初日 14:00から / 最終日 17:00まで" oninput="refreshExhibitionPreview()">
+        </div>
+        <div class="field">
+          <label>会場名</label>
+          <input data-field="venueName" value="${escapeHtml(item.venueName || '')}" oninput="refreshExhibitionPreview()">
+        </div>
+        <div class="field">
+          <label>会場住所</label>
+          <input data-field="venueAddress" value="${escapeHtml(item.venueAddress || '')}" oninput="refreshExhibitionPreview()">
+        </div>
+        <div class="field full">
+          <label>画像・作品情報</label>
+          <input data-field="mediaFolderId" type="hidden" value="${escapeHtml(item.mediaFolderId || '')}">
+          <input data-field="dmFileIds" type="hidden" value="${escapeHtml(JSON.stringify(normalizeIdList(item.dmFileIds)))}">
+          <input data-field="works" type="hidden" value="${escapeHtml(JSON.stringify(item.works || []))}">
+          <button class="button subtle" type="button" onclick="openMediaDialog('exhibition', ${index})">画像・作品情報の設定</button>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function syncExhibitionsFromDomAndRerender() {
+  appState.state.exhibitions = readExhibitionsFromDom();
+  renderExhibitionsEditor();
+}
+
+function addExhibition() {
+  appState.state.exhibitions = readExhibitionsFromDom();
+  appState.state.exhibitions.unshift({
+    exhibitionId: '',
+    displayBucket: 'upcoming',
+    startDate: '',
+    endDate: '',
+    title: '',
+    subtitle: '',
+    theme: '',
+    venueName: '',
+    venueAddress: '',
+    dateLine: '',
+    timeLine: '',
+    mediaFolderId: '',
+    dmFileIds: [],
+    works: [],
+    published: true,
+    draftCreatedAt: new Date(Date.now() + 3600 * 1000).toISOString()
+  });
+  renderExhibitionsEditor();
+}
+
+function toggleExhibitionPublished(index) {
+  appState.state.exhibitions = readExhibitionsFromDom();
+  const sorted = sortExhibitions(appState.state.exhibitions);
+  const item = sorted[index];
+  if (!item) return;
+  item.published = item.published === false;
+  renderExhibitionsEditor();
+}
+
+function removeExhibition(index) {
+  if (!confirm('この展示会を削除しますか？\n公開済みのコンテンツは削除ではなく非公開推奨です。')) return;
+  appState.state.exhibitions = readExhibitionsFromDom();
+  const sorted = sortExhibitions(appState.state.exhibitions);
+  const target = sorted[index];
+  appState.state.exhibitions = (appState.state.exhibitions || []).filter((item) => item !== target);
+  renderExhibitionsEditor();
+}
+
+function toggleExhibitionBucket(index) {
+  appState.state.exhibitions = readExhibitionsFromDom();
+  const sorted = sortExhibitions(appState.state.exhibitions);
+  const target = sorted[index];
+  if (!target) return;
+  target.displayBucket = target.displayBucket === 'upcoming' ? 'archive' : 'upcoming';
+  appState.state.exhibitions = sortExhibitions(appState.state.exhibitions || []);
+  renderExhibitionsEditor();
+}
+
+/* 会期表示には3つの状態がある。
+   ① 自動: 日付から作った表示を読み取り専用で見せる（ペンで編集）
+   ② 編集中(data-editing): 入力欄として直せる（「完了」か Enter で確定、Esc で取り消し）
+   ③ 手入力(data-manual): 直した表示を読み取り専用で見せる（ペンで再編集、↺ で自動に戻す）
+   日付を変えたら、どの状態でも日付から作り直して ① に戻す */
+function renderDateLineField(item) {
+  const auto = formatExhibitionDateLine(item.startDate, item.endDate);
+  const manual = !!item.dateLine && item.dateLine !== auto;
+  return [
+    '<div class="date-line-field" data-date-line' + (manual ? ' data-manual' : '') + '>',
+    '<input data-field="dateLine" value="' + escapeHtml(manual ? item.dateLine : auto) + '" placeholder="開始日を選ぶと自動で表示されます" aria-label="会期表示" readonly oninput="refreshExhibitionPreview()" onkeydown="onDateLineKeydown(event)">',
+    '<button class="icon-action-button date-line-edit" type="button" onclick="editExhibitionDateLine(this)" aria-label="会期表示を編集" title="会期表示を編集"><i class="fa-solid fa-pen" aria-hidden="true"></i></button>',
+    '<button class="button success date-line-done" type="button" onclick="finishExhibitionDateLine(this)">完了</button>',
+    '<button class="icon-action-button date-line-reset" type="button" onclick="resetExhibitionDateLine(this)" aria-label="日付からの自動表示に戻す" title="日付からの自動表示に戻す"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i></button>',
+    '</div>'
+  ].join('');
+}
+
+function exhibitionDateLineAuto(box) {
+  const article = box.closest('[data-exhibition-item]');
+  return formatExhibitionDateLine(
+    article.querySelector('[data-field="startDate"]').value,
+    article.querySelector('[data-field="endDate"]').value
+  );
+}
+
+/* editing: 入力欄として直せる状態か。manual: 確定した表示が日付からの自動表示と違うか */
+function setDateLineState(box, editing, manual) {
+  box.toggleAttribute('data-editing', editing);
+  box.toggleAttribute('data-manual', manual);
+  box.querySelector('[data-field="dateLine"]').readOnly = !editing;
+}
+
+function editExhibitionDateLine(button) {
+  const box = button.closest('[data-date-line]');
+  const input = box.querySelector('[data-field="dateLine"]');
+  box.setAttribute('data-previous', input.value);
+  setDateLineState(box, true, box.hasAttribute('data-manual'));
+  input.focus();
+  input.select();
+}
+
+/* 空欄で確定したら自動の表示に戻す（会期が空のまま公開されないように） */
+function finishExhibitionDateLine(button) {
+  const box = button.closest('[data-date-line]');
+  const input = box.querySelector('[data-field="dateLine"]');
+  const auto = exhibitionDateLineAuto(box);
+  input.value = input.value.trim() || auto;
+  setDateLineState(box, false, input.value !== auto);
+  markDirty();
+  refreshExhibitionPreview();
+}
+
+function cancelExhibitionDateLine(box) {
+  box.querySelector('[data-field="dateLine"]').value = box.getAttribute('data-previous') || '';
+  setDateLineState(box, false, box.hasAttribute('data-manual'));
+  refreshExhibitionPreview();
+}
+
+function onDateLineKeydown(event) {
+  const box = event.target.closest('[data-date-line]');
+  if (!box || !box.hasAttribute('data-editing')) return;
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    finishExhibitionDateLine(event.target);
+  } else if (event.key === 'Escape') {
+    event.preventDefault();
+    cancelExhibitionDateLine(box);
+  }
+}
+
+function resetExhibitionDateLine(button) {
+  const box = button.closest('[data-date-line]');
+  box.querySelector('[data-field="dateLine"]').value = exhibitionDateLineAuto(box);
+  setDateLineState(box, false, false);
+  markDirty();
+  refreshExhibitionPreview();
+}
+
+function onExhibitionDateChange(input) {
+  const box = input.closest('[data-exhibition-item]').querySelector('[data-date-line]');
+  const wasManual = box.hasAttribute('data-manual') || box.hasAttribute('data-editing');
+  box.querySelector('[data-field="dateLine"]').value = exhibitionDateLineAuto(box);
+  setDateLineState(box, false, false);
+  if (wasManual) setStatus('日付を変更したため、会期表示を日付から作り直しました。');
+  syncExhibitionsFromDomAndRerender();
+}
+
+function renderRequestsEditor() {
+  const panel = document.getElementById('panel-requests');
+  const items = appState.state.requestCases || [];
+  panel.innerHTML = `
+    <div class="grid-2">
+      <div class="card">
+        <div class="panel-head" data-help>
+          <div>
+            <div class="help-title">
+              <h2>ご依頼の方</h2>
+              ${HELP_BUTTON}
+            </div>
+            <p class="panel-lead help-text">新しく追加した事例は先頭に配置されます。</p>
+          </div>
+          <div class="item-actions">
+            <button class="button" type="button" onclick="addRequestCase()">取り組み事例を追加</button>
+          </div>
+        </div>
+        <div id="requestEditorList" class="editor-list">
+          ${items.map((item, index) => renderRequestEditorItem(item, index)).join('')}
+        </div>
+      </div>
+      <div class="card">
+        <h3>プレビュー</h3>
+        <div id="requestPreview" class="preview-pane preview-frame">${previewPlaceholderHtml('request')}</div>
+      </div>
+    </div>
+  `;
+  refreshRequestPreview();
+}
+
+function renderRequestEditorItem(item, index) {
+  const published = item.published !== false;
+  return `
+    <article class="editor-item" data-request-item data-index="${index}" data-id="${escapeHtml(item.caseId || '')}" data-published="${published ? 'true' : 'false'}" data-bucket="${escapeHtml(item.displayBucket || 'archive')}">
+      <div class="editor-item-head">
+        <div>
+          <div class="item-title" data-live-title>${escapeHtml(item.title || '新規事例')}</div>
+          <div class="editor-item-meta">${visibleChipHtml(published)}<span>表示順 ${index + 1}</span></div>
+        </div>
+        <div class="item-actions">
+          <button class="button" type="button" onclick="moveRequestCase(${index}, -1)">↑</button>
+          <button class="button" type="button" onclick="moveRequestCase(${index}, 1)">↓</button>
+          <button class="button hidden-toggle ${published ? '' : 'is-hidden'}" type="button" onclick="toggleRequestPublished(${index})">${published ? '非公開' : '公開に戻す'}</button>
+          <button class="button danger icon" type="button" onclick="removeRequestCase(${index})" aria-label="削除" title="削除">${TRASH_ICON}</button>
+        </div>
+      </div>
+      <div class="form-grid">
+        <div class="field full">
+          <label>取り組みタイトル</label>
+          <input data-field="title" value="${escapeHtml(item.title || '')}" oninput="updateEditorCardTitle(this, '新規事例'); refreshRequestPreview()">
+        </div>
+        <div class="field full">
+          <label>本文</label>
+          <textarea data-field="body" oninput="refreshRequestPreview()">${escapeHtml(item.body || '')}</textarea>
+        </div>
+        <div class="field full">
+          <label>画像</label>
+          <input data-field="mediaFolderId" type="hidden" value="${escapeHtml(item.mediaFolderId || '')}">
+          <input data-field="mediaFileIds" type="hidden" value="${escapeHtml(JSON.stringify(mediaIdsForItem(item)))}">
+          <button class="button subtle" type="button" onclick="openMediaDialog('request', ${index})">画像の設定</button>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function addRequestCase() {
+  appState.state.requestCases = readRequestsFromDom();
+  appState.state.requestCases.unshift({
+    caseId: '',
+    title: '',
+    body: '',
+    mediaFolderId: '',
+    mediaFileIds: [],
+    published: true
+  });
+  renderRequestsEditor();
+}
+
+function moveRequestCase(index, delta) {
+  appState.state.requestCases = readRequestsFromDom();
+  const target = index + delta;
+  if (target < 0 || target >= appState.state.requestCases.length) return;
+  const items = appState.state.requestCases;
+  const tmp = items[index];
+  items[index] = items[target];
+  items[target] = tmp;
+  renderRequestsEditor();
+}
+
+function toggleRequestPublished(index) {
+  appState.state.requestCases = readRequestsFromDom();
+  const item = appState.state.requestCases[index];
+  if (!item) return;
+  item.published = item.published === false;
+  renderRequestsEditor();
+}
+
+function removeRequestCase(index) {
+  if (!confirm('この事例を削除しますか？\n公開済みのコンテンツは削除ではなく非公開推奨です。')) return;
+  appState.state.requestCases = readRequestsFromDom();
+  appState.state.requestCases.splice(index, 1);
+  renderRequestsEditor();
+}
+
+function renderLogs() {
+  const panel = document.getElementById('panel-logs');
+  panel.innerHTML = `
+    <div class="stack">
+      <div class="card">
+        <div data-help>
+        <div class="help-title"><h2>更新履歴メモ</h2>${HELP_BUTTON}</div>
+        <p class="panel-lead help-text">必要なときだけ、自由記述の履歴を追加できます。サイト側の履歴には現在の公開状態に応じて表示されます。</p>
+        </div>
+        <div class="field full">
+          <label>フリーテキスト履歴（改行ごとに1項目）</label>
+          <textarea id="manualChangeNote" placeholder="例: 会場のご案内を更新しました。\n次回展示の詳細を追記しました。" oninput="syncManualChangeNote(); scheduleLogsPreviewRefresh();">${escapeHtml(appState.state.manualChangeNote || '')}</textarea>
+        </div>
+      </div>
+      <div id="logsPreviewContent"></div>
+    </div>
+  `;
+  renderLogsPreviewContent();
+}
+
+function readRecruitFromDom() {
+  return sortRecruitCalendars(Array.from(document.querySelectorAll('[data-recruit-item]')).map((item) => {
+    const year = item.querySelector('[data-field="year"]').value.replace(/[^\d]/g, '').slice(0, 4);
+    return {
+      year,
+      mediaFolderId: item.querySelector('[data-field="mediaFolderId"]').value,
+      mediaFileIds: normalizeIdList(item.querySelector('[data-field="mediaFileIds"]').value),
+      published: item.getAttribute('data-published') !== 'false'
+    };
+  }));
+}
+
+function readActivitiesFromDom() {
+  return Array.from(document.querySelectorAll('[data-activity-item]')).map((item) => ({
+    articleId: item.getAttribute('data-id') || '',
+    title: item.querySelector('[data-field="title"]').value.trim(),
+    body: item.querySelector('[data-field="body"]').value.trim(),
+    category: item.querySelector('[data-field="category"]').value,
+    mediaFolderId: item.querySelector('[data-field="mediaFolderId"]').value,
+    mediaFileIds: normalizeIdList(item.querySelector('[data-field="mediaFileIds"]').value),
+    published: item.getAttribute('data-published') !== 'false',
+    createdAt: item.getAttribute('data-created-at') || new Date().toISOString()
+  }));
+}
+
+function readExhibitionsFromDom() {
+  return sortExhibitions(Array.from(document.querySelectorAll('[data-exhibition-item]')).map((item) => ({
+    exhibitionId: item.getAttribute('data-id') || '',
+    displayBucket: item.getAttribute('data-bucket') || 'archive',
+    startDate: item.querySelector('[data-field="startDate"]').value,
+    endDate: item.querySelector('[data-field="endDate"]').value,
+    title: item.querySelector('[data-field="title"]').value.trim(),
+    subtitle: item.querySelector('[data-field="subtitle"]').value.trim(),
+    theme: item.querySelector('[data-field="theme"]').value.trim(),
+    venueName: item.querySelector('[data-field="venueName"]').value.trim(),
+    venueAddress: item.querySelector('[data-field="venueAddress"]').value.trim(),
+    dateLine: item.querySelector('[data-field="dateLine"]').value.trim(),
+    timeLine: item.querySelector('[data-field="timeLine"]').value.trim(),
+    mediaFolderId: item.querySelector('[data-field="mediaFolderId"]').value,
+    dmFileIds: normalizeIdList(item.querySelector('[data-field="dmFileIds"]').value),
+    published: item.getAttribute('data-published') !== 'false',
+    draftCreatedAt: item.getAttribute('data-created-order') || '',
+    works: JSON.parse(item.querySelector('[data-field="works"]').value || '[]')
+  })));
+}
+
+function readRequestsFromDom() {
+  return Array.from(document.querySelectorAll('[data-request-item]')).map((item) => ({
+    caseId: item.getAttribute('data-id') || '',
+    title: item.querySelector('[data-field="title"]').value.trim(),
+    body: item.querySelector('[data-field="body"]').value.trim(),
+    mediaFolderId: item.querySelector('[data-field="mediaFolderId"]').value,
+    mediaFileIds: normalizeIdList(item.querySelector('[data-field="mediaFileIds"]').value),
+    published: item.getAttribute('data-published') !== 'false'
+  }));
+}
+</script>

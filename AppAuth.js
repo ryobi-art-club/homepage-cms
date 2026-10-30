@@ -1,4 +1,7 @@
+// ログイン：確認コード・許可リスト・セッション
+
 const OTP_REQUEST_LIMIT = 5;
+
 const OTP_REQUEST_WINDOW_SECONDS = 3600;
 
 function requestOtp(email) {
@@ -96,7 +99,6 @@ function requireSession_(sessionToken) {
   return JSON.parse(raw);
 }
 
-
 function getAllowedUserByEmail_(email) {
   const config = getConfig_();
   const sheet = SpreadsheetApp.openById(config.ALLOWLIST_SPREADSHEET_ID).getSheetByName(ALLOWLIST_SHEET_NAME);
@@ -117,6 +119,10 @@ function getAllowedUserByEmail_(email) {
     }
   }
   return null;
+}
+
+function normalizeEmail_(value) {
+  return String(value || '').trim().toLowerCase();
 }
 
 function maskEmail_(email) {

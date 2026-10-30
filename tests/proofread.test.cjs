@@ -1,9 +1,8 @@
-const fs = require('node:fs');
-const path = require('node:path');
 const vm = require('node:vm');
 const crypto = require('node:crypto');
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
+const sources = require('./files.cjs');
 
 class Sheet {
   constructor() {
@@ -65,9 +64,7 @@ function setup(geminiReply) {
       }
     }
   });
-  for (const name of ['Config.js', 'Store.js', 'Gemini.js', 'Proofread.js']) {
-    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', name), 'utf8'), ctx);
-  }
+  sources.loadServer(ctx);
   ctx.getConfig_ = () => ({GEMINI_API_KEY: 'key', GEMINI_MODEL: 'model'});
   ctx.requireSession_ = () => ({});
   ctx.isoNow_ = () => '2026-10-07T00:00:00.000Z';

@@ -1,3 +1,5 @@
+// 公開したあと、サイトのビルド（GitHub Actions）を起動する
+
 function dispatchGithubWorkflow_() {
   const config = getConfig_();
   const token = getGithubToken_();

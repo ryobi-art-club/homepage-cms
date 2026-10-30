@@ -1,0 +1,376 @@
+<script>
+/* 右側のプレビュー（押したときだけ作る） */
+
+const GENERAL_IMAGE_LIMIT = 10;
+
+function folderImageWarning(total, limit, label) {
+  if (!(total > limit)) return '';
+  return `<div class="warning-note">${escapeHtml(label)}は${limit}枚まで表示します（${total}枚中${limit}枚を使用）。</div>`;
+}
+
+function buildThumbCarouselHtml(images, poster=false) {
+  const source = (images || []).slice(0, 10);
+  if (!source.length) return '';
+  if (poster) {
+    const first = source[0];
+    const dots = source.length > 1 ? `<div class="preview-poster-dots">${source.slice(0, 2).map((_, index) => `<span class="${index === 0 ? 'is-active' : ''}"></span>`).join('')}</div>` : '';
+    return `
+      <div class="preview-carousel poster is-poster-carousel">
+        <div class="preview-thumb">${mediaImageHtml(first)}</div>
+        ${dots}
+      </div>`;
+  }
+  const visible = source.slice(0, 4);
+  const extra = Math.max(0, source.length - visible.length);
+  const countClass = `count-${Math.min(source.length, 4)}`;
+  return `<div class="preview-carousel ${countClass}">${visible.map((img, index) => {
+    const more = (extra && index === visible.length - 1) ? `<span class="preview-more">+${extra}</span>` : '';
+    return `<div class="preview-thumb">${mediaImageHtml(img)}${more}</div>`;
+  }).join('')}</div>`;
+}
+
+/* 公開サイトの記事カードに合わせる: 写真があり、ペインが広ければ「文章は左、写真は右」の2列 */
+function buildArticlePreviewHtml(kicker, metaText, title, body, images, warningHtml) {
+  const imagesHtml = buildThumbCarouselHtml(images);
+  return `
+    <article class="preview-site-card preview-article${imagesHtml ? ' has-images' : ''}">
+      <div class="preview-article-text">
+        <div class="preview-inline-meta"><span>${kicker}</span><span>${escapeHtml(metaText)}</span></div>
+        <h4>${escapeHtml(title)}</h4>
+        <p>${renderRichText(body)}</p>
+      </div>
+      ${imagesHtml ? `<div class="preview-article-images">${imagesHtml}</div>` : ''}
+      ${warningHtml}
+    </article>
+  `;
+}
+
+/* 公開サイトの展示会カードに合わせる: 見出しは本文の列に置いてDMを横に並べる。 */
+/* ペインが狭いとき(サイトのスマホ表示相当)は見出し→DM→本文の順にするため、見出しを2か所に出して CSS で切り替える */
+function buildExhibitionPreviewCardHtml(item, kicker, dm, linkHtml = '', extraHtml = '') {
+  const heading = (placement) => `
+    <div class="preview-exhibition-heading is-${placement}">
+      <span class="preview-site-kicker">${kicker}</span>
+      ${buildExhibitionSubtitleHtml(item)}
+      <h4>${escapeHtml(item.title || '展示会名')}</h4>
+    </div>`;
+  const overview = item.theme || item.overview || '';
+  return `
+    <article class="preview-site-card">
+      ${heading('narrow')}
+      <div class="preview-exhibition-layout${dm.length ? '' : ' no-poster'}">
+        <div class="preview-exhibition-copy">
+          ${heading('wide')}
+          ${overview ? `<p class="preview-exhibition-overview">${renderRichText(overview)}</p>` : ''}
+          ${linkHtml}
+          <div class="preview-exhibition-meta">${buildMetaListHtml(item)}</div>
+        </div>
+        ${dm.length ? `<div class="preview-dm-slot">${buildThumbCarouselHtml(dm, true)}</div>` : ''}
+      </div>
+      ${extraHtml}
+    </article>
+  `;
+}
+
+/* 出展作品: 公開サイトと同じ行方式(行内で高さを揃え、幅は縦横比に比例)を小さめに並べる。 */
+/* 縦横比は画像の読み込み後に分かるので onload で --ratio を入れる。 */
+/* 確認時のスクロールを減らすため、最初の 12 点以外は「すべて表示」で開く */
+const PREVIEW_WORKS_VISIBLE = 12;
+
+function buildWorkGalleryPreviewHtml(works) {
+  if (!works.length) return '';
+  const cards = works.map((work) => `
+    <div class="preview-work-card">
+      ${mediaImageHtml(work.file, ` onload="this.parentElement.style.setProperty('--ratio', Math.min(Math.max(this.naturalWidth / this.naturalHeight, 0.4), 3).toFixed(3))"`)}
+      <div class="preview-work-title">${escapeHtml(work.title || '')}</div>
+      <div class="preview-work-artist">${escapeHtml(work.artist || '')}</div>
+    </div>`).join('');
+  const hidden = works.length - PREVIEW_WORKS_VISIBLE;
+  const more = hidden > 0
+    ? `<button class="preview-work-more" type="button" onclick="this.previousElementSibling.classList.remove('is-collapsed'); this.remove()">すべての作品を表示(残り${hidden}点)</button>`
+    : '';
+  return `
+    <div class="preview-work-label">出展作品<span>${works.length}点</span></div>
+    <div class="preview-work-grid${hidden > 0 ? ' is-collapsed' : ''}">${cards}</div>
+    ${more}
+  `;
+}
+
+/* 新歓カレンダーは全部の画像を横に並べ、スクロールして確かめる。
+   枠の縦横比は、公開サイトのスマホ表示と同じく、いちばん縦長の画像に合わせる（16:9〜4:5） */
+function buildRecruitPreviewHtml(images) {
+  const source = (images || []).slice(0, GENERAL_IMAGE_LIMIT);
+  if (!source.length) return '';
+  const controls = source.length > 1 ? `
+      <button class="preview-recruit-step is-prev" type="button" aria-label="前の画像" onclick="stepRecruitPreview(this, -1)">‹</button>
+      <button class="preview-recruit-step is-next" type="button" aria-label="次の画像" onclick="stepRecruitPreview(this, 1)">›</button>
+      <div class="preview-recruit-count">全${source.length}枚</div>` : '';
+  return `
+    <div class="preview-recruit-carousel">
+      <div class="preview-recruit-track">${source.map((image) => `<div class="preview-recruit-slide">${mediaImageHtml(image, ' onload="fitRecruitPreviewFrame(this)"')}</div>`).join('')}</div>
+      ${controls}
+    </div>
+  `;
+}
+
+function stepRecruitPreview(button, delta) {
+  const track = button.parentElement.querySelector('.preview-recruit-track');
+  if (track) track.scrollBy({ left: delta * track.clientWidth, behavior: 'smooth' });
+}
+
+function fitRecruitPreviewFrame(img) {
+  const frame = img.closest('.preview-recruit-carousel');
+  if (!frame || !img.naturalWidth) return;
+  const ratio = Math.min(16 / 9, Math.max(0.8, img.naturalWidth / img.naturalHeight));
+  const current = Number(frame.getAttribute('data-ratio') || 99);
+  if (ratio >= current) return;
+  frame.setAttribute('data-ratio', String(ratio));
+  frame.style.aspectRatio = String(ratio);
+}
+
+function buildMetaListHtml(item) {
+  const rows = [];
+  const mapQuery = [item.venueName, item.venueAddress].filter(Boolean).join(' ');
+  const addressHtml = item.venueAddress
+    ? `<a class="address preview-map-link" href="${escapeHtml(googleMapsSearchUrl(mapQuery))}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(item.venueAddress)}（Google マップで開く）"><i class="fa-solid fa-location-dot" aria-hidden="true"></i><span>${escapeHtml(item.venueAddress)}</span></a>`
+    : '';
+  const venueValue = `${item.venueName ? escapeHtml(item.venueName) : ''}${addressHtml}`;
+  const dateTimeValue = `${item.dateLine ? `<span>${escapeHtml(item.dateLine)}</span>` : ''}${item.timeLine ? `<span class="address">${escapeHtml(item.timeLine)}</span>` : ''}`;
+  if (dateTimeValue) rows.push(`<div class="preview-meta-row"><div class="preview-meta-label">会期</div><div class="preview-meta-value">${dateTimeValue}</div></div>`);
+  if (venueValue) rows.push(`<div class="preview-meta-row"><div class="preview-meta-label">会場</div><div class="preview-meta-value">${venueValue}</div></div>`);
+  return rows.length ? `<div class="preview-meta-list">${rows.join('')}</div>` : '';
+}
+
+function buildExhibitionSubtitleHtml(item) {
+  return item.subtitle ? `<div class="preview-exhibition-subtitle">${escapeHtml(item.subtitle)}</div>` : '';
+}
+
+/* ---------- 右側のプレビュー ----------
+   ボタンを押したときだけ作る（画像の一覧もそのとき初めて取りに行く）。
+   一度表示したら、ページを読み込み直すまで入力に合わせて作り直す（画像の一覧は覚えているのでサーバーには頼まない） */
+function isPreviewOpen(kind) {
+  return !!appState.previewOpen[kind];
+}
+
+function previewPlaceholderHtml(kind) {
+  return '<div class="preview-placeholder"><button class="button subtle" type="button" onclick="openPreview(\'' + kind + '\')">プレビューを表示</button></div>';
+}
+
+/* 閉じているときはボタンを出して false を返す */
+function ensurePreviewOpen(kind, element) {
+  if (isPreviewOpen(kind)) return true;
+  if (element && !element.querySelector('.preview-placeholder')) element.innerHTML = previewPlaceholderHtml(kind);
+  return false;
+}
+
+function openPreview(kind) {
+  appState.previewOpen[kind] = true;
+  if (kind === 'logs') renderLogsPreviewContent();
+  else refreshPreviewForKind(kind);
+}
+
+async function showPreviewHtml(element, html) {
+  if (!element) return;
+  element.innerHTML = html;
+  hydrateThumbnails(element);
+}
+
+function refreshPreviewForKind(kind) {
+  if (kind === 'recruit') loadRecruitPreview();
+  if (kind === 'activity') refreshActivityPreview();
+  if (kind === 'exhibition') refreshExhibitionPreview();
+  if (kind === 'request') refreshRequestPreview();
+}
+
+async function loadRecruitPreview(forceRefresh = false) {
+  const items = readRecruitFromDom();
+  const recruit = items.find((item) => item.published !== false) || items[0] || {};
+  const preview = document.getElementById('recruitPreview');
+
+  if (!preview || !ensurePreviewOpen('recruit', preview)) return;
+  const folderId = recruit.mediaFolderId || '';
+  if (!folderId) {
+    preview.innerHTML = '<div class="preview-empty">画像は未設定です。</div>';
+    return;
+  }
+
+  const label = recruitCalendarLabel(recruit.year);
+  preview.innerHTML = '<div class="preview-empty">画像を読み込んでいます…</div>';
+
+  try {
+    const files = await getFolderImagesCached(folderId, forceRefresh);
+    const registered = orderedFilesByIds(files, mediaIdsForItem(recruit));
+    const images = registered.slice(0, GENERAL_IMAGE_LIMIT);
+    showPreviewHtml(preview, `
+      <div class="preview-site">
+        <article class="preview-site-card">
+          <span class="preview-site-kicker">WELCOME CALENDAR</span>
+          <h4>${escapeHtml(label)}</h4>
+          ${buildRecruitPreviewHtml(images)}
+          ${folderImageWarning(registered.length, GENERAL_IMAGE_LIMIT, '画像')}
+        </article>
+      </div>
+    `);
+  } catch (error) {
+    preview.innerHTML = `<div class="preview-empty">${escapeHtml(error.message || String(error))}</div>`;
+  }
+}
+
+async function renderActivityPreview(items) {
+  const visible = (items || []).filter((item) => item.published !== false).slice().sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  if (!visible.length) return '<div class="preview-empty">公開中の記事はありません。</div>';
+  return Promise.all(visible.map(async (item) => {
+    const folderId = item.mediaFolderId || '';
+    const files = folderId ? await getFolderImagesCached(folderId) : [];
+    const registered = folderId ? orderedFilesByIds(files, mediaIdsForItem(item)) : [];
+    const imageResult = { total: registered.length, items: registered.slice(0, GENERAL_IMAGE_LIMIT) };
+    return buildArticlePreviewHtml(
+      escapeHtml(activityCategoryLabel(item.category)), formatDate(item.createdAt),
+      item.title || 'タイトル未入力', item.body || '本文未入力',
+      imageResult.items, folderImageWarning(imageResult.total, GENERAL_IMAGE_LIMIT, '画像'));
+  })).then((cards) => `<div class="preview-site">${cards.join('')}</div>`);
+}
+
+async function refreshActivityPreview() {
+  const preview = document.getElementById('activityPreview');
+  if (!preview || !ensurePreviewOpen('activity', preview)) return;
+  showPreviewHtml(preview, await renderActivityPreview(readActivitiesFromDom()));
+}
+
+async function renderExhibitionPreview(items) {
+  const visible = sortExhibitions((items || []).filter((item) => item.published !== false));
+  const upcoming = visible.filter((item) => item.displayBucket === 'upcoming');
+  const archive = visible.filter((item) => item.displayBucket === 'archive');
+  const recent = archive.length ? archive[0] : null;
+  const archiveRest = archive.slice(1);
+  const sections = [];
+
+  if (upcoming.length) {
+    const upcomingCards = await Promise.all(upcoming.map(async (item, idx) => {
+      const images = await getFolderImagesCached(item.mediaFolderId);
+      const dm = normalizeIdList(item.dmFileIds).map((id) => fileById(images, id)).filter(Boolean);
+      return buildExhibitionPreviewCardHtml(item, idx === 0 ? 'NEXT EXHIBITION' : 'UPCOMING', dm);
+    }));
+    sections.push(upcomingCards.join(''));
+  }
+
+  if (recent) {
+    const images = await getFolderImagesCached(recent.mediaFolderId);
+    const dm = normalizeIdList(recent.dmFileIds).map((id) => fileById(images, id)).filter(Boolean);
+    const workImages = (recent.works || []).map((work) => {
+      const found = fileById(images, work.fileId);
+      return found ? { file: found, title: work.title, artist: work.artist } : null;
+    }).filter(Boolean);
+    sections.push(buildExhibitionPreviewCardHtml(recent, 'RECENT EXHIBITION', dm, '', buildWorkGalleryPreviewHtml(workImages)));
+  }
+
+  const archiveCards = await Promise.all(archiveRest.map(async (item) => {
+    const archiveImages = await getFolderImagesCached(item.mediaFolderId);
+    const archiveDm = normalizeIdList(item.dmFileIds).map((id) => fileById(archiveImages, id)).filter(Boolean);
+    const folderId = item.mediaFolderId || '';
+    const link = folderId
+      ? `<a class="preview-drive-link" href="${escapeHtml(driveFolderUrl(folderId))}" target="_blank" rel="noopener noreferrer">Google Driveで作品を観る ↗</a>`
+      : '';
+    return buildExhibitionPreviewCardHtml(item, 'ARCHIVE', archiveDm, link);
+  }));
+
+  sections.push(archiveCards.length
+    ? archiveCards.join('')
+    : '<article class="preview-site-card"><div class="preview-empty">公開中のアーカイブはありません。</div></article>');
+
+  return `<div class="preview-site">${sections.join('')}</div>`;
+}
+
+async function refreshExhibitionPreview() {
+  const preview = document.getElementById('exhibitionPreview');
+  if (!preview || !ensurePreviewOpen('exhibition', preview)) return;
+  showPreviewHtml(preview, await renderExhibitionPreview(readExhibitionsFromDom()));
+}
+
+async function renderRequestPreview(items) {
+  const visible = (items || []).filter((item) => item.published !== false);
+  if (!visible.length) return '<div class="preview-empty">公開中の事例はありません。</div>';
+  const cards = await Promise.all(visible.map(async (item, index) => {
+    const folderId = item.mediaFolderId || '';
+    const files = folderId ? await getFolderImagesCached(folderId) : [];
+    const registered = folderId ? orderedFilesByIds(files, mediaIdsForItem(item)) : [];
+    const imageResult = { total: registered.length, items: registered.slice(0, GENERAL_IMAGE_LIMIT) };
+    return buildArticlePreviewHtml(
+      '過去の取り組み事例', `表示順 ${index + 1}`,
+      item.title || 'タイトル未入力', item.body || '本文未入力',
+      imageResult.items, folderImageWarning(imageResult.total, GENERAL_IMAGE_LIMIT, '画像'));
+  }));
+  return `<div class="preview-site">${cards.join('')}</div>`;
+}
+
+async function refreshRequestPreview() {
+  const preview = document.getElementById('requestPreview');
+  if (!preview || !ensurePreviewOpen('request', preview)) return;
+  showPreviewHtml(preview, await renderRequestPreview(readRequestsFromDom()));
+}
+
+let logsPreviewTimer = 0;
+
+let logsPreviewRequestSeq = 0;
+
+function scheduleLogsPreviewRefresh() {
+  if (!isPreviewOpen('logs')) return;
+  if (logsPreviewTimer) clearTimeout(logsPreviewTimer);
+  logsPreviewTimer = setTimeout(() => {
+    logsPreviewTimer = 0;
+    renderLogsPreviewContent();
+  }, 350);
+}
+
+function buildLogsPreviewCardHtml(compared, noteHtml, isLoading, closed = false) {
+  const items = compared || [];
+  if (closed) {
+    return `
+      <div class="card">
+        <h2>サイトの更新履歴プレビュー</h2>
+        ${previewPlaceholderHtml('logs')}
+      </div>
+    `;
+  }
+  return `
+      <div class="card">
+        <div data-help>
+        <div class="help-title"><h2>サイトの更新履歴プレビュー</h2>${HELP_BUTTON}</div>
+        <p class="panel-lead help-text">緑は今回の公開で新しく表示される項目、赤は今回の公開でサイト上から非表示になる項目です。</p>
+        </div>
+        <div class="preview-sim-legend">
+          <span class="preview-sim-chip is-added">追加・再表示</span>
+          <span class="preview-sim-chip is-removed">非表示</span>
+          <span class="preview-sim-chip is-unchanged">継続表示</span>
+        </div>
+        ${noteHtml || ''}
+        <div class="preview-sim-list">
+          ${items.length ? items.map((entry) => `
+            <div class="preview-sim-item">
+              <div class="preview-sim-date">${escapeHtml(entry.date)}</div>
+              <ul class="preview-sim-bullets">${entry.items.map((item) => `<li class="is-${escapeHtml(item.status)}"><span class="preview-sim-badge is-${escapeHtml(item.status)}">${item.status === 'added' ? '追加' : (item.status === 'removed' ? '非表示' : '継続')}</span><span class="preview-sim-text">${escapeHtml(item.summary)}</span></li>`).join('')}</ul>
+            </div>`).join('') : (isLoading ? '' : '<div class="small-note">まだ履歴がありません。</div>')}
+        </div>
+      </div>
+  `;
+}
+
+async function renderLogsPreviewContent() {
+  const wrap = document.getElementById('logsPreviewContent');
+  if (!wrap) return;
+  if (!isPreviewOpen('logs')) {
+    wrap.innerHTML = buildLogsPreviewCardHtml([], '', false, true);
+    return;
+  }
+  const requestSeq = ++logsPreviewRequestSeq;
+  wrap.innerHTML = buildLogsPreviewCardHtml([], '<div class="small-note" style="margin-bottom:12px;">公開後の履歴を確認しています...</div>', true);
+  try {
+    const data = await serverCall('previewSiteHistory', appState.sessionToken, buildPayloadFromDom());
+    if (requestSeq !== logsPreviewRequestSeq || !document.getElementById('logsPreviewContent')) return;
+    wrap.innerHTML = buildLogsPreviewCardHtml((data && data.compared) || []);
+  } catch (error) {
+    if (requestSeq !== logsPreviewRequestSeq || !document.getElementById('logsPreviewContent')) return;
+    wrap.innerHTML = buildLogsPreviewCardHtml([], '<div class="small-note error-text" style="margin-bottom:12px;">更新履歴プレビューを取得できませんでした: ' + escapeHtml(error.message || error) + '</div>');
+  }
+}
+</script>

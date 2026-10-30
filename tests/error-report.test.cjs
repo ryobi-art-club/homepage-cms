@@ -1,16 +1,11 @@
-const fs = require('node:fs');
-const path = require('node:path');
 const vm = require('node:vm');
 const crypto = require('node:crypto');
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
+const sources = require('./files.cjs');
 
 function loadClient() {
-  const ctx = vm.createContext({ document: { addEventListener() {} } });
-  const source = fs.readFileSync(path.join(__dirname, '..', 'UiScript.html'), 'utf8')
-    .replace(/^<script>\s*/, '').replace(/\s*<\/script>\s*$/, '');
-  vm.runInContext(source, ctx);
-  return ctx;
+  return sources.loadClient();
 }
 
 function loadServer({ recipient = 'admin@example.com', quota = 100 } = {}) {
@@ -38,9 +33,7 @@ function loadServer({ recipient = 'admin@example.com', quota = 100 } = {}) {
       computeDigest: (_, value) => Array.from(crypto.createHash('sha256').update(value, 'utf8').digest(), b => (b > 127 ? b - 256 : b))
     }
   });
-  for (const name of ['Config.js', 'Auth.js', 'ErrorReport.js']) {
-    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', name), 'utf8'), ctx);
-  }
+  sources.loadServer(ctx);
   store.set('session:token', JSON.stringify({ email: 'member@example.com', name: '部員' }));
   return { ctx, mails };
 }

@@ -1,9 +1,13 @@
+// 画面で起きたシステム側のエラーを、管理者にメールで知らせる
+
 const ERROR_MAIL_HOURLY_LIMIT = 5;
+
 const ERROR_MAIL_DUPLICATE_SECONDS = 6 * 60 * 60;
+
 const ERROR_MAIL_QUOTA_RESERVE = 20;
 
-// Mails a system-side error seen in the UI to ERROR_NOTIFY_EMAIL (comma separated). Does nothing when it is unset.
-// Reads Script Properties directly so a report still goes out when getConfig_ itself is what is failing.
+// 画面で起きたシステム側のエラーを ERROR_NOTIFY_EMAIL（カンマ区切り）にメールする。未設定なら何もしない。
+// getConfig_ 自体が失敗している場合も送れるように、スクリプト プロパティを直接読む
 function reportError(sessionToken, report) {
   const session = requireSession_(sessionToken);
   const item = normalizeErrorReport_(report);
@@ -16,7 +20,7 @@ function reportError(sessionToken, report) {
   const duplicateKey = 'error_mail:' + sha256Hex_(item.operation + '\n' + item.message).slice(0, 40);
   if (cache.get(duplicateKey)) return { notified: true, duplicate: true };
 
-  // Keep the shared daily mail quota available for login codes.
+  // 1日のメールの上限は確認コードと共有なので、確認コードの分を残しておく
   const hourKey = 'error_mail_count:' + Math.floor(Date.now() / 3600000);
   const sent = parseInt(cache.get(hourKey) || '0', 10);
   if (sent >= ERROR_MAIL_HOURLY_LIMIT || MailApp.getRemainingDailyQuota() <= ERROR_MAIL_QUOTA_RESERVE) {

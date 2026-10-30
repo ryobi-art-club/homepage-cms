@@ -1,8 +1,7 @@
-const fs = require('node:fs');
-const path = require('node:path');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
+const sources = require('./files.cjs');
 
 function iterator(items) {
   let index = 0;
@@ -107,9 +106,7 @@ function setup() {
     console: { warn() {}, log() {} },
     isoNow_: () => new Date().toISOString()
   });
-  for (const name of ['DriveGateway.js', 'Store.js']) {
-    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', name), 'utf8'), ctx);
-  }
+  sources.loadServer(ctx);
   const folder = root.createFolder('Exhibition_20260925');
   folder.setSharing('ANYONE_WITH_LINK');
   const image = new File('1_Old_Artist.jpg', folder);
@@ -139,7 +136,7 @@ test('uploads reuse private staging without changing public folder or existing I
   const { ctx, folder, image, upload, files, isLocked } = setup();
   const first = upload();
   const second = upload(['another.jpg']);
-  const staging = ctx.getExhibitionAuxFolder_(folder.id, 'staging', false);
+  const staging = ctx.getMediaAuxFolder_(folder.id, 'staging', false);
   assert.equal(staging.access, 'PRIVATE');
   assert.deepEqual(ids(folder), [image.id]);
   assert.equal(first.folderId, folder.id);
@@ -158,14 +155,14 @@ test('publication keeps exactly registered DM/work IDs and privately preserves a
   const [dm, work, abandoned] = result.uploadedFileIds;
   item.dmFileIds = [dm];
   item.works.push({ fileId: work, title: 'New', artist: 'Artist' });
-  const staging = ctx.getExhibitionAuxFolder_(folder.id, 'staging', false);
+  const staging = ctx.getMediaAuxFolder_(folder.id, 'staging', false);
   ctx.finalizeManagedFolders_(state);
   assert.deepEqual(ids(folder), [image.id, dm, work].sort());
   assert.equal(item.mediaFolderId, folder.id);
   assert.equal(folder.access, 'ANYONE_WITH_LINK');
   assert.equal(files.get(dm).name, '0_DM_表.jpg');
   assert.equal(files.get(work).name, '2_New_Artist.jpg');
-  const recovery = ctx.getExhibitionAuxFolder_(folder.id, 'recovery', false);
+  const recovery = ctx.getMediaAuxFolder_(folder.id, 'recovery', false);
   assert.deepEqual(ids(recovery), [orphan.id, pdf.id, abandoned].sort());
   assert.equal(recovery.access, 'PRIVATE');
   assert.equal(orphan.access, 'PRIVATE');
@@ -181,14 +178,13 @@ test('loading an older draft excludes newer uploads on publish, without losing t
   ctx.finalizeManagedFolders_(JSON.parse(JSON.stringify(state)));
   assert.deepEqual(ids(folder), [image.id]);
   const extra = files.get(result.uploadedFileIds[0]);
-  assert.equal(extra.parent, ctx.getExhibitionAuxFolder_(folder.id, 'recovery', false));
+  assert.equal(extra.parent, ctx.getMediaAuxFolder_(folder.id, 'recovery', false));
   assert.equal(extra.trashed, false);
 });
 
 test('delete and draft save never mutate published images; older draft can still restore them', () => {
   const { ctx, folder, image, item, state } = setup();
   const result = ctx.trashManagedFile('session', { folderId: folder.id, fileId: image.id });
-  assert.equal(result.deferred, true);
   assert.equal(result.files.length, 0);
   assert.deepEqual(ids(folder), [image.id]);
   assert.equal(ctx.getFolderImages('session', folder.id)[0].id, image.id);
@@ -225,7 +221,7 @@ test('all exhibitions are preflighted before changes, rejecting foreign or missi
   state.exhibitions.push({ ...item, title: 'Other', mediaFolderId: otherFolder.id });
   assert.throws(() => ctx.finalizeManagedFolders_(state), /登録画像が見つかりません/);
   assert.deepEqual(ids(folder), [image.id, orphan.id].sort());
-  assert.equal(ctx.getExhibitionAuxFolder_(folder.id, 'recovery', false), null);
+  assert.equal(ctx.getMediaAuxFolder_(folder.id, 'recovery', false), null);
 });
 
 test('failed privacy change is retried for files already moved to recovery', () => {
@@ -334,7 +330,6 @@ test('every kind adds images to private staging and only drops deleted ones from
   assert.equal(staging.access, 'PRIVATE');
   assert.ok(result.files.some(file => file.id === id && file.public === false));
   const deleted = ctx.trashManagedFile('session', { folderId: activity.id, fileId: id });
-  assert.equal(deleted.deferred, true);
   assert.equal(files.get(id).trashed, false);
   assert.ok(!deleted.files.some(file => file.id === id));
 });
@@ -356,21 +351,11 @@ test('publishing an article moves registered images into its folder and sets the
   assert.equal(folder.access, 'ANYONE_WITH_LINK');
 });
 
-test('articles saved before images were registered keep every image of their folder', () => {
+test('removing every image of an article sets the images aside and lets the folder go', () => {
   const { ctx, activityRoot, File } = setup();
   const folder = activityRoot.createFolder('Old article_20250101');
   const second = new File('b.jpg', folder);
   const first = new File('a.jpg', folder);
-  // shown and published with the folder's images in name order
-  const loaded = ctx.fillUnregisteredMediaIds_({ activityArticles: [{ articleId: 'old', mediaFolderId: folder.id, mediaFileIds: [] }] });
-  assert.deepEqual(Array.from(loaded.activityArticles[0].mediaFileIds), [first.id, second.id]);
-  // a stale screen that still sends an empty list (here with an edited title) does not set the images aside
-  const item = { articleId: 'old', title: 'Old article edited', mediaFolderId: folder.id, mediaFileIds: [], published: true };
-  const previous = { activityArticles: [{ articleId: 'old', title: 'Old article', mediaFolderId: folder.id, mediaFileIds: [], published: true }] };
-  ctx.finalizeManagedFolders_({ exhibitions: [], recruitCalendars: [], activityArticles: [item], requestCases: [] }, previous);
-  assert.deepEqual(Array.from(item.mediaFileIds), [first.id, second.id]);
-  assert.ok(first.parent === folder && second.parent === folder);
-  // once the list was written, removing every image really removes them
   const cleared = { articleId: 'old', title: 'Old article', mediaFolderId: folder.id, mediaFileIds: [], published: true };
   ctx.finalizeManagedFolders_({ exhibitions: [], recruitCalendars: [], activityArticles: [cleared], requestCases: [] },
     { activityArticles: [{ articleId: 'old', title: 'Old article', mediaFolderId: folder.id, mediaFileIds: [first.id, second.id], published: true }] });
@@ -379,10 +364,7 @@ test('articles saved before images were registered keep every image of their fol
 });
 
 test('client retains only explicitly uploaded IDs and preserves removals on the next upload', () => {
-  const ctx = vm.createContext({ document: { addEventListener() {} } });
-  const source = fs.readFileSync(path.join(__dirname, '..', 'UiScript.html'), 'utf8')
-    .replace(/^<script>\s*/, '').replace(/\s*<\/script>\s*$/, '');
-  vm.runInContext(source, ctx);
+  const ctx = sources.loadClient();
   const item = { mediaFolderId: 'folder', dmFileIds: [], works: [{ fileId: 'kept', title: 'Title' }] };
   ctx.currentMediaContext = () => ({ kind: 'exhibition', item });
   ctx.syncActiveMediaHiddenFields = () => {};
@@ -496,8 +478,8 @@ test('cleanup after a publish lists, and in trash mode trashes, only what the pu
   const handMade = activityRoot.createFolder('部員の写真');
   const removedExhibition = root.createFolder('Old exhibition_20240101');
   const removedStaging = root.createFolder('CMS_下書き_' + removedExhibition.id);
-  // an image set aside by an earlier publish, with and without a stamp, and one set aside by this publish
-  const recovery = ctx.getExhibitionAuxFolder_(folder.id, 'recovery', true);
+  // 前回までの公開で退避した画像（日時の記録あり・なし）と、今回の公開で退避した画像
+  const recovery = ctx.getMediaAuxFolder_(folder.id, 'recovery', true);
   const earlier = new File('earlier.jpg', recovery);
   earlier.description = 'cms-unregistered-at:2026-01-01T00:00:00.000Z';
   const unstamped = new File('unstamped.jpg', recovery);

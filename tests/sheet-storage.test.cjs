@@ -1,8 +1,7 @@
-const fs = require('node:fs');
-const path = require('node:path');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
+const sources = require('./files.cjs');
 
 class Sheet {
   constructor(values = []) {
@@ -80,9 +79,7 @@ function setup() {
     SpreadsheetApp: {openById: () => spreadsheet, flush() {}},
     Utilities: {getUuid: () => 'draft-test'}
   });
-  for (const name of ['Config.js', 'Store.js']) {
-    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', name), 'utf8'), ctx);
-  }
+  sources.loadServer(ctx);
   ctx.getConfig_ = () => ({});
   ctx.isoNow_ = () => '2026-09-24T00:00:00.000Z';
   return {ctx, sheets, spreadsheet};
@@ -103,36 +100,12 @@ function asRow(ctx, cells) {
   return Object.fromEntries(ctx.payloadCellHeaders_(cells.length).map((key, i) => [key, cells[i]]));
 }
 
-// 版1（2026年10月までの形）の内容。別名・作品の番号・新歓の写しなどを含む
-function versionOneContent() {
-  return {
-    recruitCalendar: {year: '2026', folderId: 'fr', label: '2026年度 新歓イベントカレンダー'},
-    recruitCalendars: [{year: '2026', folderId: 'fr', mediaFolderId: 'fr', mediaFileIds: ['c'], label: '2026年度 新歓イベントカレンダー', published: true, updatedAt: 'x'}],
-    activityArticles: [{articleId: 'a', title: 'A', category: 'record', body: 'B', photoFolderId: 'fa', mediaFolderId: 'fa', mediaFileIds: ['p'], published: true, createdAt: '2026-01-01'}],
-    exhibitions: [{exhibitionId: 'e', title: 'E', subtitle: '', theme: '', venueName: '', venueAddress: '', dateLine: '', timeLine: '', mapEmbedUrl: 'm',
-      displayBucket: 'archive', driveFolderId: 'fe', mediaFolderId: 'fe', dmFileIds: ['dm'], published: true, startDate: '2026-01-01', endDate: '',
-      workFiles: [{file_id: 'w2', sort_order: 2, title: 'Two', artist: 'B'}, {file_id: 'w1', sort_order: 1, title: 'One', artist: 'A'}]}],
-    requestCases: [{caseId: 'r2', title: 'R2', body: '', photoFolderId: '', mediaFolderId: '', mediaFileIds: [], sortOrder: 2, published: true},
-      {caseId: 'r1', title: 'R1', body: '', photoFolderId: 'fq', mediaFolderId: 'fq', mediaFileIds: ['q'], sortOrder: 1, published: true}]
-  };
-}
-
-test('content saved in version 1 is read as version 2', () => {
+test('content of another format version is not read as if it were the current one', () => {
   const {ctx, sheets} = setup();
-  sheets._PublishedState = new Sheet([['updated_at', 'revision', 'sha256', 'payload_json'], ['t', '1', 'h', JSON.stringify(versionOneContent())]]);
-  assert.deepEqual(JSON.parse(JSON.stringify(ctx.readPublishedState_().payload)), {
-    formatVersion: 2,
-    recruitCalendars: [{year: '2026', mediaFolderId: 'fr', mediaFileIds: ['c'], published: true}],
-    activityArticles: [{articleId: 'a', title: 'A', category: 'record', body: 'B', mediaFolderId: 'fa', mediaFileIds: ['p'], published: true, createdAt: '2026-01-01'}],
-    exhibitions: [{exhibitionId: 'e', title: 'E', subtitle: '', theme: '', venueName: '', venueAddress: '', dateLine: '', timeLine: '',
-      displayBucket: 'archive', mediaFolderId: 'fe', dmFileIds: ['dm'], works: [{fileId: 'w1', title: 'One', artist: 'A'}, {fileId: 'w2', title: 'Two', artist: 'B'}],
-      published: true, startDate: '2026-01-01', endDate: ''}],
-    requestCases: [{caseId: 'r1', title: 'R1', body: '', mediaFolderId: 'fq', mediaFileIds: ['q'], published: true},
-      {caseId: 'r2', title: 'R2', body: '', mediaFolderId: '', mediaFileIds: [], published: true}]
-  });
-  // 古い画面を開いたままの人が送った内容も、同じように受け付ける
-  const fromOldScreen = ctx.normalizePayload_(versionOneContent(), ctx.readContentState_(), {allowIncomplete: true});
-  assert.equal(ctx.stableStringify_(ctx.buildPublicSnapshot_(fromOldScreen)), ctx.stableStringify_(ctx.readPublishedState_().payload));
+  sheets._PublishedState = new Sheet([['updated_at', 'revision', 'sha256', 'payload_json'], ['t', '1', 'h', JSON.stringify({exhibitions: []})]]);
+  assert.throws(() => ctx.readPublishedState_(), /formatVersion/);
+  sheets._PublishedState = new Sheet([['updated_at', 'revision', 'sha256', 'payload_json'], ['t', '1', 'h', JSON.stringify({formatVersion: 3, exhibitions: []})]]);
+  assert.throws(() => ctx.readPublishedState_(), /formatVersion: 3/);
 });
 
 test('a draft keeps the content and the values used only while editing, but not the change log', () => {
@@ -166,13 +139,13 @@ test('content sheets are written as plain text so formula- and date-like input s
   assert.deepEqual(sheets.ActivityArticles.values[1], ['=IMAGE("x")', '10/1']);
 });
 
-test('legacy, empty failed rows, large and small drafts coexist', () => {
+test('empty failed rows, large and small drafts coexist', () => {
   const {ctx, sheets} = setup();
   const state = sample(ctx);
   sheets._Drafts = new Sheet([
     ['draft_id', 'saved_at', 'saved_by_name', 'saved_by_email', 'payload_json'],
     ['failed', 'date', 'name', 'email', ''],
-    ['old', 'date', 'name', 'email', ctx.stableStringify_(state)]
+    ['old', 'date', 'name', 'email', ctx.stableStringify_(ctx.buildDraftPayload_(state))]
   ]);
   const large = {...state, manualChangeNote: 'x'.repeat(100000)};
   ctx.saveDraftRecord_(large, 'name', 'email');
@@ -225,7 +198,7 @@ test('the content is read from _PublishedState, also when it is split over sever
   assert.equal(read.activityArticles[0].title, 'Article');
   assert.equal(read.requestCases[0].title, 'Request');
   assert.deepEqual(Array.from(read.recruitCalendars[0].mediaFileIds), ['calendar']);
-  // what the CMS reads back is what it would publish again: nothing looks changed
+  // 読み込んだ内容をそのまま公開しても、変わったところはない
   const again = ctx.normalizePayload_(JSON.parse(JSON.stringify(read)), read, {allowIncomplete: true});
   assert.equal(ctx.stableStringify_(ctx.buildPublicSnapshot_(again)), ctx.stableStringify_(ctx.buildPublicSnapshot_(state)));
 });
@@ -343,7 +316,7 @@ test('opening the CMS reads every sheet in one request with the same result, and
     if (failing) throw new Error('Sheets API has not been used in project');
     assert.equal(options.valueRenderOption, 'UNFORMATTED_VALUE');
     const wanted = options.ranges.map(range => range.replace(/^'|'$/g, ''));
-    // the API leaves out empty trailing cells
+    // API は、行の末尾の空のセルを返さない
     const valueRanges = wanted.map(name => ({values: (sheets[name] ? sheets[name].values : [])
       .map(row => { const cells = row.slice(); while (cells.length && cells[cells.length - 1] === '') cells.pop(); return cells; })}));
     return {valueRanges};

@@ -1,11 +1,11 @@
-/* Preview-only backend. build.cjs injects this with window.PREVIEW_DATA before UiScript;
-   serverCall() uses window.MOCK_BACKEND when it exists. Everything happens in memory in this tab
-   and nothing reaches Google. Messages and return values follow the real server functions. */
+/* プレビュー専用の偽のサーバー。build.cjs が window.PREVIEW_DATA と一緒に、画面のスクリプトの前に入れる。
+   serverCall() は window.MOCK_BACKEND があればそれを使う。すべてこのタブのメモリの中で動き、Google には届かない。
+   文言と返す値は本物のサーバーの関数に合わせる */
 (function () {
   const data = window.PREVIEW_DATA;
   const clone = (value) => JSON.parse(JSON.stringify(value));
-  /* Folders anyone with the link can view (published items). Images elsewhere, and images added
-     before publishing (staged), are private: the screen asks getMediaThumbnails for them. */
+  /* リンクを知っている全員が見られるフォルダ（公開中の項目）。それ以外の画像と、公開前に追加した画像（staged）は
+     非公開なので、画面は getMediaThumbnails で取りに来る */
   const publicFolders = new Set(data.publicFolders || []);
   const media = (folderId) => clone(data.folders[folderId] || []).map((file) =>
     Object.assign(file, { public: publicFolders.has(folderId) && !file.staged, folderId }));
@@ -63,9 +63,9 @@
       data.bootstrap.state = Object.assign({}, data.bootstrap.state, clone(payload));
       data.bootstrap.state.changeLog = [{ timestamp: new Date().toISOString(), summary, actorName: data.bootstrap.viewerName }].concat(data.bootstrap.state.changeLog || []);
       data.bootstrap.drafts = [];
-      /* published items' folders become viewable by link, like the real publish */
+      /* 本物の公開と同じく、公開中の項目のフォルダはリンクで見られるようにする */
       const state = data.bootstrap.state;
-      /* registered images move into the folder; the others are set aside (they leave the list) */
+      /* 登録した画像はフォルダに移り、それ以外は退避する（一覧から外れる） */
       const reconcile = (item, registered) => {
         if (!item.mediaFolderId || !data.folders[item.mediaFolderId]) return;
         const keep = new Set(registered || []);
@@ -88,28 +88,18 @@
         const id = nextId('upload');
         const kind = /^image\//.test(file.mimeType) ? 'image' : 'file';
         const src = 'data:' + file.mimeType + ';base64,' + file.data;
-        /* uploads go to the private staging folder until publishing */
+        /* アップロードした画像は、公開まで非公開の一時置き場に置く */
         data.folders[folderId] = (data.folders[folderId] || []).concat({ id, name: file.name, mimeType: file.mimeType, kind, size: file.data.length, url: '#', thumbnailUrl: kind === 'image' ? src : '', staged: true });
         return id;
       });
       return Object.assign(folderResponse(folderId), { uploadedFileIds });
     },
     trashManagedFile: (_, request) => {
-      const folderId = request.folderId || '';
       /* 画像は公開まで残し、一覧から外すだけ（本物と同じ） */
-      if (data.folders[folderId]) {
-        const result = folderResponse(folderId);
-        result.files = result.files.filter((file) => file.id !== request.fileId);
-        result.deferred = true;
-        return result;
-      }
-      if (!folderId) return { folderId: '', folderUrl: '', files: [], folderTrashed: false };
-      data.folders[folderId] = (data.folders[folderId] || []).filter((file) => file.id !== request.fileId);
-      if (!data.folders[folderId].length) {
-        delete data.folders[folderId];
-        return { folderId: '', folderUrl: '', files: [], folderTrashed: true };
-      }
-      return folderResponse(folderId);
+      if (!data.folders[request.folderId]) throw new Error('画像のフォルダが見つかりません。最新のデータを読み込んでください。');
+      const result = folderResponse(request.folderId);
+      result.files = result.files.filter((file) => file.id !== request.fileId);
+      return result;
     },
     extractExhibitionCatalog: (_, request) => {
       window.MOCK_BACKEND.lastCatalogRequest = request;

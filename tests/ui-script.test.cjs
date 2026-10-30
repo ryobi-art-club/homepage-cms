@@ -1,22 +1,24 @@
-const fs = require('node:fs');
-const path = require('node:path');
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
+const sources = require('./files.cjs');
 
 // README「HtmlService インライン JS の注意」の確認を自動化する。
 // GAS 配信時に <script> が崩れると、ログイン画面のボタンなども動かなくなる。
-const source = fs.readFileSync(path.join(__dirname, '..', 'UiScript.html'), 'utf8');
+const scripts = sources.uiScriptFiles();
 
-test('UiScript.html parses as JavaScript', () => {
-  const script = source.replace(/^<script>\s*/, '').replace(/\s*<\/script>\s*$/, '');
-  assert.doesNotThrow(() => new Function(script));
+test('the screen scripts are all included', () => {
+  assert.deepEqual(scripts, ['UiCore.html', 'UiMedia.html', 'UiPreview.html', 'UiEditors.html', 'UiPublish.html']);
 });
 
-test('UiScript.html avoids strings that break when served by HtmlService', () => {
-  const lines = source.split(/\r?\n/);
-  const offending = lines
-    .map((line, index) => ({line, number: index + 1}))
-    .filter(({line}) => /https?:\/\/|\/\/|image\/\*/.test(line))
-    .map(({line, number}) => `${number}: ${line.trim()}`);
+test('the screen scripts parse and load in the order Ui.html includes them', () => {
+  scripts.forEach((name) => assert.doesNotThrow(() => new Function(sources.uiScriptSource(name)), name));
+  assert.doesNotThrow(() => sources.loadClient());
+});
+
+test('the screen scripts avoid strings that break when served by HtmlService', () => {
+  const offending = scripts.flatMap((name) => sources.read(name).split(/\r?\n/)
+    .map((line, index) => ({ line, at: name + ':' + (index + 1) }))
+    .filter(({ line }) => /https?:\/\/|\/\/|image\/\*/.test(line))
+    .map(({ line, at }) => `${at}: ${line.trim()}`));
   assert.deepEqual(offending, []);
 });

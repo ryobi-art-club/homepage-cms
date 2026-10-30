@@ -1,8 +1,8 @@
-// Drives the CMS preview (out/preview.html) through every feature, takes screenshots of the screens
-// that can break visually, and reports which UiScript functions never ran.
+// 管理画面のプレビュー（out/preview.html）で全部の機能を動かし、崩れやすい画面を撮影し、
+// 一度も動かなかった画面の関数を報告する。
 //   npm install --prefix tools/preview
-//   node tools/preview/shoot.cjs [--chrome <path to chrome.exe>]
-// Screenshots are written to tools/preview/out/shots/. The Excel step downloads SheetJS from its CDN.
+//   node tools/preview/shoot.cjs [--chrome <chrome.exe の場所>]
+// 撮影した画像は tools/preview/out/shots/ に保存する。Excel の手順では SheetJS を CDN から読み込む。
 const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
@@ -17,11 +17,11 @@ const fixtures = path.join(outDir, 'fixtures');
 const url = pathToFileURL(path.join(outDir, 'preview.html')).href;
 const panels = ['dashboard', 'exhibitions', 'activities', 'recruit', 'requests', 'logs'];
 const DESKTOP = { width: 1440, height: 900 };
-/* isMobile makes Chrome honour the viewport meta tag like a real phone */
+/* isMobile にすると、Chrome が本物のスマホと同じように viewport の指定に従う */
 const MOBILE = { width: 390, height: 844, isMobile: true };
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/* 1x1 PNG for uploads and a small text catalog */
+/* アップロード用の1×1の PNG と、小さなテキストの目録 */
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
 const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,作品1,F10,油彩\n2,佐藤 太郎,作品2,F6,水彩\n';
 
@@ -36,8 +36,8 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
 
   const browser = await puppeteer.launch({ executablePath, headless: true, defaultViewport: null });
   const page = await browser.newPage();
-  /* Screen sizes are set through CDP: setScreen() reloads the page whenever isMobile changes,
-     which would lose the dialogs and in-memory edits between the desktop and phone shots */
+  /* 画面の大きさは CDP で変える。setViewport() は isMobile が変わるたびにページを読み込み直し、
+     パソコンとスマホの撮影の間で、開いたダイアログや編集中の内容が消えてしまうため */
   const cdp = await page.createCDPSession();
   const setScreen = (screen) => cdp.send('Emulation.setDeviceMetricsOverride', {
     width: screen.width, height: screen.height, deviceScaleFactor: 1, mobile: Boolean(screen.isMobile)
@@ -48,7 +48,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   /* confirm() は全部「OK」で進める */
   page.on('dialog', (dialog) => dialog.accept());
 
-  /* JS coverage is kept across page loads; collect it before every goto/reload */
+  /* どの関数が動いたかの記録は、ページを読み込むたびに消えるので、その前に集める */
   const coverage = [];
   const startCoverage = () => page.coverage.startJSCoverage({ includeRawScriptCoverage: true, resetOnNavigation: false });
   const collectCoverage = async () => { coverage.push(...(await page.coverage.stopJSCoverage())); };
@@ -57,9 +57,9 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
     await collectCoverage();
     await startCoverage();
     await page.goto(target, { waitUntil: 'networkidle0' });
-    /* start logged out: the login is kept in this tab's sessionStorage */
+    /* ログインしていない状態から始める（ログインはこのタブの sessionStorage に残っている） */
     await page.evaluate(() => sessionStorage.clear());
-    /* moving between URLs that differ only in the hash does not reload the page */
+    /* # のあとだけが違う URL に移っても、ページは読み込み直されない */
     await page.reload({ waitUntil: 'networkidle0' });
   };
   const reloadKeepingSession = async () => {
@@ -70,19 +70,19 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   };
 
   let step = '';
-  /* every screenshot also checks that nothing makes the page wider than the screen */
+  /* 撮影のたびに、ページが画面の幅からはみ出していないかも確かめる */
   const shot = async (name, fullPage = false) => {
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     if (overflow > 0) problems.push(`${name}: 画面の幅を ${overflow}px はみ出しています`);
     await page.screenshot({ path: path.join(shots, name + '.png'), fullPage });
   };
-  /* phone keyboard: 844px screen, 420px visible above the keyboard (what UiScript sets from visualViewport) */
+  /* スマホのキーボード：画面の高さ844pxのうち、キーボードの上に見えるのが420px（画面が visualViewport から読む値） */
   const simulateKeyboard = (open) => page.evaluate((isOpen) => {
     document.body.classList.toggle('keyboard-open', isOpen);
     document.documentElement.style.setProperty('--visible-height', isOpen ? '420px' : '');
     document.documentElement.style.setProperty('--visible-top', '0px');
   }, open);
-  /* the focused field must be inside the visible part, and the dialog (if any) must fit in it */
+  /* 入力中の欄が見えている範囲にあり、ダイアログがあればその範囲に収まっていること */
   const checkKeyboardLayout = async (name) => {
     const result = await page.evaluate(() => {
       const field = document.activeElement;
@@ -97,7 +97,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
     }
     await shot(name);
   };
-  /* clicks the first enabled element whose onclick starts with the given function call */
+  /* onclick がその関数の呼び出しで始まる要素のうち、押せる最初のものを押す */
   const click = async (onclick, options = {}) => {
     const found = await page.evaluate((prefix, within) => {
       const root = within ? document.querySelector(within) : document;
@@ -110,7 +110,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
     await wait(options.wait || 400);
   };
   const clickId = async (id, ms = 400) => { await page.click('#' + id); await wait(ms); };
-  /* showError calls during the operation steps are unexpected; record them with the step name */
+  /* 操作の途中で showError が呼ばれたら想定外なので、手順の名前と一緒に記録する */
   const watchErrors = () => page.evaluate(() => {
     const original = window.showError;
     window.showError = function (error) {
@@ -124,7 +124,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
     messages.forEach((message) => problems.push(step + ': ' + message));
   };
 
-  /* --- login and every panel --- */
+  /* --- ログインと、全部のタブ --- */
   for (const [label, viewport] of [['desktop', DESKTOP], ['mobile', MOBILE]]) {
     step = label + ' ログイン';
     await setScreen(viewport);
@@ -138,7 +138,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
     for (const [index, panel] of panels.entries()) {
       await page.evaluate((id) => activatePanel(id), panel);
       await wait(400);
-      /* previews are built only when asked; open them so the screenshots show the preview */
+      /* プレビューは押したときだけ作るので、撮影の前に開く */
       if (label === 'desktop' && panel === 'exhibitions') await shot('desktop-preview-button');
       const opened = await page.evaluate((id) => {
         const button = document.querySelector('#panel-' + id + ' [onclick^="openPreview"]');
@@ -150,7 +150,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
       if (pending) problems.push(`${label} ${panel}: 表示されない画像が ${pending} 枚あります`);
       await shot(`${label}-${index + 1}-${panel}`, label === 'desktop');
     }
-    /* published exhibitions are read straight from Drive; private images come through the server */
+    /* 公開中の展示会の画像は Drive から直接読み、非公開の画像はサーバーを通して読む */
     const imageRoutes = await page.evaluate(() => ({
       exhibitionViaServer: document.querySelectorAll('#exhibitionPreview img[data-thumb-id]').length,
       activityViaServer: document.querySelectorAll('#activityPreview img[data-thumb-id]').length,
@@ -159,7 +159,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
     if (imageRoutes.exhibitionViaServer || !imageRoutes.activityViaServer || !imageRoutes.requests) {
       problems.push(`${label}: 画像の読み込み方が想定と違います ` + JSON.stringify(imageRoutes));
     }
-    /* an image the server cannot return turns into a short message instead of an empty box */
+    /* サーバーが返せない画像は、空の枠ではなく短い文言になる */
     const unavailableShown = await page.evaluate(async () => {
       const box = document.createElement('div');
       box.innerHTML = mediaImageHtml({ id: 'missing-image', folderId: 'f-act-1' });
@@ -171,9 +171,8 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
     });
     if (!unavailableShown) problems.push(`${label}: 取得できない画像に「画像を表示できません」が出ません`);
     if (label === 'mobile') {
-      /* typing an article body with the keyboard open: the fixed header and tabs give way */
-      /* the page itself is scrolled by the browser to keep the field in view, so here the screen is made
-         as small as the part above the keyboard */
+      /* キーボードを開いて記事の本文を入力するとき：固定している上部とタブが場所を譲る */
+      /* 入力欄が見えるようにページを動かすのはブラウザなので、ここでは画面をキーボードの上の大きさにする */
       await setScreen({ width: 390, height: 420, isMobile: true });
       await page.evaluate(() => { activatePanel('activities'); document.querySelector('#panel-activities [data-field="body"]').focus(); });
       await simulateKeyboard(true);
@@ -182,8 +181,8 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
       await simulateKeyboard(false);
       await setScreen(MOBILE);
       await page.evaluate(() => { document.activeElement.blur(); window.scrollTo(0, 0); });
-      /* the tabs hide while scrolling down, come back under the status when scrolling up,
-         and choosing a tab starts it from the top */
+      /* 下へスクロールするとタブが隠れ、上へスクロールするとステータスの下に戻り、
+         タブを選ぶとその先頭から表示する */
       step = 'スマホのタブ';
       const navState = () => page.evaluate(() => ({
         hidden: document.body.classList.contains('is-nav-hidden'),
@@ -205,8 +204,8 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
     }
   }
 
-  /* other phone sizes and a phone held sideways: no page may be wider than the screen.
-     Screenshots only of the longest tab, to see how the item buttons wrap */
+  /* ほかのスマホの大きさと、横向きのスマホ：どのページも画面の幅からはみ出さないこと。
+     撮影は、項目のボタンの折り返しを見るために、いちばん長いタブだけ */
   step = '機種ごとの幅';
   for (const [label, viewport] of [['320', { width: 320, height: 568 }], ['360', { width: 360, height: 780 }], ['430', { width: 430, height: 932 }], ['landscape', { width: 844, height: 390 }], ['tablet', { width: 1024, height: 1366 }]]
     .map(([name, size]) => [name, Object.assign({ isMobile: true }, size)])) {
@@ -229,7 +228,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
     }
   }
   await setScreen(MOBILE);
-  /* folded descriptions open from the ? next to the title */
+  /* 折りたたんだ説明は、見出しの横の ? で開く */
   await page.evaluate(() => activatePanel('exhibitions'));
   await page.click('#panel-exhibitions .help-button');
   await wait(200);
@@ -238,7 +237,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   await setScreen(DESKTOP);
   await watchErrors();
 
-  /* --- image dialogs other than exhibitions (7 images in activity 3) --- */
+  /* --- 展示会以外の画像のダイアログ（活動記録3に7枚） --- */
   step = '活動記録の画像ダイアログ';
   await page.evaluate(() => activatePanel('activities'));
   await page.evaluate(() => openMediaDialog('activity', 2));
@@ -250,7 +249,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   await click('moveMediaFile');
   await (await page.$('#mediaUploadInput_image')).uploadFile(imagePath);
   await click("onMediaUpload('image')", { wait: 600 });
-  /* a video picked by mistake is taken off the selection at once */
+  /* 間違えて選んだ動画は、すぐに選択から外れる */
   const videoRejected = await page.evaluate(() => {
     const input = document.getElementById('mediaUploadInput_image');
     const transfer = new DataTransfer();
@@ -260,7 +259,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
     return input.files.length === 0 && document.getElementById('mediaDialogStatus').classList.contains('is-error');
   });
   if (!videoRejected) problems.push(step + ': 動画を選んでも取り消されません');
-  /* a large photo is shrunk in the browser to 2000px on the long side, as JPEG */
+  /* 大きな写真は、ブラウザで長い辺2000pxの JPEG に縮める */
   const resized = await page.evaluate(async () => {
     const canvas = document.createElement('canvas');
     canvas.width = 2600;
@@ -297,8 +296,8 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   await click('closeMediaDialog');
   await checkErrors();
 
-  /* only the registered images count: an upload is added to the list, a deleted image leaves the
-     list, the dialog and the preview, and the other images stay, before and after publishing */
+  /* 使うのは登録した画像だけ：アップロードした画像は登録に加わり、削除した画像は登録・ダイアログ・
+     プレビューから外れ、ほかの画像は残る。公開の前もあとも */
   step = '画像の登録（追加・削除・公開）';
   const registration = await page.evaluate(async () => {
     const article = () => appState.state.activityArticles[0];
@@ -318,7 +317,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
     const afterDelete = article().mediaFileIds.slice();
     const dialogAfterDelete = dialogIds();
     closeMediaDialog();
-    /* reopening reads the folder again: the deleted image is still in Drive but is not listed */
+    /* 開き直すとフォルダを読み直す。削除した画像は Drive には残っているが、一覧には出ない */
     await openMediaDialog('activity', 0);
     const dialogReopened = dialogIds();
     closeMediaDialog();
@@ -327,7 +326,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
     const previewImages = document.querySelectorAll('#activityPreview .preview-article')[0];
     const previewCount = previewImages ? previewImages.querySelectorAll('img').length : -1;
     const payload = JSON.parse(JSON.stringify(appState.state));
-    /* publish in the mock only, and put the other folders back for the later steps */
+    /* モックの中だけで公開し、あとの手順のために、ほかのフォルダは元に戻す */
     const savedFolders = JSON.parse(JSON.stringify(window.PREVIEW_DATA.folders));
     const savedBootstrap = JSON.parse(JSON.stringify(window.PREVIEW_DATA.bootstrap));
     window.MOCK_BACKEND.publishState('', payload);
@@ -343,7 +342,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   if (!same(registration.dialogAfterDelete, expected) || !same(registration.dialogReopened, expected)) problems.push(step + ': 画像の一覧に、外した画像が出ているか、残すはずの画像がありません ' + JSON.stringify(registration));
   if (registration.previewCount !== expected.length) problems.push(step + ': プレビューの画像の数が登録と合いません ' + JSON.stringify(registration));
   if (!same(registration.folderAfterPublish.slice().sort(), expected.slice().sort())) problems.push(step + ': 公開後のフォルダが登録と合いません ' + JSON.stringify(registration));
-  /* what the screen sends uses only the names of the saved content (version 2) */
+  /* 画面が送る内容は、保存する内容（版2）の名前だけを使う */
   step = '送る内容の名前';
   const oldNames = await page.evaluate(() => {
     const json = JSON.stringify(buildPayloadFromDom());
@@ -351,7 +350,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
       .filter((name) => json.indexOf('"' + name + '"') !== -1);
   });
   if (oldNames.length) problems.push(step + ': 古い名前が含まれています ' + oldNames.join(', '));
-  /* the calendar preview shows every image: › moves to the next one */
+  /* 新歓カレンダーのプレビューは全部の画像を出す。› で次の画像へ */
   step = '新歓カレンダーのプレビュー';
   await page.evaluate(() => { activatePanel('recruit'); openPreview('recruit'); });
   await wait(600);
@@ -361,7 +360,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   if (!(scrolled > 0)) problems.push(step + ': 次の画像に進めません');
   await checkErrors();
 
-  /* --- exhibition dialog: reorder, upload, catalog import (text, then Excel), delete --- */
+  /* --- 展示会のダイアログ：並べ替え・アップロード・目録の読み込み（テキスト、Excel）・削除 --- */
   step = '展示会の画像ダイアログ';
   await page.evaluate(() => { activatePanel('exhibitions'); return openMediaDialog('exhibition', 0); });
   await wait(600);
@@ -391,7 +390,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   await wait(300);
   await showCatalog();
   await shot('mobile-dialog-catalog');
-  /* typing a work title with the keyboard open */
+  /* キーボードを開いて作品名を入力する */
   await page.evaluate(() => document.querySelector('.media-work-card [data-field="title"]').focus());
   await simulateKeyboard(true);
   await wait(200);
@@ -429,9 +428,9 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   await click('closeMediaDialog');
   await checkErrors();
 
-  /* --- editing every list: add, publish toggle, move, remove, typing --- */
-  /* period text: edit by hand and finish (button / Enter), cancel with Esc, go back to automatic,
-     and changing a date rebuilds it even while editing */
+  /* --- 全部の一覧の編集：追加・公開の切り替え・移動・削除・入力 --- */
+  /* 会期の表示：手で直して確定（ボタン・Enter）、Esc で取り消し、自動に戻す。
+     日付を変えると、手で直している途中でも作り直す */
   step = '会期表示';
   await page.evaluate(() => activatePanel('exhibitions'));
   const dateLine = () => page.evaluate(() => {
@@ -492,10 +491,10 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   await wait(600);
   await checkErrors();
 
-  /* publishing with the new untitled items fails validation: a multi-line message */
+  /* タイトルのない新しい項目があると、公開の前の確認で止まる（複数行の文言） */
   step = '入力チェック';
   await clickId('publishButton');
-  /* an error with a report in the history as well (expected, so it is not recorded as a problem) */
+  /* 報告文つきのエラーが履歴にも残る（想定どおりなので、問題としては記録しない） */
   await page.evaluate(() => {
     showError(new Error('Failed to fetch'), '下書きの保存');
     window.unexpectedErrors.length = 0;
@@ -519,17 +518,17 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   await clickId('saveDraftButton', 800);
   await checkErrors();
 
-  /* publish: the fake proofreader always flags up to 3 fields */
+  /* 公開：偽の誤字チェックは、いつも3項目までに指摘を付ける */
   step = '公開';
   await clickId('publishButton', 800);
-  /* while publishing, neither save nor publish can be pressed again */
+  /* 公開の途中は、保存も公開も押せない */
   const locked = await page.evaluate(() => ['saveDraftButton', 'publishButton'].every((id) => document.getElementById(id).disabled));
   if (!locked) problems.push(step + ': 公開の途中でも「下書き保存」「公開する」が押せます');
   await shot('desktop-proofread');
   await setScreen(MOBILE);
   await wait(300);
   await shot('mobile-proofread');
-  /* phone keyboard open: the dialog fits in the visible part above the keyboard (simulated: 844px screen, 420px visible) */
+  /* スマホのキーボードを開いた状態：ダイアログがキーボードの上の見えている範囲に収まる（画面844px、見えるのは420px） */
   await page.evaluate(() => {
     document.body.classList.add('keyboard-open');
     document.documentElement.style.setProperty('--visible-height', '420px');
@@ -546,7 +545,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   await wait(1000);
   await checkErrors();
 
-  /* --- error displays --- */
+  /* --- エラーの表示 --- */
   step = 'エラー表示';
   await page.evaluate(() => activatePanel('exhibitions'));
   const errors = [
@@ -571,7 +570,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
       await clickId('statusHistoryButton', 200);
     }
   }
-  /* the same error when automatic notification to the administrator is set up */
+  /* 管理者への自動の通知を設定しているときの、同じエラー */
   await page.evaluate(() => { window.MOCK_BACKEND.notifyMode = 'sent'; });
   await page.evaluate(errors[1][1]);
   await wait(200);
@@ -583,7 +582,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   await setScreen(MOBILE);
   await shot('error-3-system-mobile');
 
-  /* long unbroken text inside the image dialog and on the login screen */
+  /* 画像のダイアログとログイン画面での、区切りのない長い文字 */
   const longId = '1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfGhIjKlMnOpQrStUvWxYz';
   await setScreen(DESKTOP);
   await page.evaluate(() => { const card = document.getElementById('errorReportCard'); if (card) card.remove(); });
@@ -593,7 +592,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   await wait(200);
   await shot('error-4-media-dialog');
 
-  /* a reload keeps the login while it is valid; an expired one goes back to the login screen quietly */
+  /* 読み込み直しても、有効期限の間はログインが続く。期限が切れていれば、エラーを出さずにログイン画面に戻る */
   step = 'ログインの維持';
   await page.evaluate(() => { const card = document.getElementById('errorReportCard'); if (card) card.remove(); });
   await reloadKeepingSession();
@@ -635,18 +634,18 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   }
 })();
 
-/* Counts the functions declared in UiScript that ran at least once in any page load */
+/* 画面のスクリプト（UiCore … UiPublish）の関数のうち、一度でも動いたものを数える */
 function reportCoverage(entries) {
-  const scripts = entries.filter((entry) => entry.text && entry.text.includes('function showError('));
+  const sources = require(path.join(__dirname, '..', '..', 'tests', 'files.cjs'));
   const declared = new Set();
-  scripts.forEach((entry) => {
-    for (const match of entry.text.matchAll(/^(?:async )?function ([A-Za-z0-9_]+)\(/gm)) declared.add(match[1]);
+  sources.uiScriptFiles().forEach((name) => {
+    for (const match of sources.read(name).matchAll(/^(?:async )?function ([A-Za-z0-9_]+)\(/gm)) declared.add(match[1]);
   });
   const executed = new Set();
-  scripts.forEach((entry) => (entry.rawScriptCoverage ? entry.rawScriptCoverage.functions : []).forEach((fn) => {
+  entries.forEach((entry) => (entry.rawScriptCoverage ? entry.rawScriptCoverage.functions : []).forEach((fn) => {
     if (declared.has(fn.functionName) && fn.ranges[0] && fn.ranges[0].count > 0) executed.add(fn.functionName);
   }));
   const unused = Array.from(declared).filter((name) => !executed.has(name)).sort();
-  console.log(`UiScript の関数: ${declared.size}個中 ${executed.size}個を実行（${Math.round(executed.size / declared.size * 100)}%）`);
+  console.log(`画面の関数: ${declared.size}個中 ${executed.size}個を実行（${Math.round(executed.size / declared.size * 100)}%）`);
   if (unused.length) console.log('  一度も動かなかった関数: ' + unused.join(', '));
 }

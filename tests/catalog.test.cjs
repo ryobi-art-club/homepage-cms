@@ -1,8 +1,7 @@
-const fs = require('node:fs');
-const path = require('node:path');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
+const sources = require('./files.cjs');
 
 function setup() {
   const requests = [];
@@ -20,18 +19,15 @@ function setup() {
       }
     }
   });
-  for (const name of ['Config.js', 'Gemini.js']) {
-    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', name), 'utf8'), ctx);
-  }
+  sources.loadServer(ctx);
   ctx.getConfig_ = () => ({GEMINI_API_KEY: 'key', GEMINI_MODEL: 'model'});
   ctx.requireSession_ = () => ({});
-  ctx.normalizeStringList_ = (value) => value;
   return {ctx, requests};
 }
 
 test('legacy PDF request is still accepted', () => {
   const {ctx, requests} = setup();
-  const result = ctx.extractExhibitionCatalog('token', {name: '目録.pdf', mimeType: 'application/pdf', data: 'AAAA'});
+  const result = ctx.extractExhibitionCatalog('token', {name: '目録.pdf', parts: [{kind: 'pdf', mimeType: 'application/pdf', data: 'AAAA'}]});
   assert.equal(result.items.length, 1);
   assert.deepEqual(requests[0].input[0], {type: 'document', data: 'AAAA', mime_type: 'application/pdf'});
   assert.equal(requests[0].input[1].type, 'text');

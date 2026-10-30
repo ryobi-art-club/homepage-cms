@@ -1,6 +1,11 @@
+// 公開前の誤字脱字チェック
+
 const PROOFREAD_BATCH_CHARS = 6000;
+
 const PROOFREAD_TIME_BUDGET_MS = 120 * 1000;
+
 const PROOFREAD_MAX_FIELDS = 1000;
+
 const PROOFREAD_MAX_ISSUES_PER_FIELD = 20;
 
 // 公開前の誤字脱字チェック。チェック済みの文章は SHA-256 を _ProofreadChecked に記録してあり、
@@ -12,7 +17,7 @@ function proofreadForPublish(sessionToken, fields) {
   const currentHashes = {};
   targets.forEach((field) => { currentHashes[field.hash] = true; });
   // 公開対象から外れた文章の記録を削除する。
-  // Dropping records of texts that are no longer published can wait: skip it while another save or publish holds the lock.
+  // 公開しなくなった文章の記録の整理は急がない。ほかの保存・公開がロックを持っていれば飛ばす
   updateProofreadChecked_([], currentHashes, { optional: true });
   const checked = readProofreadCheckedHashes_();
   const pending = targets.filter((field) => !checked[field.hash]);
