@@ -277,7 +277,7 @@ test('new exhibitions remain private before publication and retain their IDs aft
 test('sheet failure leaves the empty media folder available for publication retry', () => {
   const { ctx, folder, item, state } = setup();
   item.works = [];
-  ctx.readContentState_ = () => ({});
+  ctx.readContentState_ = () => ({ changeLog: [] });
   ctx.normalizePayload_ = payload => JSON.parse(JSON.stringify(payload));
   ctx.readPublishedState_ = () => ({ payload: {}, sha256: '' });
   ctx.buildPublicSnapshot_ = payload => payload;
@@ -290,8 +290,7 @@ test('sheet failure leaves the empty media folder available for publication retr
   assert.equal(item.mediaFolderId, folder.id);
 
   let snapshot;
-  ctx.syncChangeLogTitles_ = () => {};
-  ctx.summarizeChange_ = () => '';
+  ctx.buildChangeLogRows_ = () => [];
   ctx.writePublishedState_ = json => { snapshot = JSON.parse(json); };
   ctx.clearDrafts_ = () => {};
   ctx.appendAdminLog_ = () => {};

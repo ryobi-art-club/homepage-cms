@@ -79,6 +79,8 @@ function renderDashboard() {
   const publishedCount = (items) => (items || []).filter((item) => item.published !== false).length;
   const drafts = appState.drafts || [];
   const adminLog = appState.adminLog || [];
+  /* 更新履歴は1つの変更が1行なので、公開の回数は日時の数で数える */
+  const publishCount = new Set((state.changeLog || []).map((row) => row.timestamp)).size;
   document.getElementById('panel-dashboard').innerHTML = html`
     <div class="stack">
       ${(appState.viewerName || appState.viewerEmail) && html`
@@ -90,7 +92,7 @@ function renderDashboard() {
           <div class="kpi"><div class="kpi-label">活動記録・告知</div><div class="kpi-value">${publishedCount(state.activityArticles)}</div></div>
           <div class="kpi"><div class="kpi-label">展示会</div><div class="kpi-value">${publishedCount(state.exhibitions)}</div></div>
           <div class="kpi"><div class="kpi-label">取り組み事例</div><div class="kpi-value">${publishedCount(state.requestCases)}</div></div>
-          <div class="kpi"><div class="kpi-label">公開履歴</div><div class="kpi-value">${(state.changeLog || []).length}</div></div>
+          <div class="kpi"><div class="kpi-label">公開履歴</div><div class="kpi-value">${publishCount}</div></div>
         </div>
       </div>
       <div class="grid-2">

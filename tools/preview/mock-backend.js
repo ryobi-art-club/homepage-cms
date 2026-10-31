@@ -60,7 +60,7 @@
     publishState: (_, payload) => {
       const summary = '[プレビュー] 公開内容を更新';
       data.bootstrap.state = Object.assign({}, data.bootstrap.state, clone(payload));
-      data.bootstrap.state.changeLog = [{ timestamp: new Date().toISOString(), summary, actorName: data.bootstrap.viewerName }].concat(data.bootstrap.state.changeLog || []);
+      data.bootstrap.state.changeLog = [{ timestamp: new Date().toISOString(), kind: 'note', itemId: '', note: summary, actorName: data.bootstrap.viewerName }].concat(data.bootstrap.state.changeLog || []);
       data.bootstrap.drafts = [];
       /* 本物の公開と同じく、公開中の項目のフォルダはリンクで見られるようにする */
       const state = data.bootstrap.state;

@@ -5,8 +5,9 @@
 // spreadsheet は省略できる。prefetchSheets_ の結果も渡せる
 function readContentState_(spreadsheet) {
   spreadsheet = spreadsheet || SpreadsheetApp.openById(getConfig_().CONTENT_SPREADSHEET_ID);
-  return Object.assign(contentLists_(readPublishedState_(spreadsheet).payload), {
-    changeLog: readChangeLog_(spreadsheet),
+  const content = contentLists_(readPublishedState_(spreadsheet).payload);
+  return Object.assign(content, {
+    changeLog: readChangeLog_(spreadsheet, content),
     manualChangeNote: ''
   });
 }
@@ -32,54 +33,27 @@ function writePublishedState_(payloadJson, sha256) {
   ]);
 }
 
-function readChangeLog_(spreadsheet) {
-  return readSheetObjects_(spreadsheet, CONTENT_SHEETS.changeLog)
-    .map((row) => ({
-      timestamp: row.timestamp,
-      summary: row.summary,
-      actorName: row.actor_name || ''
-    }))
-    .sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)));
+// サイトの更新履歴（版2）の列。サイトのビルドも読む（README「8-4」）
+const CHANGE_LOG_HEADER = ['timestamp', 'kind', 'item_id', 'note', 'actor_name'];
+
+// 新しい順。content は版1の行を版2に直すときに、タイトルから項目の ID を探すのに使う
+function readChangeLog_(spreadsheet, content) {
+  const rows = readSheetObjects_(spreadsheet, CONTENT_SHEETS.changeLog);
+  const log = rows.length && 'summary' in rows[0]
+    ? upgradeChangeLogRows_(rows, content)
+    : rows.map((row) => ({ timestamp: row.timestamp, kind: row.kind, itemId: row.item_id || '', note: row.note || '', actorName: row.actor_name || '' }));
+  return log.sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)));
 }
 
-// サイトのビルドが読むシートなので、メールアドレスは置かない（_AdminLog にある）。
-// シート全体を書き直すので、以前の版の列（actor_email_input・revision）もここで消える
-function appendChangeLog_(actorName, summary) {
+// log は readChangeLog_ で読んだ今の行。シート全体を版2で書き直す（版1の行もここで版2になる）。
+// サイトのビルドが読むシートなので、メールアドレスは置かない（_AdminLog にある）
+function appendChangeLog_(log, actorName, rows) {
   const spreadsheet = SpreadsheetApp.openById(getConfig_().CONTENT_SPREADSHEET_ID);
-  const rows = readSheetObjects_(spreadsheet, CONTENT_SHEETS.changeLog)
-    .map((row) => [row.timestamp, row.summary, row.actor_name || '']);
-  rows.push([isoNow_(), summary, actorName]);
-  writeSheet_(spreadsheet, CONTENT_SHEETS.changeLog, [['timestamp', 'summary', 'actor_name']].concat(rows));
-}
-
-function syncChangeLogTitles_(beforeSnapshot, afterSnapshot) {
-  const replacements = buildTitleReplacements_(beforeSnapshot || {}, afterSnapshot || {});
-  if (!replacements.length) return;
-
-  const spreadsheet = SpreadsheetApp.openById(getConfig_().CONTENT_SPREADSHEET_ID);
-  const sheet = spreadsheet.getSheetByName(CONTENT_SHEETS.changeLog);
-  if (!sheet || sheet.getLastRow() < 2) return;
-
-  const values = sheet.getDataRange().getValues();
-  const headers = values[0].map((header) => String(header || '').trim());
-  const summaryIndex = headers.indexOf('summary');
-  if (summaryIndex < 0) return;
-
-  let changed = false;
-  for (let rowIndex = 1; rowIndex < values.length; rowIndex += 1) {
-    let summary = String(values[rowIndex][summaryIndex] || '');
-    const beforeSummary = summary;
-    replacements.forEach((replacement) => {
-      summary = applyTitleReplacement_(summary, replacement);
-    });
-    if (summary !== beforeSummary) {
-      values[rowIndex][summaryIndex] = summary;
-      changed = true;
-    }
-  }
-  if (changed) {
-    sheet.getRange(1, 1, values.length, values[0].length).setValues(values);
-  }
+  const timestamp = isoNow_();
+  const values = log.slice().sort((a, b) => String(a.timestamp).localeCompare(String(b.timestamp)))
+    .map((row) => [row.timestamp, row.kind, row.itemId, row.note, row.actorName])
+    .concat(rows.map((row) => [timestamp, row.kind, row.itemId, row.note, actorName]));
+  writeSheet_(spreadsheet, CONTENT_SHEETS.changeLog, [CHANGE_LOG_HEADER].concat(values));
 }
 
 function saveDraftRecord_(state, actorName, actorEmail) {

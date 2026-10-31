@@ -213,15 +213,81 @@ test('with no snapshot the content is empty; a broken snapshot stops instead of 
   assert.throws(() => ctx.readContentState_(), /JSON/);
 });
 
-test('the change log keeps no e-mail addresses and drops the old columns', () => {
+test('the change log keeps one change per row without e-mail addresses, and rewrites rows of the old sentence format', () => {
   const {ctx, sheets} = setup();
+  publish(ctx, sample(ctx));
   sheets.ChangeLog = new Sheet([['timestamp', 'summary', 'actor_name', 'actor_email_input', 'revision'],
-    ['2026-04-28T16:59:08.244Z', '前の更新', 'A', 'a@example.com', '1.0']]);
-  ctx.appendChangeLog_('B', '展示会「x」を公開');
-  assert.deepEqual(sheets.ChangeLog.values.map(row => row.slice(0, 3)), [['timestamp', 'summary', 'actor_name'],
-    ['2026-04-28T16:59:08.244Z', '前の更新', 'A'], ['2026-09-24T00:00:00.000Z', '展示会「x」を公開', 'B']]);
+    ['2026-04-28T16:59:08.244Z', '活動記事「Article」 / 新歓イベントカレンダーを更新', 'A', 'a@example.com', '1.0'],
+    ['2026-05-01T00:00:00.000Z', '展示会「Exhibition」の情報を公開\nご依頼事例「Request」\n展示会「削除した展示」の情報を公開\n部室を移りました', 'A', 'a@example.com', '2.0']]);
+  const log = ctx.readContentState_().changeLog;
+  assert.deepEqual(JSON.parse(JSON.stringify(log.map(row => [row.timestamp.slice(0, 10), row.kind, row.itemId, row.note]))), [
+    ['2026-05-01', 'exhibition', 'e', ''], ['2026-05-01', 'request', 'r', ''], ['2026-05-01', 'note', '', '部室を移りました'],
+    ['2026-04-28', 'activity', 'a', ''], ['2026-04-28', 'recruit', '', '']]);
+
+  assert.ok(log.every(row => row.fromVersion1), 'the next publish rewrites the sheet even when it adds no row');
+  ctx.appendChangeLog_(log, 'B', [{kind: 'note', itemId: '', note: 'メモ'}]);
+  assert.deepEqual(sheets.ChangeLog.values[0], ['timestamp', 'kind', 'item_id', 'note', 'actor_name']);
+  assert.deepEqual(sheets.ChangeLog.values.slice(1).map(row => row.slice(1, 5)), [
+    ['activity', 'a', '', 'A'], ['recruit', '', '', 'A'],
+    ['exhibition', 'e', '', 'A'], ['request', 'r', '', 'A'], ['note', '', '部室を移りました', 'A'],
+    ['note', '', 'メモ', 'B']]);
   assert.ok(!JSON.stringify(sheets.ChangeLog.values).includes('@'));
-  assert.equal(ctx.readContentState_().changeLog.length, 2);
+  assert.equal(ctx.readContentState_().changeLog.length, 6);
+  assert.ok(!ctx.readContentState_().changeLog.some(row => row.fromVersion1));
+});
+
+test('rows of the old format for two items with the same title go to the older item first', () => {
+  const {ctx, sheets} = setup();
+  const state = sample(ctx);
+  state.exhibitions = [
+    {...state.exhibitions[0], exhibitionId: 'rokko-2026', title: '六甲祭', startDate: '2026-11-07'},
+    {...state.exhibitions[0], exhibitionId: 'rokko-2025', title: '六甲祭', startDate: '2025-11-08'}];
+  publish(ctx, state);
+  sheets.ChangeLog = new Sheet([['timestamp', 'summary', 'actor_name'],
+    ['2026-09-24T00:00:00.000Z', '展示会「六甲祭」の情報を公開', 'A'],
+    ['2026-05-12T00:00:00.000Z', '展示会「六甲祭」の情報を公開', 'A']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(ctx.readContentState_().changeLog.map(row => [row.timestamp.slice(0, 7), row.itemId]))),
+    [['2026-09', 'rokko-2026'], ['2026-05', 'rokko-2025']]);
+});
+
+test('the site history shows the current titles of published items and drops hidden ones', () => {
+  const {ctx} = setup();
+  const before = sample(ctx);
+  const after = JSON.parse(JSON.stringify(before));
+  after.activityArticles[0].title = 'Renamed';
+  after.requestCases[0].published = false;
+  after.exhibitions.push({exhibitionId: 'e2', title: 'New exhibition', published: true});
+  const rows = ctx.buildChangeLogRows_(before, after, '一行目\n\n二行目 ');
+  assert.deepEqual(JSON.parse(JSON.stringify(rows)), [
+    {kind: 'exhibition', itemId: 'e2', note: ''}, {kind: 'note', itemId: '', note: '一行目'}, {kind: 'note', itemId: '', note: '二行目'}]);
+  const log = [
+    {timestamp: '2026-05-01T01:00:00.000Z', kind: 'activity', itemId: 'a', note: ''},
+    {timestamp: '2026-05-01T00:00:00.000Z', kind: 'request', itemId: 'r', note: ''},
+    {timestamp: '2026-05-01T00:00:00.000Z', kind: 'activity', itemId: 'a', note: ''}
+  ];
+  assert.deepEqual(JSON.parse(JSON.stringify(ctx.deriveSiteHistoryEntries_(log, ctx.buildChangeLogTitles_(after)))),
+    [{date: '2026.05.01', items: ['活動記録・告知「Renamed」']}]);
+  // 公開前のプレビューでは、名前を変えただけの項目は「消えて、足された」にならない
+  const current = ctx.deriveSiteHistoryEntries_(log, ctx.buildChangeLogTitles_(before, after));
+  assert.deepEqual(JSON.parse(JSON.stringify(current)), [{date: '2026.05.01', items: ['活動記録・告知「Renamed」', '取り組み「Request」']}]);
+});
+
+test('publishing an item again only brings back its earlier row; an item first saved as hidden gets a row when first published', () => {
+  const {ctx} = setup();
+  const before = sample(ctx);
+  before.requestCases[0].published = false;
+  before.exhibitions[0].published = false;
+  const after = JSON.parse(JSON.stringify(before));
+  after.requestCases[0].published = true;
+  after.exhibitions[0].published = true;
+  after.activityArticles[0].body = '直した本文';
+  const log = [{timestamp: '2026-05-01T00:00:00.000Z', kind: 'request', itemId: 'r', note: ''},
+    {timestamp: '2026-05-01T00:00:00.000Z', kind: 'activity', itemId: 'a', note: ''}];
+  const rows = ctx.buildChangeLogRows_(before, after, '', log);
+  assert.deepEqual(JSON.parse(JSON.stringify(rows)), [{kind: 'exhibition', itemId: 'e', note: ''}],
+    'the request was published before (its row comes back), the exhibition never was, the article was only edited');
+  assert.deepEqual(JSON.parse(JSON.stringify(ctx.deriveSiteHistoryEntries_(log, ctx.buildChangeLogTitles_(after)))),
+    [{date: '2026.05.01', items: ['取り組み「Request」', '活動記録・告知「Article」']}]);
 });
 
 test('publish cleanup removes surplus grids and draft headers; subsequent large saves still work', () => {
@@ -304,7 +370,7 @@ test('opening the CMS reads every sheet in one request with the same result, and
   const state = sample(ctx);
   state.exhibitions[0].endDate = '2026-11-18';
   publish(ctx, state);
-  ctx.appendChangeLog_('A', '展示会「Exhibition」を公開');
+  ctx.appendChangeLog_([], 'A', [{kind: 'exhibition', itemId: 'e', note: ''}]);
   ctx.saveDraftRecord_(state, 'A', 'a@example.com');
   sheets._AdminLog = new Sheet([['timestamp', 'actor_name', 'actor_email', 'action', 'detail'], ['t1', 'A', 'a@example.com', 'published', 'x']]);
   const names = vm.runInContext('[CONTENT_SHEETS.publishedState, CONTENT_SHEETS.changeLog, CONTENT_SHEETS.drafts, CONTENT_SHEETS.adminLog]', ctx);

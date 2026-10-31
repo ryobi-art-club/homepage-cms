@@ -49,9 +49,9 @@ const state = {
     { caseId: 'r2', title: '小学校の卒業記念品デザイン（画像なし・非公開）', body: '近隣の小学校から依頼を受け、卒業記念のしおりをデザインしました。児童の皆さんの絵をもとに、部員3名でデザインを担当しています。', mediaFolderId: '', mediaFileIds: [], published: false }
   ],
   changeLog: [
-    { timestamp: '2026-10-20T03:00:00.000Z', summary: '活動記録「秋の合同スケッチ会を開催しました」を公開', actorName: '部員A' },
-    { timestamp: '2026-10-05T03:00:00.000Z', summary: '活動記録「第48回学園祭 美術部企画「みんなで描く巨大壁画プロジェクト」の制作過程と完成報告、ならびにご協力いただいた皆さまへのお礼」を公開', actorName: '部員C' },
-    { timestamp: '2026-10-01T03:00:00.000Z', summary: '展示会「凌美会 秋季展覧会」の情報を公開', actorName: '部員B' }
+    { timestamp: '2026-10-20T03:00:00.000Z', kind: 'activity', itemId: 'a1', note: '', actorName: '部員A' },
+    { timestamp: '2026-10-05T03:00:00.000Z', kind: 'activity', itemId: 'a2', note: '', actorName: '部員C' },
+    { timestamp: '2026-10-01T03:00:00.000Z', kind: 'exhibition', itemId: 'e1', note: '', actorName: '部員B' }
   ],
   manualChangeNote: ''
 };

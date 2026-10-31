@@ -49,12 +49,11 @@ function previewSiteHistory(sessionToken, payload) {
   const normalized = normalizePayload_(payload, currentState, { allowIncomplete: true });
   const publishedInfo = readPublishedState_();
   const publicSnapshot = buildPublicSnapshot_(normalized);
-  const titleReplacements = buildTitleReplacements_(publishedInfo.payload || {}, publicSnapshot);
-  const adjustedLog = applyTitleReplacementsToLog_(currentState.changeLog || [], titleReplacements);
-  const adjustedBeforeSnapshot = applyTitleReplacementsToSnapshot_(publishedInfo.payload || {}, titleReplacements);
-  const pendingSummary = summarizeChange_(publishedInfo.payload || {}, publicSnapshot, normalized.manualChangeNote);
-  const currentEntries = deriveSiteHistoryEntries_(adjustedLog, adjustedBeforeSnapshot, '');
-  const nextEntries = deriveSiteHistoryEntries_(adjustedLog, publicSnapshot, pendingSummary);
+  const log = currentState.changeLog || [];
+  const pending = buildChangeLogRows_(publishedInfo.payload || {}, publicSnapshot, normalized.manualChangeNote, log)
+    .map((row) => Object.assign({ timestamp: isoNow_() }, row));
+  const currentEntries = deriveSiteHistoryEntries_(log, buildChangeLogTitles_(publishedInfo.payload, publicSnapshot));
+  const nextEntries = deriveSiteHistoryEntries_(pending.concat(log), buildChangeLogTitles_(publicSnapshot));
   return sanitizeForClient_({
     compared: buildSiteHistoryComparison_(currentEntries, nextEntries)
   });
@@ -90,11 +89,14 @@ function publishState(sessionToken, payload) {
     if (publishedInfo.sha256 !== currentHash) {
       writePublishedState_(currentPayloadJson, currentHash);
       mark('sheets');
-      syncChangeLogTitles_(publishedInfo.payload, publicSnapshot);
-      const summarized = summarizeChange_(publishedInfo.payload, publicSnapshot, normalized.manualChangeNote);
-      if (summarized) {
-        changeSummary = summarized;
-        appendChangeLog_(session.name || session.email, changeSummary);
+      const changeRows = buildChangeLogRows_(publishedInfo.payload, publicSnapshot, normalized.manualChangeNote, currentState.changeLog);
+      // 版1の行が残っていれば、足す行がなくても版2で書き直す（移し替えが済んだら、この条件の後ろ半分を消す）
+      if (changeRows.length || currentState.changeLog.some((row) => row.fromVersion1)) {
+        appendChangeLog_(currentState.changeLog, session.name || session.email, changeRows);
+      }
+      if (changeRows.length) {
+        const titles = buildChangeLogTitles_(publicSnapshot);
+        changeSummary = changeRows.map((row) => changeLogText_(row, titles)).join('\n');
       }
     }
 
