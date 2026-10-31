@@ -3,6 +3,8 @@
   "private": true,
   "description": "Local preview of the CMS UI (not pushed to Apps Script)",
   "devDependencies": {
-    "puppeteer-core": "23.11.1"
+    "puppeteer-core": "23.11.1",
+    "pixelmatch": "5.3.0",
+    "pngjs": "7.0.0"
   }
 }

@@ -257,19 +257,18 @@ function renderStatusHistory() {
   const list = document.getElementById('statusHistoryList');
   if (!list) return;
   if (!appState.statusHistory.length) {
-    list.innerHTML = '<div class="status-history-empty">まだ履歴はありません。</div>';
+    list.innerHTML = html`<div class="status-history-empty">まだ履歴はありません。</div>`;
     return;
   }
-  list.innerHTML = appState.statusHistory.map((item, index) => [
-    '<div class="status-history-item is-' + escapeHtml(item.kind || 'default') + '">',
-    '<div class="status-history-meta">',
-    '<span>' + escapeHtml(item.time || '') + '</span>',
-    '<span>' + escapeHtml(item.kind === 'error' ? 'エラー' : (item.kind === 'success' ? '完了' : '情報')) + '</span>',
-    item.report ? '<button class="status-copy-button" type="button" data-history-report="' + index + '" aria-label="報告用にコピー" title="報告用にコピー">' + COPY_ICON + '</button>' : '',
-    '</div>',
-    '<div class="status-history-message">' + escapeHtml(item.message || '') + '</div>',
-    '</div>'
-  ].join('')).join('');
+  list.innerHTML = html`${appState.statusHistory.map((item, index) => html`
+    <div class="status-history-item is-${item.kind || 'default'}">
+      <div class="status-history-meta">
+        <span>${item.time}</span>
+        <span>${item.kind === 'error' ? 'エラー' : (item.kind === 'success' ? '完了' : '情報')}</span>
+        ${item.report && html`<button class="status-copy-button" type="button" data-history-report="${index}" aria-label="報告用にコピー" title="報告用にコピー">${COPY_ICON}</button>`}
+      </div>
+      <div class="status-history-message">${item.message}</div>
+    </div>`)}`;
   list.querySelectorAll('[data-history-report]').forEach((button) => {
     const item = appState.statusHistory[Number(button.getAttribute('data-history-report'))];
     button.addEventListener('click', () => copyErrorReport(item && item.report, button));
@@ -329,6 +328,40 @@ function setAuthStatus(message, kind = 'default', report = null) {
   appendStatusContent(box, message, report);
   box.style.color = kind === 'error' ? '#ffd5d5' : (kind === 'success' ? '#0a0a0a' : 'rgba(255,255,255,0.82)');
   box.style.background = kind === 'error' ? 'rgba(243,108,108,0.18)' : (kind === 'success' ? 'rgba(136,196,132,0.92)' : 'rgba(255,255,255,0.04)');
+}
+
+/* ---------- HTML の作り方 ----------
+   HTML は html`…` で作る。${…} に入れた値は文字として扱われるように書き換える（< や " がそのまま表示される）。
+   html`…` で作ったもの・その配列は、そのまま入る。null・undefined・false は何も入らない。
+   読みやすいようにタグの間で改行してよい（改行と行頭の空白は取り除く）。
+   コードの中で決めた HTML（アイコンなど）だけを trustedHtml(…) で包む。利用者が入力した値には使わない */
+class TrustedHtml {
+  constructor(text) { this.text = text; }
+  toString() { return this.text; }
+}
+
+function trustedHtml(text) {
+  return new TrustedHtml(String(text));
+}
+
+function htmlValue(value) {
+  if (value === null || value === undefined || value === false) return '';
+  if (value instanceof TrustedHtml) return value.text;
+  if (Array.isArray(value)) return value.map(htmlValue).join('');
+  return escapeHtml(value);
+}
+
+function html(strings, ...values) {
+  const parts = strings.map((part) => part.replace(/\n\s*/g, ''));
+  return new TrustedHtml(parts.reduce((out, part, index) => out + htmlValue(values[index - 1]) + part));
+}
+
+/* onclick="…('値')" の値に使う。JavaScript の文字列として書き換える（HTML の書き換えは html`…` がする） */
+function jsString(value) {
+  return String(value == null ? '' : value)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\r?\n/g, '\\n');
 }
 
 function escapeHtml(value) {
@@ -517,9 +550,9 @@ async function copyText(text) {
 }
 
 /* メッセージ横のコピーボタンは場所を取らないようアイコンだけにし、説明は aria-label と title で伝える */
-const COPY_ICON = '<i class="fa-regular fa-copy" aria-hidden="true"></i>';
+const COPY_ICON = trustedHtml('<i class="fa-regular fa-copy" aria-hidden="true"></i>');
 
-const COPIED_ICON = '<i class="fa-solid fa-check" aria-hidden="true"></i>';
+const COPIED_ICON = trustedHtml('<i class="fa-solid fa-check" aria-hidden="true"></i>');
 
 async function copyErrorReport(report, button) {
   if (!report) return;
@@ -591,23 +624,22 @@ function openErrorReportCard(report, state) {
   const detailButton = place.parent.querySelector('.status-detail-button');
   if (detailButton) detailButton.setAttribute('aria-expanded', 'true');
   card.setAttribute('data-report-id', report.id);
-  card.innerHTML = [
-    '<div class="error-report-head">',
-    '<strong>「' + escapeHtml(report.operation) + '」ができませんでした</strong>',
-    '<button class="icon-action-button" type="button" data-error-report-close aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button>',
-    '</div>',
-    report.hint ? '<p class="error-report-hint">' + escapeHtml(report.hint) + '</p>' : '',
-    '<p class="error-report-message"><span>エラーの内容</span>' + escapeHtml(report.message) + '</p>',
-    '<p class="error-report-notify" data-error-report-notify></p>',
-    '<details class="error-report-details"' + (state === 'copy_failed' ? ' open' : '') + '>',
-    '<summary>報告用の内容を表示</summary>',
-    '<textarea readonly rows="6" aria-label="報告用の内容">' + escapeHtml(report.text) + '</textarea>',
-    '</details>',
-    '<div class="error-report-actions">',
-    '<button class="button success" type="button" data-error-report-copy>エラー内容をコピー</button>',
-    '<button class="button ghost" type="button" data-error-report-close>閉じる</button>',
-    '</div>'
-  ].join('');
+  card.innerHTML = html`
+    <div class="error-report-head">
+      <strong>「${report.operation}」ができませんでした</strong>
+      <button class="icon-action-button" type="button" data-error-report-close aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    ${report.hint && html`<p class="error-report-hint">${report.hint}</p>`}
+    <p class="error-report-message"><span>エラーの内容</span>${report.message}</p>
+    <p class="error-report-notify" data-error-report-notify></p>
+    <details class="error-report-details"${state === 'copy_failed' && html` open`}>
+      <summary>報告用の内容を表示</summary>
+      <textarea readonly rows="6" aria-label="報告用の内容">${report.text}</textarea>
+    </details>
+    <div class="error-report-actions">
+      <button class="button success" type="button" data-error-report-copy>エラー内容をコピー</button>
+      <button class="button ghost" type="button" data-error-report-close>閉じる</button>
+    </div>`;
   card.querySelectorAll('[data-error-report-close]').forEach((button) => button.addEventListener('click', () => closeErrorReportCard()));
   const copyButton = card.querySelector('[data-error-report-copy]');
   copyButton.addEventListener('click', () => copyErrorReport(report, copyButton));
@@ -631,21 +663,21 @@ function richTextLinkPattern() {
 function renderInlineRichText(value) {
   const text = String(value == null ? '' : value);
   const pattern = richTextLinkPattern();
-  let html = '';
+  const parts = [];
   let lastIndex = 0;
   let match;
   while ((match = pattern.exec(text)) !== null) {
-    html += escapeHtml(text.slice(lastIndex, match.index));
-    html += '<a href="' + escapeHtml(match[2]) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(match[1]) + '</a>';
+    parts.push(text.slice(lastIndex, match.index));
+    parts.push(html`<a href="${match[2]}" target="_blank" rel="noopener noreferrer">${match[1]}</a>`);
     lastIndex = pattern.lastIndex;
   }
-  html += escapeHtml(text.slice(lastIndex));
-  return html;
+  parts.push(text.slice(lastIndex));
+  return html`${parts}`;
 }
 
 function renderRichText(value) {
-  const text = String(value == null ? '' : value);
-  return text.split(/\r?\n/).map(renderInlineRichText).join('<br>');
+  const lines = String(value == null ? '' : value).split(/\r?\n/);
+  return html`${lines.map((line, index) => html`${index ? html`<br>` : ''}${renderInlineRichText(line)}`)}`;
 }
 
 function formatDate(value) {
@@ -696,30 +728,6 @@ function clearDirty() {
   appState.dirty = false;
 }
 
-function syncCurrentEditorsToState() {
-  try {
-    if (document.querySelector('[data-recruit-item]')) {
-      appState.state.recruitCalendars = readRecruitFromDom();
-    }
-
-    if (document.querySelector('[data-activity-item]')) {
-      appState.state.activityArticles = readActivitiesFromDom();
-    }
-
-    if (document.querySelector('[data-exhibition-item]')) {
-      appState.state.exhibitions = readExhibitionsFromDom();
-    }
-
-    if (document.querySelector('[data-request-item]')) {
-      appState.state.requestCases = readRequestsFromDom();
-    }
-
-    syncManualChangeNote();
-  } catch (error) {
-    console.warn('編集中データの同期を一部スキップしました', error);
-  }
-}
-
 function sortExhibitions(items) {
   const weight = { upcoming: 0, archive: 1 };
   return (items || []).slice().sort((a, b) => {
@@ -737,7 +745,7 @@ function sortExhibitions(items) {
 }
 
 function visibleChipHtml(published) {
-  return `<span class="visibility-chip${published ? '' : ' is-hidden'}">${published ? '公開中' : '非公開'}</span>`;
+  return html`<span class="visibility-chip${published ? '' : html` is-hidden`}">${published ? '公開中' : '非公開'}</span>`;
 }
 
 /* 一覧の index 番目を delta だけ動かした新しい一覧。動かせないときは null */
@@ -762,17 +770,9 @@ function normalizeIdList(value) {
   return out;
 }
 
-const TRASH_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:block"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M9 6V4h6v2"></path></svg>';
+const TRASH_ICON = trustedHtml('<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:block"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M9 6V4h6v2"></path></svg>');
 
 const URL_PROTOCOL = 'https:' + String.fromCharCode(47, 47);
-
-/* onclick="...('値')" の値用。JS 文字列としてエスケープした上で、属性の " や & が崩れないよう HTML エスケープもする */
-function escapeJs(value) {
-  return escapeHtml(String(value == null ? '' : value)
-    .replace(/\\/g, '\\\\')
-    .replace(/'/g, "\\'")
-    .replace(/\r?\n/g, '\\n'));
-}
 
 function driveFolderUrl(folderId) {
   return URL_PROTOCOL + 'drive.google.com/drive/folders/' + encodeURIComponent(folderId || '');
@@ -783,7 +783,7 @@ function googleMapsSearchUrl(query) {
   return URL_PROTOCOL + 'www.google.com/maps/search/?api=1&query=' + encodeURIComponent(query);
 }
 
-/* 会期表示は開始日・終了日から作る。例: 2026年11月14日(土)〜11月18日(水)（年が変わるときは終了日にも年を付ける） */
+/* 会期表示は開始日・終了日から作る。例：2026年11月14日(土)〜11月18日(水)（年が変わるときは終了日にも年を付ける） */
 const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
 
 function parseIsoDate(value) {
@@ -909,7 +909,7 @@ function formatBytes(bytes) {
 
 /* 毎回は読まない説明はたたんでおき、見出し横の「？」で開く。
    data-help を付けた要素の中の .help-text が開閉の対象になる */
-const HELP_BUTTON = '<button class="help-button" type="button" onclick="toggleHelp(this)" aria-expanded="false" aria-label="説明を表示" title="説明を表示"><i class="fa-regular fa-circle-question" aria-hidden="true"></i></button>';
+const HELP_BUTTON = trustedHtml('<button class="help-button" type="button" onclick="toggleHelp(this)" aria-expanded="false" aria-label="説明を表示" title="説明を表示"><i class="fa-regular fa-circle-question" aria-hidden="true"></i></button>');
 
 function toggleHelp(button) {
   const box = button.closest('[data-help]');

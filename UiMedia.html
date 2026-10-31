@@ -11,11 +11,11 @@ const thumbnailRequests = {};
 
 function mediaImageHtml(file, attributes = '') {
   if (!file) return '';
-  if (typeof file === 'string') return '<img src="' + escapeHtml(file) + '" alt=""' + attributes + '>';
+  if (typeof file === 'string') return html`<img src="${file}" alt=""${attributes}>`;
   const cached = appState.thumbnailCache[file.id];
   const src = file.public === true && file.thumbnailUrl ? file.thumbnailUrl : cached;
-  if (src) return '<img src="' + escapeHtml(src) + '" alt=""' + attributes + '>';
-  return '<img data-thumb-id="' + escapeHtml(file.id) + '" data-thumb-folder="' + escapeHtml(file.folderId || '') + '" alt=""' + attributes + '>';
+  if (src) return html`<img src="${src}" alt=""${attributes}>`;
+  return html`<img data-thumb-id="${file.id}" data-thumb-folder="${file.folderId}" alt=""${attributes}>`;
 }
 
 function applyThumbnail(fileId, dataUrl) {
@@ -138,64 +138,45 @@ function ensureMediaDialog() {
   dialog = document.createElement('div');
   dialog.id = 'mediaDialog';
   dialog.className = 'media-modal hidden';
-  dialog.innerHTML = [
-    '<div class="media-modal-backdrop" onclick="closeMediaDialog()"></div>',
-    '<div class="media-modal-panel" role="dialog" aria-modal="true" aria-labelledby="mediaDialogTitle">',
-    '<div class="media-modal-head">',
-    '<div>',
-    '<h2 id="mediaDialogTitle">画像の設定</h2>',
-    '<div id="mediaDialogSubtitle" class="small-note"></div>',
-    '</div>',
-    '<div id="mediaDialogStatus" class="media-dialog-status hidden"></div>',
-    '<button class="icon-action-button" type="button" onclick="closeMediaDialog()" aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button>',
-    '</div>',
-    '<div id="mediaDialogBody" class="media-modal-body"></div>',
-    '</div>'
-  ].join('');
+  dialog.innerHTML = html`
+    <div class="media-modal-backdrop" onclick="closeMediaDialog()"></div>
+    <div class="media-modal-panel" role="dialog" aria-modal="true" aria-labelledby="mediaDialogTitle">
+      <div class="media-modal-head">
+        <div>
+          <h2 id="mediaDialogTitle">画像の設定</h2>
+          <div id="mediaDialogSubtitle" class="small-note"></div>
+        </div>
+        <div id="mediaDialogStatus" class="media-dialog-status hidden"></div>
+        <button class="icon-action-button" type="button" onclick="closeMediaDialog()" aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="mediaDialogBody" class="media-modal-body"></div>
+    </div>`;
   document.body.appendChild(dialog);
   return dialog;
 }
 
+const MEDIA_DIALOG_SUBTITLES = {
+  recruit: '新歓イベントカレンダー',
+  activity: '活動記録・告知',
+  request: '取り組み事例',
+  exhibition: '展示会'
+};
+
 function getContentRef(kind, index) {
-  if (kind === 'recruit') {
-    ensureRecruitCalendars();
-    const item = (appState.state.recruitCalendars || [])[index] || (appState.state.recruitCalendars || [])[0];
-    return {
-      item,
-      title: recruitCalendarLabel(item.year),
-      dialogTitle: '画像の設定',
-      subtitle: '新歓イベントカレンダー'
-    };
-  }
-  if (kind === 'activity') {
-    const item = (appState.state.activityArticles || [])[index];
-    return {
-      item,
-      title: item && item.title ? item.title : '活動記録・告知',
-      dialogTitle: '画像の設定',
-      subtitle: '活動記録・告知'
-    };
-  }
-  if (kind === 'request') {
-    const item = (appState.state.requestCases || [])[index];
-    return {
-      item,
-      title: item && item.title ? item.title : '取り組み事例',
-      dialogTitle: '画像の設定',
-      subtitle: '取り組み事例'
-    };
-  }
-  if (kind === 'exhibition') {
-    const sorted = sortExhibitions(appState.state.exhibitions || []);
-    const item = sorted[index];
-    return {
-      item,
-      title: item && item.title ? item.title : '展示会',
-      dialogTitle: '画像・作品情報の設定',
-      subtitle: '展示会'
-    };
-  }
-  return { item: null, title: '', dialogTitle: '画像の設定', subtitle: '' };
+  const subtitle = MEDIA_DIALOG_SUBTITLES[kind];
+  if (!subtitle) return { item: null, title: '', dialogTitle: '画像の設定', subtitle: '' };
+  if (kind === 'recruit') ensureRecruitCalendars();
+  const items = editorItems(kind);
+  /* 新歓は、年度が見つからなければ先頭の年度にする */
+  const item = items[index] || (kind === 'recruit' ? items[0] : null);
+  let title = subtitle;
+  if (item) title = kind === 'recruit' ? editorItemTitle('recruit', item) : (String(item.title || '').trim() || subtitle);
+  return {
+    item,
+    title,
+    dialogTitle: kind === 'exhibition' ? '画像・作品情報の設定' : '画像の設定',
+    subtitle
+  };
 }
 
 function currentMediaContext() {
@@ -207,7 +188,6 @@ function currentMediaContext() {
 }
 
 async function openMediaDialog(kind, index = 0) {
-  syncCurrentEditorsToState();
   appState.activeMedia = { kind, index };
   const context = currentMediaContext();
   if (!context.item) {
@@ -219,19 +199,17 @@ async function openMediaDialog(kind, index = 0) {
   document.body.classList.add('media-modal-open');
   document.getElementById('mediaDialogTitle').textContent = context.dialogTitle;
   document.getElementById('mediaDialogSubtitle').textContent = context.title;
-  document.getElementById('mediaDialogBody').innerHTML = '<div class="preview-empty">素材を読み込んでいます…</div>';
+  document.getElementById('mediaDialogBody').innerHTML = html`<div class="preview-empty">素材を読み込んでいます…</div>`;
 
   try {
     const files = context.folderId ? await getFolderMediaCached(context.folderId) : [];
     renderMediaDialog(files);
   } catch (error) {
-    document.getElementById('mediaDialogBody').innerHTML = '<div class="preview-empty">' + escapeHtml(error.message || String(error)) + '</div>';
+    document.getElementById('mediaDialogBody').innerHTML = html`<div class="preview-empty">${error.message || String(error)}</div>`;
   }
 }
 
 function closeMediaDialog() {
-  syncMediaEditorRowsToState();
-  syncActiveMediaHiddenFields();
   const dialog = document.getElementById('mediaDialog');
   if (dialog) dialog.classList.add('hidden');
   document.body.classList.remove('media-modal-open');
@@ -267,25 +245,13 @@ function clearCatalogDraft(context) {
   delete appState.catalogDrafts[catalogDraftKey(context)];
 }
 
-function isMediaDialogOpen() {
-  const dialog = document.getElementById('mediaDialog');
-  return !!(dialog && !dialog.classList.contains('hidden'));
-}
-
 function renderMediaDialog(files) {
   const context = currentMediaContext();
   const imageFiles = (files || []).filter((file) => file.kind === 'image');
-  const imageAccept = 'image/' + '*';
-  const uploadHtml = context.kind === 'exhibition' ? '' : renderMediaUploadBox('image', '画像を追加', context.kind);
-  const sectionsHtml = context.kind === 'exhibition'
-    ? renderExhibitionMediaSettings(imageFiles, context)
-    : renderGenericMediaSettings(imageFiles, context);
-
   const body = document.getElementById('mediaDialogBody');
-  body.innerHTML = [
-    uploadHtml,
-    sectionsHtml
-  ].join('');
+  body.innerHTML = context.kind === 'exhibition'
+    ? renderExhibitionMediaSettings(imageFiles, context)
+    : html`${renderMediaUploadBox('image', '画像を追加', context.kind)}${renderGenericMediaSettings(imageFiles, context)}`;
   hydrateThumbnails(body);
 }
 
@@ -293,49 +259,48 @@ function renderMediaUploadBox(role, label, kind) {
   const note = kind === 'recruit'
     ? '1枚3MB以下を推奨します。横長（16:9）がおすすめですが、正方形や縦長（4:5まで）の画像も切れずに表示されます。'
     : '1枚3MB以下を推奨します。';
-  return [
-    '<div class="media-upload-box">',
-    '<div class="media-upload-row">',
-    '<div class="field media-file-field">',
-    '<label>' + escapeHtml(label) + '</label>',
-    '<input id="mediaUploadInput_' + escapeHtml(role) + '" type="file" multiple accept="' + escapeHtml(UPLOAD_IMAGE_ACCEPT) + '" onchange="onMediaFilesChosen(this)">',
-    '</div>',
-    '<button class="button success" type="button" onclick="uploadMedia(\'' + escapeJs(role) + '\')">アップロード</button>',
-    '</div>',
-    '<div class="small-note">' + escapeHtml(note) + '</div>',
-    '</div>'
-  ].join('');
+  return html`
+    <div class="media-upload-box">
+      <div class="media-upload-row">
+        <div class="field media-file-field">
+          <label>${label}</label>
+          <input id="mediaUploadInput_${role}" type="file" multiple accept="${UPLOAD_IMAGE_ACCEPT}" onchange="onMediaFilesChosen(this)">
+        </div>
+        <button class="button success" type="button" onclick="uploadMedia('${jsString(role)}')">アップロード</button>
+      </div>
+      <div class="small-note">${note}</div>
+    </div>`;
 }
 
 function renderGenericMediaSettings(files, context) {
   const ordered = orderedFilesByIds(files, mediaIdsForItem(context.item));
   if (!ordered.length) {
-    return '<div class="media-section"><h3>画像</h3><div class="preview-empty">画像は未設定です。</div></div>';
+    return html`<div class="media-section"><h3>画像</h3><div class="preview-empty">画像は未設定です。</div></div>`;
   }
-  return [
-    '<div class="media-section">',
-    '<h3>画像</h3>',
-    '<div class="media-file-grid">',
-    ordered.map((file, index) => renderGenericMediaCard(file, index, ordered.length)).join(''),
-    '</div>',
-    '</div>'
-  ].join('');
+  return html`
+    <div class="media-section">
+      <h3>画像</h3>
+      <div class="media-file-grid">${ordered.map((file, index) => renderGenericMediaCard(file, index, ordered.length))}</div>
+    </div>`;
 }
 
 function renderGenericMediaCard(file, index, count) {
   const context = currentMediaContext();
   const thumbClass = context.kind === 'recruit' ? 'media-file-thumb media-file-thumb-calendar' : 'media-file-thumb';
-  return [
-    '<article class="media-file-card">',
-    '<div class="' + thumbClass + '">' + mediaImageHtml(file) + '</div>',
-    '<div class="small-note">表示順 ' + (index + 1) + ' / ' + formatBytes(file.size || 0) + '</div>',
-    '<div class="media-file-actions">',
-    '<button class="button subtle" type="button" onclick="moveMediaFile(\'' + escapeJs(file.id) + '\', -1)" ' + (index === 0 ? 'disabled' : '') + '>前へ</button>',
-    '<button class="button subtle" type="button" onclick="moveMediaFile(\'' + escapeJs(file.id) + '\', 1)" ' + (index === count - 1 ? 'disabled' : '') + '>次へ</button>',
-    '<button class="button danger icon" type="button" aria-label="削除" title="削除" onclick="removeMedia(\'' + escapeJs(file.id) + '\', \'' + escapeJs(file.name) + '\')">' + TRASH_ICON + '</button>',
-    '</div>',
-    '</article>'
-  ].join('');
+  return html`
+    <article class="media-file-card">
+      <div class="${thumbClass}">${mediaImageHtml(file)}</div>
+      <div class="small-note">表示順 ${index + 1} / ${formatBytes(file.size || 0)}</div>
+      <div class="media-file-actions">
+        <button class="button subtle" type="button" onclick="moveMediaFile('${jsString(file.id)}', -1)"${index === 0 && html` disabled`}>前へ</button>
+        <button class="button subtle" type="button" onclick="moveMediaFile('${jsString(file.id)}', 1)"${index === count - 1 && html` disabled`}>次へ</button>
+        ${renderRemoveMediaButton(file)}
+      </div>
+    </article>`;
+}
+
+function renderRemoveMediaButton(file) {
+  return html`<button class="button danger icon" type="button" aria-label="削除" title="削除" onclick="removeMedia('${jsString(file.id)}')">${TRASH_ICON}</button>`;
 }
 
 function renderExhibitionMediaSettings(files, context) {
@@ -343,141 +308,129 @@ function renderExhibitionMediaSettings(files, context) {
   const dmIds = normalizeIdList(item.dmFileIds);
   const catalog = getCatalogDraft(context);
   const works = (item.works || []).filter((work) => fileById(files, work.fileId));
-  return [
-    '<div class="media-section">',
-    '<h3>DM画像</h3>',
-    renderMediaUploadBox('dm', 'DM画像を追加', 'exhibition'),
-    renderExhibitionDmList(files, dmIds),
-    '</div>',
-    '<div class="media-section">',
-    '<div data-help>',
-    '<div class="help-title"><h3>作品画像</h3>' + HELP_BUTTON + '</div>',
-    '<div class="small-note help-text">表示順は、スマートフォン表示と拡大表示のときのスライドの順番になります。パソコンでは、画像の縦横比に合わせて見やすく自動で並べます。</div>',
-    '</div>',
-    renderCatalogImportPanel(catalog, works),
-    renderMediaUploadBox('work', '作品画像を追加', 'exhibition'),
-    '<div class="media-file-grid media-work-grid">',
-    works.length ? works.map((work, index) => renderExhibitionWorkRow(fileById(files, work.fileId), work, index, works.length, catalog, works)).join('') : '<div class="preview-empty">作品画像は未設定です。目録を先に読み込んだ場合は、作品画像をアップロードすると各画像に紐づけできます。</div>',
-    '</div>',
-    '</div>'
-  ].join('');
+  return html`
+    <div class="media-section">
+      <h3>DM画像</h3>
+      ${renderMediaUploadBox('dm', 'DM画像を追加', 'exhibition')}
+      ${renderExhibitionDmList(files, dmIds)}
+    </div>
+    <div class="media-section">
+      <div data-help>
+        <div class="help-title"><h3>作品画像</h3>${HELP_BUTTON}</div>
+        <div class="small-note help-text">表示順は、スマートフォン表示と拡大表示のときのスライドの順番になります。パソコンでは、画像の縦横比に合わせて見やすく自動で並べます。</div>
+      </div>
+      ${renderCatalogImportPanel(catalog, works)}
+      ${renderMediaUploadBox('work', '作品画像を追加', 'exhibition')}
+      <div class="media-file-grid media-work-grid">
+        ${works.length
+          ? works.map((work, index) => renderExhibitionWorkRow(fileById(files, work.fileId), work, index, works.length, catalog, works))
+          : html`<div class="preview-empty">作品画像は未設定です。目録を先に読み込んだ場合は、作品画像をアップロードすると各画像に紐づけできます。</div>`}
+      </div>
+    </div>`;
 }
 
 function renderCatalogImportPanel(catalog, works) {
   const items = catalog && Array.isArray(catalog.items) ? catalog.items : [];
-  const usedKeys = selectedCatalogKeysFromWorks(works || []);
+  const usedKeys = linkedCatalogKeys(works, items);
   const linkedCount = usedKeys.length;
   const unusedCount = items.filter((item) => usedKeys.indexOf(item.key) === -1).length;
-  return [
-    '<div class="media-upload-box catalog-import-section">',
-    '<div class="catalog-import-head">',
-    '<div data-help>',
-    '<div class="help-title"><h3>目録から作品情報を自動入力</h3>' + HELP_BUTTON + '</div>',
-    '<div class="small-note help-text">作品目録を AI で読み取り、作品名・作者名を自動で入力します。対応形式：PDF・画像（複数枚可）・Excel・テキスト（.txt / .md / .csv / .json）</div>',
-    '</div>',
-    items.length ? [
-      '<div class="catalog-import-actions">',
-      '<button class="button subtle" data-catalog-sort-button type="button" onclick="sortExhibitionWorksByCatalogOrder()" ' + (linkedCount < 2 ? 'disabled' : '') + '>作品番号順に並べる</button>',
-      '<button class="button subtle" type="button" onclick="clearCatalogDraftAndRender()">抽出結果を消去</button>',
-      '</div>'
-    ].join('') : '',
-    '</div>',
-    '<div class="media-upload-row">',
-    '<div class="field media-file-field">',
-    '<label>目録ファイル</label>',
-    '<input id="catalogFileInput" type="file" multiple accept="' + escapeHtml(CATALOG_ACCEPT) + '">',
-    '</div>',
-    '<button class="button success" type="button" onclick="extractCatalog()">読み込む</button>',
-    '</div>',
-    items.length ? [
-      '<div class="catalog-summary">',
-      '<strong>' + escapeHtml(catalog.sourceName || '目録') + '</strong> から ' + items.length + '件を読み込みました。',
-      unusedCount ? ' 未使用: ' + unusedCount + '件' : ' すべて選択済みです。',
-      '</div>',
-      renderCatalogExtractedList(items, usedKeys)
-    ].join('') : '',
-    '</div>'
-  ].join('');
+  return html`
+    <div class="media-upload-box catalog-import-section">
+      <div class="catalog-import-head">
+        <div data-help>
+          <div class="help-title"><h3>目録から作品情報を自動入力</h3>${HELP_BUTTON}</div>
+          <div class="small-note help-text">作品目録を AI で読み取り、作品名・作者名を自動で入力します。対応形式：PDF・画像（複数枚可）・Excel・テキスト（.txt / .md / .csv / .json）</div>
+        </div>
+        ${items.length > 0 && html`
+          <div class="catalog-import-actions">
+            <button class="button subtle" data-catalog-sort-button type="button" onclick="sortExhibitionWorksByCatalogOrder()"${linkedCount < 2 && html` disabled`}>作品番号順に並べる</button>
+            <button class="button subtle" type="button" onclick="clearCatalogDraftAndRender()">抽出結果を消去</button>
+          </div>`}
+      </div>
+      <div class="media-upload-row">
+        <div class="field media-file-field">
+          <label>目録ファイル</label>
+          <input id="catalogFileInput" type="file" multiple accept="${CATALOG_ACCEPT}">
+        </div>
+        <button class="button success" type="button" onclick="extractCatalog()">読み込む</button>
+      </div>
+      ${items.length > 0 && html`
+        <div class="catalog-summary"><strong>${catalog.sourceName || '目録'}</strong> から ${items.length}件を読み込みました。${unusedCount ? ` 未使用: ${unusedCount}件` : ' すべて選択済みです。'}</div>
+        ${renderCatalogExtractedList(items, usedKeys)}`}
+    </div>`;
 }
 
 function renderCatalogExtractedList(items, usedKeys) {
-  return [
-    '<details class="catalog-details">',
-    '<summary>抽出結果を表示</summary>',
-    '<div class="catalog-result-list">',
-    items.map((item) => [
-      '<div class="catalog-result-row' + (usedKeys.indexOf(item.key) >= 0 ? ' is-used' : '') + '">',
-      '<span class="catalog-result-order">' + escapeHtml(item.sortOrder) + '</span>',
-      '<span class="catalog-result-main">' + escapeHtml(item.artist || '作者未入力') + ' / ' + escapeHtml(item.title || '作品名未入力') + '</span>',
-      item.size || item.materials ? '<span class="catalog-result-sub">' + escapeHtml([item.size, item.materials].filter(Boolean).join(' / ')) + '</span>' : '',
-      '</div>'
-    ].join('')).join(''),
-    '</div>',
-    '</details>'
-  ].join('');
+  return html`
+    <details class="catalog-details">
+      <summary>抽出結果を表示</summary>
+      <div class="catalog-result-list">
+        ${items.map((item) => html`
+          <div class="catalog-result-row${usedKeys.indexOf(item.key) >= 0 && html` is-used`}">
+            <span class="catalog-result-order">${item.sortOrder}</span>
+            <span class="catalog-result-main">${item.artist || '作者未入力'} / ${item.title || '作品名未入力'}</span>
+            ${(item.size || item.materials) && html`<span class="catalog-result-sub">${[item.size, item.materials].filter(Boolean).join(' / ')}</span>`}
+          </div>`)}
+      </div>
+    </details>`;
 }
 
-function selectedCatalogKeysFromWorks(works) {
-  return (works || []).map((work) => String(work.catalogKey || '')).filter(Boolean);
+/* 作品と目録項目の紐づけ：選んだ項目（catalogKey）か、なければ作品名・作者名が同じ項目。
+   catalogKey は画面の中だけで使う（保存するときにサーバーが外す） */
+function linkedCatalogKey(work, items) {
+  return String(work.catalogKey || matchCatalogItemKey(work, items) || '');
+}
+
+function linkedCatalogKeys(works, items) {
+  return (works || []).map((work) => linkedCatalogKey(work, items)).filter(Boolean);
 }
 
 function renderExhibitionDmList(files, dmIds) {
   const dmFiles = dmIds.map((id) => fileById(files, id)).filter(Boolean);
-  if (!dmFiles.length) return '<div class="preview-empty">DM画像は未設定です。</div>';
-  return [
-    '<div class="media-file-grid">',
-    dmFiles.map((file, index) => [
-      '<article class="media-file-card" data-exhibition-dm-row data-file-id="' + escapeHtml(file.id) + '">',
-      '<div class="media-file-thumb media-file-thumb-dm">' + mediaImageHtml(file) + '</div>',
-      '<div class="small-note">DM ' + (index === 0 ? '表' : '裏') + '</div>',
-      '<div class="media-file-actions">',
-      '<button class="button subtle" type="button" onclick="moveExhibitionDm(\'' + escapeJs(file.id) + '\', -1)" ' + (index === 0 ? 'disabled' : '') + '>表へ</button>',
-      '<button class="button subtle" type="button" onclick="moveExhibitionDm(\'' + escapeJs(file.id) + '\', 1)" ' + (index === dmFiles.length - 1 ? 'disabled' : '') + '>裏へ</button>',
-      '<button class="button danger icon" type="button" aria-label="削除" title="削除" onclick="removeMedia(\'' + escapeJs(file.id) + '\', \'' + escapeJs(file.name) + '\')">' + TRASH_ICON + '</button>',
-      '</div>',
-      '</article>'
-    ].join('')).join(''),
-    '</div>'
-  ].join('');
+  if (!dmFiles.length) return html`<div class="preview-empty">DM画像は未設定です。</div>`;
+  return html`<div class="media-file-grid">${dmFiles.map((file, index) => html`
+    <article class="media-file-card" data-exhibition-dm-row data-file-id="${file.id}">
+      <div class="media-file-thumb media-file-thumb-dm">${mediaImageHtml(file)}</div>
+      <div class="small-note">DM ${index === 0 ? '表' : '裏'}</div>
+      <div class="media-file-actions">
+        <button class="button subtle" type="button" onclick="moveExhibitionDm('${jsString(file.id)}', -1)"${index === 0 && html` disabled`}>表へ</button>
+        <button class="button subtle" type="button" onclick="moveExhibitionDm('${jsString(file.id)}', 1)"${index === dmFiles.length - 1 && html` disabled`}>裏へ</button>
+        ${renderRemoveMediaButton(file)}
+      </div>
+    </article>`)}</div>`;
 }
 
 function renderExhibitionWorkRow(file, work, index, count, catalog, works) {
-  return [
-    '<article class="media-file-card media-work-card" data-exhibition-media-row data-file-id="' + escapeHtml(file.id) + '" data-catalog-key="' + escapeHtml(work.catalogKey || '') + '">',
-    '<div class="media-file-thumb media-file-thumb-work">' + mediaImageHtml(file) + '</div>',
-    '<div class="small-note">表示順 ' + (index + 1) + ' / ' + formatBytes(file.size || 0) + '</div>',
-    '<div class="form-grid compact-media-grid">',
-    renderCatalogSelect(work, catalog, works),
-    '<div class="field"><label>作品名</label><input data-field="title" value="' + escapeHtml(work.title || '') + '"></div>',
-    '<div class="field"><label>作者名</label><input data-field="artist" value="' + escapeHtml(work.artist || '') + '"></div>',
-    '</div>',
-    '<div class="media-file-actions">',
-    '<button class="button subtle" type="button" onclick="moveExhibitionWork(\'' + escapeJs(file.id) + '\', -1)" ' + (index === 0 ? 'disabled' : '') + '>前へ</button>',
-    '<button class="button subtle" type="button" onclick="moveExhibitionWork(\'' + escapeJs(file.id) + '\', 1)" ' + (index === count - 1 ? 'disabled' : '') + '>次へ</button>',
-    '<button class="button danger icon" type="button" aria-label="削除" title="削除" onclick="removeMedia(\'' + escapeJs(file.id) + '\', \'' + escapeJs(file.name) + '\')">' + TRASH_ICON + '</button>',
-    '</div>',
-    '</article>'
-  ].join('');
+  return html`
+    <article class="media-file-card media-work-card" data-exhibition-media-row data-file-id="${file.id}">
+      <div class="media-file-thumb media-file-thumb-work">${mediaImageHtml(file)}</div>
+      <div class="small-note">表示順 ${index + 1} / ${formatBytes(file.size || 0)}</div>
+      <div class="form-grid compact-media-grid">
+        ${renderCatalogSelect(work, catalog, works)}
+        <div class="field"><label>作品名</label><input data-field="title" value="${work.title}" oninput="onWorkInput(this)"></div>
+        <div class="field"><label>作者名</label><input data-field="artist" value="${work.artist}" oninput="onWorkInput(this)"></div>
+      </div>
+      <div class="media-file-actions">
+        <button class="button subtle" type="button" onclick="moveExhibitionWork('${jsString(file.id)}', -1)"${index === 0 && html` disabled`}>前へ</button>
+        <button class="button subtle" type="button" onclick="moveExhibitionWork('${jsString(file.id)}', 1)"${index === count - 1 && html` disabled`}>次へ</button>
+        ${renderRemoveMediaButton(file)}
+      </div>
+    </article>`;
 }
 
 function renderCatalogSelect(work, catalog, works) {
   const items = catalog && Array.isArray(catalog.items) ? catalog.items : [];
   if (!items.length) return '';
-  const selectedKey = String(work.catalogKey || matchCatalogItemKey(work, items) || '');
-  const usedKeys = selectedCatalogKeysFromWorks(works || []).filter((key) => key !== selectedKey);
-  return [
-    '<div class="field">',
-    '<label>目録項目</label>',
-    '<select data-field="catalogItem" onchange="onCatalogItemSelect(this)">',
-    '<option value="">目録に紐づけない</option>',
-    items.map((item) => {
-      const label = catalogItemLabel(item);
-      const disabled = usedKeys.indexOf(item.key) >= 0 ? 'disabled' : '';
-      return '<option value="' + escapeHtml(item.key) + '" ' + (item.key === selectedKey ? 'selected' : '') + ' ' + disabled + '>' + escapeHtml(label) + '</option>';
-    }).join(''),
-    '</select>',
-    '</div>'
-  ].join('');
+  const selectedKey = linkedCatalogKey(work, items);
+  const usedKeys = linkedCatalogKeys(works, items).filter((key) => key !== selectedKey);
+  return html`
+    <div class="field">
+      <label>目録項目</label>
+      <select data-field="catalogItem" onchange="onCatalogItemSelect(this)">
+        <option value="">目録に紐づけない</option>
+        ${items.map((item) => html`<option value="${item.key}"${item.key === selectedKey && html` selected`}${usedKeys.indexOf(item.key) >= 0 && html` disabled`}>${catalogItemLabel(item)}</option>`)}
+      </select>
+    </div>`;
 }
 
 function catalogItemLabel(item) {
@@ -673,7 +626,6 @@ async function extractCatalog() {
   const files = input && input.files ? Array.from(input.files) : [];
   try {
     validateCatalogFiles(files);
-    syncMediaEditorRowsToState();
     document.getElementById('mediaDialogBody').classList.add('is-loading');
     setMediaStatus('目録を読み込んでいます…');
     setStatus('目録を読み込んでいます…');
@@ -694,57 +646,64 @@ async function extractCatalog() {
   }
 }
 
+function workOfRow(element) {
+  const fileId = element.closest('[data-exhibition-media-row]').getAttribute('data-file-id');
+  return (currentMediaContext().item.works || []).find((work) => work.fileId === fileId);
+}
+
+function onWorkInput(input) {
+  workOfRow(input)[input.getAttribute('data-field')] = input.value;
+  markDirty();
+}
+
 function onCatalogItemSelect(select) {
   const context = currentMediaContext();
   const draft = getCatalogDraft(context);
-  const row = select.closest('[data-exhibition-media-row]');
-  if (!draft || !row) return;
+  if (!draft) return;
+  const items = draft.items || [];
+  const work = workOfRow(select);
   let key = select.value || '';
-  if (key) {
-    const duplicated = Array.from(document.querySelectorAll('[data-field="catalogItem"]')).some((other) => other !== select && other.value === key);
-    if (duplicated) {
-      setMediaStatus('同じ目録項目は複数の画像に紐づけできません。', 'error');
-      select.value = '';
-      key = '';
-    }
+  if (key && linkedCatalogKeys((context.item.works || []).filter((other) => other !== work), items).indexOf(key) !== -1) {
+    setMediaStatus('同じ目録項目は複数の画像に紐づけできません。', 'error');
+    select.value = '';
+    key = '';
   }
-  const item = (draft.items || []).find((candidate) => candidate.key === key);
-  row.setAttribute('data-catalog-key', key);
+  work.catalogKey = key;
+  const item = items.find((candidate) => candidate.key === key);
   if (item) {
-    row.querySelector('[data-field="title"]').value = item.title || '';
-    row.querySelector('[data-field="artist"]').value = item.artist || '';
+    const row = select.closest('[data-exhibition-media-row]');
+    work.title = row.querySelector('[data-field="title"]').value = item.title || '';
+    work.artist = row.querySelector('[data-field="artist"]').value = item.artist || '';
   }
-  syncMediaEditorRowsToState();
   updateCatalogSortButtonState();
   commitMediaChange(context, false);
 }
 
 function updateCatalogSortButtonState() {
   const button = document.querySelector('[data-catalog-sort-button]');
-  if (!button) return;
-  const linkedCount = Array.from(document.querySelectorAll('[data-field="catalogItem"]'))
-    .filter((select) => select.value).length;
-  button.disabled = linkedCount < 2;
+  const context = currentMediaContext();
+  const draft = getCatalogDraft(context);
+  if (!button || !draft) return;
+  button.disabled = linkedCatalogKeys(context.item.works, draft.items || []).length < 2;
 }
 
 function sortExhibitionWorksByCatalogOrder() {
   const context = currentMediaContext();
   const draft = getCatalogDraft(context);
   if (!context.item || !draft) return;
-  syncMediaEditorRowsToState();
   const items = draft.items || [];
-  const linkedWorks = (context.item.works || []).filter((work) => work.catalogKey);
+  const works = context.item.works || [];
+  const sortOrder = (work) => {
+    const item = items.find((candidate) => candidate.key === linkedCatalogKey(work, items));
+    return item ? Number(item.sortOrder) : 0;
+  };
+  const linkedWorks = works.filter((work) => linkedCatalogKey(work, items));
   if (linkedWorks.length < 2) {
     setMediaStatus('作品番号順に並べるには、目録を2件以上の作品画像に紐づけてください。', 'error');
     return;
   }
-  linkedWorks.sort((a, b) => {
-    const itemA = items.find((item) => item.key === a.catalogKey);
-    const itemB = items.find((item) => item.key === b.catalogKey);
-    return Number(itemA ? itemA.sortOrder : 0) - Number(itemB ? itemB.sortOrder : 0);
-  });
-  const unlinkedWorks = (context.item.works || []).filter((work) => !work.catalogKey);
-  context.item.works = linkedWorks.concat(unlinkedWorks);
+  linkedWorks.sort((a, b) => sortOrder(a) - sortOrder(b));
+  context.item.works = linkedWorks.concat(works.filter((work) => !linkedCatalogKey(work, items)));
   commitMediaChange(context, true);
   setMediaStatus('紐づけた作品を作品番号順に並べ、未紐づけ画像を後ろへ移動しました。', 'success');
 }
@@ -764,7 +723,6 @@ async function uploadMedia(uploadRole) {
 
   try {
     if (!validateMediaSelection(selected, role, context)) return;
-    syncMediaEditorRowsToState();
     document.getElementById('mediaDialogBody').classList.add('is-loading');
     setMediaStatus('ファイルをアップロードしています…');
     setStatus('ファイルをアップロードしています…');
@@ -800,7 +758,7 @@ async function uploadMedia(uploadRole) {
   }
 }
 
-async function removeMedia(fileId, name) {
+async function removeMedia(fileId) {
   const context = currentMediaContext();
   if (!confirm('この画像を削除しますか？')) return;
   try {
@@ -864,51 +822,9 @@ function moveMediaFile(fileId, delta) {
   commitMediaChange(context, true);
 }
 
-function syncMediaEditorRowsToState() {
-  if (!isMediaDialogOpen()) return;
-  const context = currentMediaContext();
-  if (!context.item || context.kind !== 'exhibition') return;
-  /* catalogKey は目録との紐づけで、画面の中だけで使う（保存するときにサーバーが外す） */
-  context.item.works = Array.from(document.querySelectorAll('[data-exhibition-media-row]')).map((row) => ({
-    fileId: row.getAttribute('data-file-id') || '',
-    title: row.querySelector('[data-field="title"]').value.trim(),
-    artist: row.querySelector('[data-field="artist"]').value.trim(),
-    catalogKey: row.querySelector('[data-field="catalogItem"]') ? row.querySelector('[data-field="catalogItem"]').value : (row.getAttribute('data-catalog-key') || '')
-  }));
-}
-
-function syncActiveMediaHiddenFields() {
-  const context = currentMediaContext();
-  if (!context.item) return;
-
-  const selectorMap = {
-    recruit: '[data-recruit-item]',
-    activity: '[data-activity-item]',
-    exhibition: '[data-exhibition-item]',
-    request: '[data-request-item]'
-  };
-  const element = document.querySelectorAll(selectorMap[context.kind] || '')[context.index];
-  if (!element) return;
-
-  const folderInput = element.querySelector('[data-field="mediaFolderId"]');
-  if (folderInput) folderInput.value = context.item.mediaFolderId || '';
-
-  if (context.kind === 'exhibition') {
-    const dmInput = element.querySelector('[data-field="dmFileIds"]');
-    const workInput = element.querySelector('[data-field="works"]');
-    if (dmInput) dmInput.value = JSON.stringify(normalizeIdList(context.item.dmFileIds));
-    if (workInput) workInput.value = JSON.stringify(context.item.works || []);
-    return;
-  }
-
-  const mediaInput = element.querySelector('[data-field="mediaFileIds"]');
-  if (mediaInput) mediaInput.value = JSON.stringify(normalizeIdList(context.item.mediaFileIds));
-}
-
-/* ダイアログで画像や作品を変えたあと：未保存の印・入力欄・プレビューを合わせる（並べ替えたときはダイアログも描き直す） */
+/* ダイアログで画像や作品を変えたあと：未保存の印とプレビューを合わせる（並べ替えたときはダイアログも描き直す） */
 function commitMediaChange(context, redrawDialog) {
   markDirty();
-  syncActiveMediaHiddenFields();
   if (redrawDialog) renderMediaDialog(appState.mediaCache[context.folderId] || []);
   refreshPreview(context.kind);
 }
@@ -916,7 +832,6 @@ function commitMediaChange(context, redrawDialog) {
 function moveExhibitionDm(fileId, delta) {
   const context = currentMediaContext();
   if (!context.item) return;
-  syncMediaEditorRowsToState();
   const ids = normalizeIdList(context.item.dmFileIds);
   const moved = movedInList(ids, ids.indexOf(fileId), delta);
   if (!moved) return;
@@ -927,7 +842,6 @@ function moveExhibitionDm(fileId, delta) {
 function moveExhibitionWork(fileId, delta) {
   const context = currentMediaContext();
   if (!context.item) return;
-  syncMediaEditorRowsToState();
   const works = context.item.works || [];
   const moved = movedInList(works, works.findIndex((work) => work.fileId === fileId), delta);
   if (!moved) return;

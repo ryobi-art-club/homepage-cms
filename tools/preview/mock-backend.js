@@ -120,6 +120,15 @@
     },
     markProofreadChecked: () => ({ ok: true })
   };
+  /* 画面がサーバーに送った内容を、呼んだ順に残す（作りの整理で送る内容が変わらないことを確かめるため。shoot.cjs が集める） */
+  window.MOCK_CALLS = [];
+  Object.keys(window.MOCK_BACKEND).forEach((name) => {
+    const handler = window.MOCK_BACKEND[name];
+    window.MOCK_BACKEND[name] = (...args) => {
+      window.MOCK_CALLS.push({ name, args: clone(args) });
+      return handler(...args);
+    };
+  });
   document.title = '[プレビュー] ' + document.title;
   /* #login を付けて開くとログイン画面から始める（確認コードは何を入れても通る） */
   if (location.hash === '#login') return;

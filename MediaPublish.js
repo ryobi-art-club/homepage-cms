@@ -104,10 +104,10 @@ function buildMediaPlans_(changedItems) {
     const keepIds = new Set(registeredMediaIds_(kind, item));
     if (!folderId && !keepIds.size) return null;
     if (!folderId || seenFolders.has(folderId)) {
-      throw new Error(label + 'の素材フォルダが未設定、または他の項目と重複しています。');
+      throw new Error(label + 'の画像フォルダが未設定、または他の項目と重複しています。');
     }
     seenFolders.add(folderId);
-    const folder = getDriveFolderWithRetry_(folderId, '素材フォルダ取得');
+    const folder = getDriveFolderWithRetry_(folderId, '画像フォルダ取得');
     requireManagedItemFolder_(folder);
     const rootId = managedItemRootId_(folder);
     const staging = getMediaAuxFolder_(folderId, 'staging', false, rootId);

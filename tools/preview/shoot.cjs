@@ -36,6 +36,28 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
 
   const browser = await puppeteer.launch({ executablePath, headless: true, defaultViewport: null });
   const page = await browser.newPage();
+  /* 撮るたびに同じ画像・同じ送る内容になるように（compare-shots.cjs で比べるため）、時計を1つの時刻に止め、
+     画面の動き（transition・animation）をなくす */
+  await page.evaluateOnNewDocument(() => {
+    const fixed = Date.parse('2026-10-31T12:00:00+09:00');
+    const RealDate = Date;
+    class FixedDate extends RealDate {
+      constructor(...args) { if (args.length) super(...args); else super(fixed); }
+      static now() { return fixed; }
+    }
+    window.Date = FixedDate;
+    /* エラーの ID などに使う乱数も、毎回同じ並びにする */
+    let seed = 1;
+    Math.random = () => {
+      seed = (seed * 16807) % 2147483647;
+      return (seed - 1) / 2147483646;
+    };
+    document.addEventListener('DOMContentLoaded', () => {
+      const style = document.createElement('style');
+      style.textContent = '*, *::before, *::after { transition: none !important; animation: none !important; caret-color: transparent !important; }';
+      document.head.appendChild(style);
+    });
+  });
   /* 画面の大きさは CDP で変える。setViewport() は isMobile が変わるたびにページを読み込み直し、
      パソコンとスマホの撮影の間で、開いたダイアログや編集中の内容が消えてしまうため */
   const cdp = await page.createCDPSession();
@@ -52,8 +74,15 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   const coverage = [];
   const startCoverage = () => page.coverage.startJSCoverage({ includeRawScriptCoverage: true, resetOnNavigation: false });
   const collectCoverage = async () => { coverage.push(...(await page.coverage.stopJSCoverage())); };
+  /* 画面がサーバーに送った内容（mock-backend.js の MOCK_CALLS）。ページを読み込み直す前に集める */
+  const serverCalls = [];
+  const collectCalls = async () => {
+    const calls = await page.evaluate(() => (window.MOCK_CALLS ? window.MOCK_CALLS.splice(0) : [])).catch(() => []);
+    serverCalls.push(...calls);
+  };
   await startCoverage();
   const load = async (target) => {
+    await collectCalls();
     await collectCoverage();
     await startCoverage();
     await page.goto(target, { waitUntil: 'networkidle0' });
@@ -63,6 +92,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
     await page.reload({ waitUntil: 'networkidle0' });
   };
   const reloadKeepingSession = async () => {
+    await collectCalls();
     await collectCoverage();
     await startCoverage();
     await page.reload({ waitUntil: 'networkidle0' });
@@ -72,6 +102,8 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   let step = '';
   /* 撮影のたびに、ページが画面の幅からはみ出していないかも確かめる */
   const shot = async (name, fullPage = false) => {
+    /* 上の表示欄は、どの文言も1秒は出してから次に替わる。撮るのは並んだ文言を出し終えてから（PC の速さで写る文言が変わらないように） */
+    await page.waitForFunction(() => typeof statusRuntime === 'undefined' || (!statusRuntime.processing && !statusRuntime.queue.length), { timeout: 15000 });
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     if (overflow > 0) problems.push(`${name}: 画面の幅を ${overflow}px はみ出しています`);
     await page.screenshot({ path: path.join(shots, name + '.png'), fullPage });
@@ -325,7 +357,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
     await new Promise((resolve) => setTimeout(resolve, 500));
     const previewImages = document.querySelectorAll('#activityPreview .preview-article')[0];
     const previewCount = previewImages ? previewImages.querySelectorAll('img').length : -1;
-    const payload = JSON.parse(JSON.stringify(appState.state));
+    const payload = buildPayload();
     /* モックの中だけで公開し、あとの手順のために、ほかのフォルダは元に戻す */
     const savedFolders = JSON.parse(JSON.stringify(window.PREVIEW_DATA.folders));
     const savedBootstrap = JSON.parse(JSON.stringify(window.PREVIEW_DATA.bootstrap));
@@ -345,7 +377,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   /* 画面が送る内容は、保存する内容（版2）の名前だけを使う */
   step = '送る内容の名前';
   const oldNames = await page.evaluate(() => {
-    const json = JSON.stringify(buildPayloadFromDom());
+    const json = JSON.stringify(buildPayload());
     return ['workFiles', 'photoFolderId', 'driveFolderId', 'folderId', 'label', 'recruitCalendar', 'sortOrder', 'file_id']
       .filter((name) => json.indexOf('"' + name + '"') !== -1);
   });
@@ -396,6 +428,14 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   await wait(200);
   await checkKeyboardLayout('mobile-dialog-keyboard');
   await simulateKeyboard(false);
+  /* 作品名の入力は、そのまま内容に入る（後ろの空白は、送るときに取る） */
+  const typedWork = await page.evaluate(() => {
+    const input = document.querySelector('.media-work-card [data-field="title"]');
+    input.value += ' ';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    return currentMediaContext().item.works.some((work) => work.title === input.value);
+  });
+  if (!typedWork) problems.push(step + ': 作品名の入力が内容に入りません');
   await setScreen(DESKTOP);
   await click('clearCatalogDraftAndRender');
   await checkErrors();
@@ -434,12 +474,12 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   step = '会期表示';
   await page.evaluate(() => activatePanel('exhibitions'));
   const dateLine = () => page.evaluate(() => {
-    const box = document.querySelector('[data-exhibition-item] [data-date-line]');
+    const box = document.querySelector('[data-editor="exhibition"] [data-date-line]');
     const input = box.querySelector('input');
     return { text: input.value, manual: box.hasAttribute('data-manual'), editing: box.hasAttribute('data-editing'), readOnly: input.readOnly };
   });
   const typeDateLine = (text) => page.evaluate((value) => {
-    const input = document.querySelector('[data-exhibition-item] [data-field="dateLine"]');
+    const input = document.querySelector('[data-editor="exhibition"] [data-field="dateLine"]');
     input.value = value;
     input.dispatchEvent(new Event('input', { bubbles: true }));
   }, text);
@@ -467,7 +507,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   await expectDateLine('空欄で確定しても自動の表示に戻りません', { text: '2026年11月14日(土)〜11月18日(水)', manual: false, editing: false });
   await click('editExhibitionDateLine');
   await page.evaluate(() => {
-    const input = document.querySelector('[data-exhibition-item] [data-field="endDate"]');
+    const input = document.querySelector('[data-editor="exhibition"] [data-field="endDate"]');
     input.value = '2026-11-19';
     input.dispatchEvent(new Event('change', { bubbles: true }));
   });
@@ -482,13 +522,45 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
     await click(name);
   }
   await click('moveRequestCase');
-  await page.evaluate(() => {
-    document.querySelectorAll('[oninput]').forEach((element) => element.dispatchEvent(new Event('input', { bubbles: true })));
-    document.querySelectorAll('select[onchange], input[onchange]').forEach((element) => {
-      if (element.getAttribute('data-field') !== 'catalogItem') element.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-  });
+  /* 入力欄に打ち込む（値を入れて、入力の出来事を起こす。入力欄ごとの oninput でも、まとめて受ける作りでも同じに働く）。
+     追加したばかりの項目（タイトルなし）は、このあとの入力チェックで使うので、一覧の最後の項目に打ち込む */
+  const typeInto = (selector, value) => page.evaluate((query, text) => {
+    const found = document.querySelectorAll(query);
+    const input = found[found.length - 1];
+    if (!input) return false;
+    input.value = text;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  }, selector, value);
+  const edits = [
+    ['[data-editor="recruit"] [data-field="year"]', '2027'],
+    ['[data-editor="activity"] [data-field="title"]', '<b>太字</b> & "引用"の記事'],
+    ['[data-editor="activity"] [data-field="body"]', '本文を書き換えました。\n2行目です。'],
+    ['[data-editor="activity"] [data-field="category"]', 'event'],
+    ['[data-editor="exhibition"] [data-field="title"]', '書き換えた展示会名'],
+    ['[data-editor="exhibition"] [data-field="subtitle"]', '書き換えたサブタイトル'],
+    ['[data-editor="exhibition"] [data-field="theme"]', '書き換えた概要'],
+    ['[data-editor="exhibition"] [data-field="venueName"]', '書き換えた会場'],
+    ['[data-editor="exhibition"] [data-field="venueAddress"]', '神戸市灘区'],
+    ['[data-editor="exhibition"] [data-field="timeLine"]', '10:00〜17:00'],
+    ['[data-editor="exhibition"] [data-field="startDate"]', '2026-11-20'],
+    ['[data-editor="request"] [data-field="title"]', '書き換えた事例'],
+    ['[data-editor="request"] [data-field="body"]', '事例の本文'],
+    ['#manualChangeNote', '更新履歴メモを書きました']
+  ];
+  for (const [selector, value] of edits) {
+    if (!(await typeInto(selector, value))) problems.push(step + ': 入力欄が見つかりません ' + selector);
+  }
   await wait(600);
+  /* 打ち込んだ < や " は、プレビューでも文字のまま出る（HTML として働かない） */
+  const shownAsText = await page.evaluate(() => {
+    const preview = document.getElementById('activityPreview');
+    return !!preview && !preview.querySelector('h4 b') && preview.textContent.includes('<b>太字</b> & "引用"の記事');
+  });
+  if (!shownAsText) problems.push(step + ': 打ち込んだ < や " が、プレビューで文字のまま出ていません');
+  /* 打ち込んだ内容が送る内容に入ることを、下書き保存で残す */
+  await clickId('saveDraftButton', 800);
   await checkErrors();
 
   /* タイトルのない新しい項目があると、公開の前の確認で止まる（複数行の文言） */
@@ -507,9 +579,12 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   await wait(300);
   await clickId('statusHistoryButton');
   for (const name of ["removeItem('exhibition'", "removeItem('activity'", 'removeRecruitYear', "removeItem('request'"]) await click(name);
-  await page.evaluate(() => document.querySelectorAll('[data-field="title"]').forEach((input) => {
-    if (!input.value.trim()) input.value = 'プレビューで追加した項目';
+  await page.evaluate(() => document.querySelectorAll('[data-editor="recruit"] [data-field], [data-editor="activity"] [data-field="title"], [data-editor="exhibition"] [data-field="title"], [data-editor="request"] [data-field="title"]').forEach((input) => {
+    if (input.getAttribute('data-field') !== 'title' || input.value.trim()) return;
+    input.value = 'プレビューで追加した項目';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
   }));
+  await clickId('saveDraftButton', 800);
   await checkErrors();
 
   step = '下書き';
@@ -541,6 +616,12 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
   await shot('mobile-proofread-keyboard');
   await page.evaluate(() => document.body.classList.remove('keyboard-open'));
   await setScreen(DESKTOP);
+  /* 誤字チェックの指摘の欄で直した文が、送る内容に入る */
+  await page.evaluate(() => {
+    const textarea = document.querySelector('.proofread-item textarea');
+    textarea.value = textarea.value + '（誤字チェックで直した）';
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  });
   await page.click('[data-proofread-action="publish"]');
   await wait(1000);
   await checkErrors();
@@ -621,8 +702,10 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
     await shot('error-5-login-' + label);
   }
 
+  await collectCalls();
   await collectCoverage();
   await browser.close();
+  fs.writeFileSync(path.join(__dirname, 'out', 'server-calls.json'), JSON.stringify(serverCalls, null, 1));
 
   console.log('スクリーンショットを保存しました: ' + shots + '（' + fs.readdirSync(shots).length + '枚）');
   console.log(sheetJs ? 'SheetJS ' + sheetJs + ' を整合性チェック付きで読み込めました。' : 'SheetJS を読み込めませんでした。');

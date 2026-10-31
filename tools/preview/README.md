@@ -1,6 +1,6 @@
 # CMS ローカルプレビュー
 
-管理画面（`Ui.html` + `UiScript.html` + `UiStyles.html`）を、GAS にデプロイせずに手元のブラウザで確認するための道具です。
+管理画面（`Ui.html` と、そこに埋め込む画面のスクリプト `UiCore.html` など5つと `UiStyles.html`）を、GAS にデプロイせずに手元のブラウザで確認するための道具です。
 見た目の調整を、`clasp push` の前に確認できます。
 
 - このフォルダは `.claspignore` で除外しているので、GAS には送られません。
@@ -16,7 +16,7 @@ node tools/preview/build.cjs
 `tools/preview/out/preview.html` をブラウザで開くと、ログイン後の画面が表示されます。
 URL の末尾に `#login` を付けて開くと、ログイン画面から始まります。確認コードは何を入れても通ります。
 管理者へのエラー自動通知の結果は、URL に `?notify=sent` のように付けて切り替えられます（`sent` 通知済み / `duplicate` 通知済みの重複 / `limit` 上限 / `failed` 失敗 / 付けなければ `not_configured` 未設定）。開いたあとでも、ブラウザのコンソールで `MOCK_BACKEND.notifyMode = 'sent'` と入力すれば切り替わります。
-`UiScript.html` や `UiStyles.html` を変更したら、もう一度実行してください（1秒かかりません）。
+画面のスクリプトや `UiStyles.html` を変更したら、もう一度実行してください（1秒かかりません）。
 スマホの表示は、Chrome の検証ツールでデバイスモードにして、機種（iPhone SE など）を選んで確認できます。本番の `doGet()` と同じく、画面の幅に合わせる指定（viewport）を入れてあります。
 
 ## 2. 全機能を動かしてスクリーンショットを撮る（任意）
@@ -31,7 +31,9 @@ node tools/preview/shoot.cjs
 Chrome が標準の場所にない場合は `--chrome <chrome.exe のパス>` を付けてください。
 
 ログインから公開まで、CMS のボタンをひととおり押します（`confirm` はすべて「OK」）。
-スクリーンショットは、表示が崩れる可能性のある画面だけを `tools/preview/out/shots/` に保存します（28枚）。
+スクリーンショットは、表示が崩れる可能性のある画面だけを `tools/preview/out/shots/` に保存します。
+何度撮っても同じ画像になるよう、時刻（2026年10月31日 12:00）と乱数を固定し、動き（アニメーション）を止め、上の表示欄の文言を出し終えてから撮ります。
+画面がサーバーに送った内容（関数の名前と引数）は `tools/preview/out/server-calls.json` に書き出します。
 
 - 全タブ（デスクトップ・スマホ）、ログイン画面、確認コードの入力画面
 - 画像ダイアログ（活動記録・展示会の目録読み込み）、誤字チェックのダイアログ（デスクトップ・スマホ）
@@ -41,10 +43,26 @@ Chrome が標準の場所にない場合は `--chrome <chrome.exe のパス>` �
 最後に次の内容を表示します。問題が見つかった場合は終了コードが 1 になります。
 
 - SheetJS を整合性チェック（SRI）付きで読み込めたか
-- `UiScript.html` の関数のうち実際に動いた数と、一度も動かなかった関数の名前
+- 画面のスクリプトの関数のうち実際に動いた数と、一度も動かなかった関数の名前
 - 画面で発生したエラー
 
 CMS に機能を足したら、一度も動かなかった関数に出てこないことを確認し、出てきたら `shoot.cjs` に操作を追加してください。
+
+## 3. 見た目と動きが変わっていないか比べる（作りを整理するとき）
+
+見た目や動きを変えないはずの作業（書き方の整理など）では、作業の前と後で撮影の結果を比べます。`pngjs` と `pixelmatch` を使います（`npm install --prefix tools/preview` で入ります）。
+
+```powershell
+node tools/preview/shoot.cjs
+node tools/preview/compare.cjs --save <控えのフォルダ>   # 作業の前に、撮影の結果を控えに取る
+（作業する）
+node tools/preview/build.cjs
+node tools/preview/shoot.cjs
+node tools/preview/compare.cjs <控えのフォルダ>          # 控えと比べる
+```
+
+画像は1画素ずつ、サーバーに送った内容は名前の並び順を除いて1文字ずつ比べます。違いがあれば、違う画素に印を付けた画像を `tools/preview/out/diff/` に書き、終了コード 1 で終わります。
+控えのフォルダは、リポジトリの外（一時フォルダなど）に置いてください。
 
 ## サンプルデータについて
 

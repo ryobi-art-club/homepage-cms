@@ -29,20 +29,6 @@ function validatePayloadForSubmit(payload) {
   return false;
 }
 
-function buildPayloadFromDom() {
-  if (isMediaDialogOpen()) {
-    syncMediaEditorRowsToState();
-    syncActiveMediaHiddenFields();
-  }
-  return {
-    recruitCalendars: readRecruitFromDom(),
-    activityArticles: readActivitiesFromDom(),
-    exhibitions: readExhibitionsFromDom(),
-    requestCases: readRequestsFromDom(),
-    manualChangeNote: (document.getElementById('manualChangeNote') ? document.getElementById('manualChangeNote').value.trim() : (appState.state.manualChangeNote || ''))
-  };
-}
-
 async function refreshMetaAfterDraftSave(currentPayload) {
   const data = await serverCall('getBootstrapData', appState.sessionToken);
   appState.previewUrl = data.previewUrl || '';
@@ -100,7 +86,7 @@ async function runExclusiveSubmit(busyButtonId, busyLabel, task) {
 function startSaveDraft() {
   return runExclusiveSubmit('saveDraftButton', '保存中…', async () => {
     try {
-      const payload = buildPayloadFromDom();
+      const payload = buildPayload();
       if (!confirm('現在の内容を新しい下書きとして保存しますか？')) return;
       setStatus('下書きを保存しています…');
       const result = await serverCall('saveDraft', appState.sessionToken, payload);
@@ -113,67 +99,43 @@ function startSaveDraft() {
   });
 }
 
+/* 誤字チェックする文章：公開中の項目の、名前の付いた欄と更新履歴メモ。並びは id とともにサーバーへ送る */
+const PROOFREAD_FIELDS = {
+  exhibition: { name: '展示会', fields: { title: '展示会名', subtitle: 'サブタイトル', theme: 'テーマ' } },
+  activity: { name: '活動記録・告知', fields: { title: '記事タイトル', body: '本文' } },
+  request: { name: '取り組み事例', fields: { title: '取り組みタイトル', body: '本文' } }
+};
+
 function collectProofreadFields() {
   const fields = [];
-  function addElement(id, label, element) {
-    if (!element) return;
+  function addField(id, label, kind, index, field) {
+    const target = editorTarget(kind, index);
     fields.push({
       id,
       label,
-      getText: () => element.value,
+      getText: () => String(target[field] || ''),
       setText: (value) => {
-        element.value = value;
-        element.dispatchEvent(new Event('input', { bubbles: true }));
-      }
-    });
-  }
-  function itemTitle(item, fallback) {
-    const input = item.querySelector('[data-field="title"]');
-    return (input && input.value.trim()) || fallback;
-  }
-  function eachPublished(selector, callback) {
-    document.querySelectorAll(selector).forEach((item, index) => {
-      if (item.getAttribute('data-published') !== 'false') callback(item, index);
-    });
-  }
-
-  eachPublished('[data-exhibition-item]', (item, index) => {
-    const name = '展示会「' + itemTitle(item, '新規展示会') + '」';
-    addElement('exhibition:' + index + ':title', name + ' › 展示会名', item.querySelector('[data-field="title"]'));
-    addElement('exhibition:' + index + ':subtitle', name + ' › サブタイトル', item.querySelector('[data-field="subtitle"]'));
-    addElement('exhibition:' + index + ':theme', name + ' › テーマ', item.querySelector('[data-field="theme"]'));
-  });
-  eachPublished('[data-activity-item]', (item, index) => {
-    const name = '活動記録・告知「' + itemTitle(item, '新規記事') + '」';
-    addElement('activity:' + index + ':title', name + ' › 記事タイトル', item.querySelector('[data-field="title"]'));
-    addElement('activity:' + index + ':body', name + ' › 本文', item.querySelector('[data-field="body"]'));
-  });
-  eachPublished('[data-request-item]', (item, index) => {
-    const name = '取り組み事例「' + itemTitle(item, '新規事例') + '」';
-    addElement('request:' + index + ':title', name + ' › 取り組みタイトル', item.querySelector('[data-field="title"]'));
-    addElement('request:' + index + ':body', name + ' › 本文', item.querySelector('[data-field="body"]'));
-  });
-
-  const noteElement = document.getElementById('manualChangeNote');
-  if (noteElement) {
-    addElement('manualChangeNote', '更新履歴メモ', noteElement);
-  } else {
-    fields.push({
-      id: 'manualChangeNote',
-      label: '更新履歴メモ',
-      getText: () => appState.state.manualChangeNote || '',
-      setText: (value) => {
-        appState.state.manualChangeNote = value;
+        const input = document.querySelector(editorSelector(kind, index) + ' [data-field="' + field + '"]');
+        if (input) input.value = value;
+        setEditorField(kind, index, field, value);
         markDirty();
       }
     });
   }
-  return fields.filter((field) => String(field.getText() || '').trim());
+  Object.keys(PROOFREAD_FIELDS).forEach((kind) => {
+    const { name, fields: labels } = PROOFREAD_FIELDS[kind];
+    editorItems(kind).forEach((item, index) => {
+      if (item.published === false) return;
+      const itemName = name + '「' + editorItemTitle(kind, item) + '」';
+      Object.keys(labels).forEach((field) => addField(kind + ':' + index + ':' + field, itemName + ' › ' + labels[field], kind, index, field));
+    });
+  });
+  addField('manualChangeNote', '更新履歴メモ', 'logs', 0, 'manualChangeNote');
+  return fields.filter((field) => field.getText().trim());
 }
 
-/* 公開前の誤字脱字チェック。キャンセルなら null を返す。 */
-/* 続行するなら、公開成功後にチェック済みとして記録する文章（指摘のなかった文章と、利用者が「問題ない」とした文章）の配列を返す。 */
-/* チェック自体が失敗した場合は公開を止めない。 */
+/* 公開前の誤字脱字チェック。キャンセルなら null、続けるなら公開が成功したあとにチェック済みとして記録する文章
+   （指摘のなかった文章と、利用者が「問題ない」とした文章）を返す。チェック自体が失敗しても公開は止めない */
 async function runProofreadBeforePublish() {
   const fields = collectProofreadFields();
   if (!fields.length) return [];
@@ -239,42 +201,36 @@ function openProofreadDialog(groups) {
     const issueCount = groups.reduce((sum, group) => sum + group.issues.length, 0);
     const dialog = document.createElement('div');
     dialog.className = 'media-modal proofread-modal';
-    dialog.innerHTML = [
-      '<div class="media-modal-backdrop"></div>',
-      '<div class="media-modal-panel proofread-panel" role="dialog" aria-modal="true" aria-labelledby="proofreadDialogTitle">',
-      '<div class="media-modal-head">',
-      '<div>',
-      '<h2 id="proofreadDialogTitle">誤字脱字の可能性があります（' + issueCount + '件）</h2>',
-      '<div class="small-note">指摘を参考に、必要なら下の文章を直してください。直さなければそのまま公開します。</div>',
-      '</div>',
-      '<button class="icon-action-button" type="button" data-proofread-action="cancel" aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button>',
-      '</div>',
-      '<div class="media-modal-body proofread-list">',
-      groups.map((group, index) => [
-        '<section class="proofread-item">',
-        '<div class="small-note">' + escapeHtml(group.field.label) + '</div>',
-        '<ul class="proofread-issues">',
-        group.issues.map((issue) => [
-          '<li>',
-          '「<del>' + escapeHtml(issue.original) + '</del>」→「<ins>' + escapeHtml(issue.suggestion) + '</ins>」？',
-          issue.reason ? ' <span class="proofread-reason">' + escapeHtml(issue.reason) + '</span>' : '',
-          '</li>'
-        ].join('')).join(''),
-        '</ul>',
-        '<textarea data-proofread-field="' + escapeHtml(group.field.id) + '" rows="' + proofreadEditorRows(group.field) + '" aria-label="' + escapeHtml(group.field.label) + '">' + escapeHtml(group.field.getText()) + '</textarea>',
-        '<label class="proofread-approve" for="proofreadApprove' + index + '">',
-        '<input type="checkbox" id="proofreadApprove' + index + '" data-proofread-approve="' + escapeHtml(group.field.id) + '">',
-        '<span>この内容で問題ない（今後この文章は指摘しない）</span>',
-        '</label>',
-        '</section>'
-      ].join('')).join(''),
-      '</div>',
-      '<div class="proofread-actions">',
-      '<button class="button ghost" type="button" data-proofread-action="cancel">キャンセル</button>',
-      '<button class="button success" type="button" data-proofread-action="publish">この内容で公開</button>',
-      '</div>',
-      '</div>'
-    ].join('');
+    dialog.innerHTML = html`
+      <div class="media-modal-backdrop"></div>
+      <div class="media-modal-panel proofread-panel" role="dialog" aria-modal="true" aria-labelledby="proofreadDialogTitle">
+        <div class="media-modal-head">
+          <div>
+            <h2 id="proofreadDialogTitle">誤字脱字の可能性があります（${issueCount}件）</h2>
+            <div class="small-note">指摘を参考に、必要なら下の文章を直してください。直さなければそのまま公開します。</div>
+          </div>
+          <button class="icon-action-button" type="button" data-proofread-action="cancel" aria-label="閉じる"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="media-modal-body proofread-list">
+          ${groups.map((group, index) => html`
+            <section class="proofread-item">
+              <div class="small-note">${group.field.label}</div>
+              <ul class="proofread-issues">
+                ${group.issues.map((issue) => html`
+                  <li>「<del>${issue.original}</del>」→「<ins>${issue.suggestion}</ins>」？${issue.reason && html` <span class="proofread-reason">${issue.reason}</span>`}</li>`)}
+              </ul>
+              <textarea data-proofread-field="${group.field.id}" rows="${proofreadEditorRows(group.field)}" aria-label="${group.field.label}">${group.field.getText()}</textarea>
+              <label class="proofread-approve" for="proofreadApprove${index}">
+                <input type="checkbox" id="proofreadApprove${index}" data-proofread-approve="${group.field.id}">
+                <span>この内容で問題ない（今後この文章は指摘しない）</span>
+              </label>
+            </section>`)}
+        </div>
+        <div class="proofread-actions">
+          <button class="button ghost" type="button" data-proofread-action="cancel">キャンセル</button>
+          <button class="button success" type="button" data-proofread-action="publish">この内容で公開</button>
+        </div>
+      </div>`;
 
     function finish(action) {
       const texts = {};
@@ -308,12 +264,12 @@ function startPublish() {
 
 async function publishContent() {
   try {
-    let payload = buildPayloadFromDom();
+    let payload = buildPayload();
     if (!validatePayloadForSubmit(payload)) return;
     if (!confirm('この内容で公開しますか？')) return;
     const proofreadTexts = await runProofreadBeforePublish();
     if (!proofreadTexts) return;
-    payload = buildPayloadFromDom();
+    payload = buildPayload();
     setStatus('公開処理を開始しています…');
     const result = await serverCall('publishState', appState.sessionToken, payload);
     if (proofreadTexts.length) {
@@ -329,8 +285,4 @@ async function publishContent() {
   }
 }
 
-function syncManualChangeNote() {
-  const field = document.getElementById('manualChangeNote');
-  appState.state.manualChangeNote = field ? field.value.replace(/\r\n?/g, '\n').replace(/^\n+|\n+$/g, '') : '';
-}
 </script>

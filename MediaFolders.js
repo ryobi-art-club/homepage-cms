@@ -3,13 +3,13 @@
 function ensureManagedFolder_(kind, folderId, title, draft) {
   const existingId = String(folderId || '').trim();
   if (existingId) {
-    const folder = getDriveFolderWithRetry_(existingId, '素材フォルダ取得');
+    const folder = getDriveFolderWithRetry_(existingId, '画像フォルダ取得');
     return folder;
   }
 
-  const root = getDriveFolderWithRetry_(rootFolderIdForKind_(kind), '素材親フォルダ取得');
+  const root = getDriveFolderWithRetry_(rootFolderIdForKind_(kind), '画像親フォルダ取得');
   const folderName = buildManagedFolderName_(title, draft !== false);
-  const folder = retryDriveOperation_(() => root.createFolder(folderName), '素材フォルダ作成');
+  const folder = retryDriveOperation_(() => root.createFolder(folderName), '画像フォルダ作成');
   return folder;
 }
 
@@ -40,11 +40,11 @@ function sanitizeFolderTitle_(title) {
 function renameFolderIfPresent_(folderId, title, draft) {
   const value = String(folderId || '').trim();
   if (!value) return null;
-  const folder = getDriveFolderWithRetry_(value, '素材フォルダ取得');
-  const currentName = retryDriveOperation_(() => folder.getName(), '素材フォルダ名取得');
+  const folder = getDriveFolderWithRetry_(value, '画像フォルダ取得');
+  const currentName = retryDriveOperation_(() => folder.getName(), '画像フォルダ名取得');
   const nextName = buildManagedFolderName_(title, !!draft, currentName);
   if (currentName !== nextName) {
-    retryDriveOperation_(() => folder.setName(nextName), '素材フォルダ名変更');
+    retryDriveOperation_(() => folder.setName(nextName), '画像フォルダ名変更');
   }
   return folder;
 }
@@ -57,17 +57,17 @@ function rootFolderIdForKind_(kind) {
     exhibition: config.ROOT_EXHIBITION_FOLDER_ID,
     request: config.ROOT_REQUEST_FOLDER_ID
   };
-  return map[requireOneOf_(kind, Object.keys(MEDIA_KIND_LABELS), '素材種別が不正です。')];
+  return map[requireOneOf_(kind, Object.keys(MEDIA_KIND_LABELS), '画像種別が不正です。')];
 }
 
 // 項目のフォルダ（4つのルートフォルダの直下で、CMS_ の一時置き場・退避先ではないもの）なら、そのルートの ID。
 // それ以外は ''
 function managedItemRootId_(folder) {
-  const name = retryDriveOperation_(() => folder.getName(), '素材フォルダ名取得');
+  const name = retryDriveOperation_(() => folder.getName(), '画像フォルダ名取得');
   if (/^CMS_(下書き|未登録)_/.test(name)) return '';
   const config = getConfig_();
   const roots = [config.ROOT_RECRUIT_FOLDER_ID, config.ROOT_ACTIVITY_FOLDER_ID, config.ROOT_EXHIBITION_FOLDER_ID, config.ROOT_REQUEST_FOLDER_ID];
-  const parents = retryDriveOperation_(() => folder.getParents(), '素材フォルダの親取得');
+  const parents = retryDriveOperation_(() => folder.getParents(), '画像フォルダの親取得');
   while (parents.hasNext()) {
     const parentId = parents.next().getId();
     if (roots.indexOf(parentId) !== -1) return parentId;
@@ -85,11 +85,11 @@ function requireManagedItemFolder_(folder) {
   }
 }
 
-// CMS_下書き_<item folder id> (staging) and CMS_未登録_<item folder id> (recovery), next to the item folder.
+// 一時置き場（staging：CMS_下書き_<項目のフォルダの ID>）と退避先（recovery：CMS_未登録_<項目のフォルダの ID>）。項目のフォルダと同じルートの中にある
 function getMediaAuxFolder_(folderId, type, create, rootId) {
-  const parentId = rootId || managedItemRootId_(getDriveFolderWithRetry_(folderId, '素材フォルダ取得'));
+  const parentId = rootId || managedItemRootId_(getDriveFolderWithRetry_(folderId, '画像フォルダ取得'));
   if (!parentId) throw new Error('画像のフォルダが見つかりません。最新のデータを読み込んでください。');
-  const root = getDriveFolderWithRetry_(parentId, '素材親フォルダ取得');
+  const root = getDriveFolderWithRetry_(parentId, '画像親フォルダ取得');
   const name = 'CMS_' + (type === 'staging' ? '下書き' : '未登録') + '_' + folderId;
   const folders = retryDriveOperation_(() => root.getFoldersByName(name), '補助フォルダ取得');
   const folder = folders.hasNext() ? folders.next() : null;
@@ -107,7 +107,7 @@ function mediaSourceFolders_(folder) {
   const sources = [folder];
   const rootId = managedItemRootId_(folder);
   if (rootId) {
-    const folderId = retryDriveOperation_(() => folder.getId(), '素材フォルダID取得');
+    const folderId = retryDriveOperation_(() => folder.getId(), '画像フォルダID取得');
     ['staging', 'recovery'].forEach((type) => {
       const auxiliary = getMediaAuxFolder_(folderId, type, false, rootId);
       if (auxiliary) sources.push(auxiliary);
@@ -117,7 +117,7 @@ function mediaSourceFolders_(folder) {
 }
 
 function listFolderFiles_(folder) {
-  const iterator = retryDriveOperation_(() => folder.getFiles(), 'Drive素材一覧取得');
+  const iterator = retryDriveOperation_(() => folder.getFiles(), 'Drive画像一覧取得');
   const files = [];
   while (iterator.hasNext()) files.push(iterator.next());
   return files;
@@ -139,8 +139,8 @@ function setFolderLinkSharing_(folder, isPublic) {
 }
 
 function trashFolderIfEmpty_(folderId) {
-  const folder = getDriveFolderWithRetry_(folderId, '素材フォルダ取得');
-  const files = retryDriveOperation_(() => folder.getFiles(), '素材フォルダ空チェック');
+  const folder = getDriveFolderWithRetry_(folderId, '画像フォルダ取得');
+  const files = retryDriveOperation_(() => folder.getFiles(), '画像フォルダ空チェック');
   if (files.hasNext()) return false;
   if (folder.getFolders().hasNext()) return false;
   retryDriveOperation_(() => folder.setTrashed(true), '空フォルダ削除');

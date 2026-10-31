@@ -8,16 +8,14 @@ const PROOFREAD_MAX_FIELDS = 1000;
 
 const PROOFREAD_MAX_ISSUES_PER_FIELD = 20;
 
-// 公開前の誤字脱字チェック。チェック済みの文章は SHA-256 を _ProofreadChecked に記録してあり、
-// 記録にない（＝新規・変更された）文章だけを Gemini に送る。ここでは記録を追加しない。
-// 記録の追加は公開成功後の markProofreadChecked だけで行う。
+// チェック済みの文章は SHA-256 を _ProofreadChecked に記録してあり、記録にない（新しい・変えた）文章だけを
+// Gemini に送る。記録を足すのは、公開が成功したあとの markProofreadChecked だけ
 function proofreadForPublish(sessionToken, fields) {
   requireSession_(sessionToken);
   const targets = normalizeProofreadFields_(fields);
   const currentHashes = {};
   targets.forEach((field) => { currentHashes[field.hash] = true; });
-  // 公開対象から外れた文章の記録を削除する。
-  // 公開しなくなった文章の記録の整理は急がない。ほかの保存・公開がロックを持っていれば飛ばす
+  // 公開しなくなった文章の記録を消す。急がないので、ほかの保存・公開がロックを持っていれば飛ばす
   updateProofreadChecked_([], currentHashes, { optional: true });
   const checked = readProofreadCheckedHashes_();
   const pending = targets.filter((field) => !checked[field.hash]);

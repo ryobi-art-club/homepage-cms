@@ -5,95 +5,86 @@ const GENERAL_IMAGE_LIMIT = 10;
 
 function folderImageWarning(total, limit, label) {
   if (!(total > limit)) return '';
-  return `<div class="warning-note">${escapeHtml(label)}は${limit}枚まで表示します（${total}枚中${limit}枚を使用）。</div>`;
+  return html`<div class="warning-note">${label}は${limit}枚まで表示します（${total}枚中${limit}枚を使用）。</div>`;
 }
 
 function buildThumbCarouselHtml(images, poster=false) {
   const source = (images || []).slice(0, 10);
   if (!source.length) return '';
   if (poster) {
-    const first = source[0];
-    const dots = source.length > 1 ? `<div class="preview-poster-dots">${source.slice(0, 2).map((_, index) => `<span class="${index === 0 ? 'is-active' : ''}"></span>`).join('')}</div>` : '';
-    return `
+    return html`
       <div class="preview-carousel poster is-poster-carousel">
-        <div class="preview-thumb">${mediaImageHtml(first)}</div>
-        ${dots}
+        <div class="preview-thumb">${mediaImageHtml(source[0])}</div>
+        ${source.length > 1 && html`<div class="preview-poster-dots">${source.slice(0, 2).map((_, index) => html`<span class="${index === 0 ? 'is-active' : ''}"></span>`)}</div>`}
       </div>`;
   }
   const visible = source.slice(0, 4);
   const extra = Math.max(0, source.length - visible.length);
-  const countClass = `count-${Math.min(source.length, 4)}`;
-  return `<div class="preview-carousel ${countClass}">${visible.map((img, index) => {
-    const more = (extra && index === visible.length - 1) ? `<span class="preview-more">+${extra}</span>` : '';
-    return `<div class="preview-thumb">${mediaImageHtml(img)}${more}</div>`;
-  }).join('')}</div>`;
+  return html`<div class="preview-carousel count-${Math.min(source.length, 4)}">${visible.map((img, index) => html`
+    <div class="preview-thumb">
+      ${mediaImageHtml(img)}
+      ${extra > 0 && index === visible.length - 1 && html`<span class="preview-more">+${extra}</span>`}
+    </div>`)}</div>`;
 }
 
-/* 公開サイトの記事カードに合わせる: 写真があり、ペインが広ければ「文章は左、写真は右」の2列 */
+/* 公開サイトの記事カードに合わせる：写真があり、ペインが広ければ「文章は左、写真は右」の2列 */
 function buildArticlePreviewHtml(kicker, metaText, title, body, images, warningHtml) {
   const imagesHtml = buildThumbCarouselHtml(images);
-  return `
-    <article class="preview-site-card preview-article${imagesHtml ? ' has-images' : ''}">
+  return html`
+    <article class="preview-site-card preview-article${imagesHtml && html` has-images`}">
       <div class="preview-article-text">
-        <div class="preview-inline-meta"><span>${kicker}</span><span>${escapeHtml(metaText)}</span></div>
-        <h4>${escapeHtml(title)}</h4>
+        <div class="preview-inline-meta"><span>${kicker}</span><span>${metaText}</span></div>
+        <h4>${title}</h4>
         <p>${renderRichText(body)}</p>
       </div>
-      ${imagesHtml ? `<div class="preview-article-images">${imagesHtml}</div>` : ''}
+      ${imagesHtml && html`<div class="preview-article-images">${imagesHtml}</div>`}
       ${warningHtml}
-    </article>
-  `;
+    </article>`;
 }
 
-/* 公開サイトの展示会カードに合わせる: 見出しは本文の列に置いてDMを横に並べる。 */
-/* ペインが狭いとき(サイトのスマホ表示相当)は見出し→DM→本文の順にするため、見出しを2か所に出して CSS で切り替える */
+/* 公開サイトの展示会カードに合わせる：見出しは本文の列に置き、DM を横に並べる。ペインが狭いとき（サイトのスマホ表示に
+   あたる）は見出し→DM→本文の順にするため、見出しを2か所に出して CSS で切り替える */
 function buildExhibitionPreviewCardHtml(item, kicker, dm, linkHtml = '', extraHtml = '') {
-  const heading = (placement) => `
+  const heading = (placement) => html`
     <div class="preview-exhibition-heading is-${placement}">
       <span class="preview-site-kicker">${kicker}</span>
-      ${buildExhibitionSubtitleHtml(item)}
-      <h4>${escapeHtml(item.title || '展示会名')}</h4>
+      ${item.subtitle && html`<div class="preview-exhibition-subtitle">${item.subtitle}</div>`}
+      <h4>${item.title || '展示会名'}</h4>
     </div>`;
   const overview = item.theme || item.overview || '';
-  return `
+  return html`
     <article class="preview-site-card">
       ${heading('narrow')}
-      <div class="preview-exhibition-layout${dm.length ? '' : ' no-poster'}">
+      <div class="preview-exhibition-layout${!dm.length && html` no-poster`}">
         <div class="preview-exhibition-copy">
           ${heading('wide')}
-          ${overview ? `<p class="preview-exhibition-overview">${renderRichText(overview)}</p>` : ''}
+          ${overview && html`<p class="preview-exhibition-overview">${renderRichText(overview)}</p>`}
           ${linkHtml}
           <div class="preview-exhibition-meta">${buildMetaListHtml(item)}</div>
         </div>
-        ${dm.length ? `<div class="preview-dm-slot">${buildThumbCarouselHtml(dm, true)}</div>` : ''}
+        ${dm.length > 0 && html`<div class="preview-dm-slot">${buildThumbCarouselHtml(dm, true)}</div>`}
       </div>
       ${extraHtml}
-    </article>
-  `;
+    </article>`;
 }
 
-/* 出展作品: 公開サイトと同じ行方式(行内で高さを揃え、幅は縦横比に比例)を小さめに並べる。 */
-/* 縦横比は画像の読み込み後に分かるので onload で --ratio を入れる。 */
-/* 確認時のスクロールを減らすため、最初の 12 点以外は「すべて表示」で開く */
+/* 出展作品：公開サイトと同じ並べ方（行の中で高さをそろえ、幅は縦横比に合わせる）で小さめに並べる。
+   縦横比は画像を読み込んでから分かるので、onload で --ratio を入れる。
+   確かめるときのスクロールを減らすため、最初の12点のほかは「すべて表示」で開く */
 const PREVIEW_WORKS_VISIBLE = 12;
 
 function buildWorkGalleryPreviewHtml(works) {
   if (!works.length) return '';
-  const cards = works.map((work) => `
-    <div class="preview-work-card">
-      ${mediaImageHtml(work.file, ` onload="this.parentElement.style.setProperty('--ratio', Math.min(Math.max(this.naturalWidth / this.naturalHeight, 0.4), 3).toFixed(3))"`)}
-      <div class="preview-work-title">${escapeHtml(work.title || '')}</div>
-      <div class="preview-work-artist">${escapeHtml(work.artist || '')}</div>
-    </div>`).join('');
   const hidden = works.length - PREVIEW_WORKS_VISIBLE;
-  const more = hidden > 0
-    ? `<button class="preview-work-more" type="button" onclick="this.previousElementSibling.classList.remove('is-collapsed'); this.remove()">すべての作品を表示(残り${hidden}点)</button>`
-    : '';
-  return `
+  return html`
     <div class="preview-work-label">出展作品<span>${works.length}点</span></div>
-    <div class="preview-work-grid${hidden > 0 ? ' is-collapsed' : ''}">${cards}</div>
-    ${more}
-  `;
+    <div class="preview-work-grid${hidden > 0 && html` is-collapsed`}">${works.map((work) => html`
+      <div class="preview-work-card">
+        ${mediaImageHtml(work.file, html` onload="this.parentElement.style.setProperty('--ratio', Math.min(Math.max(this.naturalWidth / this.naturalHeight, 0.4), 3).toFixed(3))"`)}
+        <div class="preview-work-title">${work.title}</div>
+        <div class="preview-work-artist">${work.artist}</div>
+      </div>`)}</div>
+    ${hidden > 0 && html`<button class="preview-work-more" type="button" onclick="this.previousElementSibling.classList.remove('is-collapsed'); this.remove()">すべての作品を表示(残り${hidden}点)</button>`}`;
 }
 
 /* 新歓カレンダーは全部の画像を横に並べ、スクロールして確かめる。
@@ -101,16 +92,14 @@ function buildWorkGalleryPreviewHtml(works) {
 function buildRecruitPreviewHtml(images) {
   const source = (images || []).slice(0, GENERAL_IMAGE_LIMIT);
   if (!source.length) return '';
-  const controls = source.length > 1 ? `
-      <button class="preview-recruit-step is-prev" type="button" aria-label="前の画像" onclick="stepRecruitPreview(this, -1)">‹</button>
-      <button class="preview-recruit-step is-next" type="button" aria-label="次の画像" onclick="stepRecruitPreview(this, 1)">›</button>
-      <div class="preview-recruit-count">全${source.length}枚</div>` : '';
-  return `
+  return html`
     <div class="preview-recruit-carousel">
-      <div class="preview-recruit-track">${source.map((image) => `<div class="preview-recruit-slide">${mediaImageHtml(image, ' onload="fitRecruitPreviewFrame(this)"')}</div>`).join('')}</div>
-      ${controls}
-    </div>
-  `;
+      <div class="preview-recruit-track">${source.map((image) => html`<div class="preview-recruit-slide">${mediaImageHtml(image, html` onload="fitRecruitPreviewFrame(this)"`)}</div>`)}</div>
+      ${source.length > 1 && html`
+        <button class="preview-recruit-step is-prev" type="button" aria-label="前の画像" onclick="stepRecruitPreview(this, -1)">‹</button>
+        <button class="preview-recruit-step is-next" type="button" aria-label="次の画像" onclick="stepRecruitPreview(this, 1)">›</button>
+        <div class="preview-recruit-count">全${source.length}枚</div>`}
+    </div>`;
 }
 
 function stepRecruitPreview(button, delta) {
@@ -129,20 +118,23 @@ function fitRecruitPreviewFrame(img) {
 }
 
 function buildMetaListHtml(item) {
-  const rows = [];
+  const metaRow = (label, value) => html`<div class="preview-meta-row"><div class="preview-meta-label">${label}</div><div class="preview-meta-value">${value}</div></div>`;
   const mapQuery = [item.venueName, item.venueAddress].filter(Boolean).join(' ');
-  const addressHtml = item.venueAddress
-    ? `<a class="address preview-map-link" href="${escapeHtml(googleMapsSearchUrl(mapQuery))}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(item.venueAddress)}（Google マップで開く）"><i class="fa-solid fa-location-dot" aria-hidden="true"></i><span>${escapeHtml(item.venueAddress)}</span></a>`
-    : '';
-  const venueValue = `${item.venueName ? escapeHtml(item.venueName) : ''}${addressHtml}`;
-  const dateTimeValue = `${item.dateLine ? `<span>${escapeHtml(item.dateLine)}</span>` : ''}${item.timeLine ? `<span class="address">${escapeHtml(item.timeLine)}</span>` : ''}`;
-  if (dateTimeValue) rows.push(`<div class="preview-meta-row"><div class="preview-meta-label">会期</div><div class="preview-meta-value">${dateTimeValue}</div></div>`);
-  if (venueValue) rows.push(`<div class="preview-meta-row"><div class="preview-meta-label">会場</div><div class="preview-meta-value">${venueValue}</div></div>`);
-  return rows.length ? `<div class="preview-meta-list">${rows.join('')}</div>` : '';
-}
-
-function buildExhibitionSubtitleHtml(item) {
-  return item.subtitle ? `<div class="preview-exhibition-subtitle">${escapeHtml(item.subtitle)}</div>` : '';
+  const rows = [];
+  if (item.dateLine || item.timeLine) {
+    rows.push(metaRow('会期', html`
+      ${item.dateLine && html`<span>${item.dateLine}</span>`}
+      ${item.timeLine && html`<span class="address">${item.timeLine}</span>`}`));
+  }
+  if (item.venueName || item.venueAddress) {
+    rows.push(metaRow('会場', html`
+      ${item.venueName}
+      ${item.venueAddress && html`
+        <a class="address preview-map-link" href="${googleMapsSearchUrl(mapQuery)}" target="_blank" rel="noopener noreferrer" aria-label="${item.venueAddress}（Google マップで開く）">
+          <i class="fa-solid fa-location-dot" aria-hidden="true"></i><span>${item.venueAddress}</span>
+        </a>`}`));
+  }
+  return rows.length > 0 && html`<div class="preview-meta-list">${rows}</div>`;
 }
 
 /* ---------- 右側のプレビュー ----------
@@ -153,7 +145,7 @@ function isPreviewOpen(kind) {
 }
 
 function previewPlaceholderHtml(kind) {
-  return '<div class="preview-placeholder"><button class="button subtle" type="button" onclick="openPreview(\'' + kind + '\')">プレビューを表示</button></div>';
+  return html`<div class="preview-placeholder"><button class="button subtle" type="button" onclick="openPreview('${jsString(kind)}')">プレビューを表示</button></div>`;
 }
 
 /* 閉じているときはボタンを出して false を返す */
@@ -169,61 +161,63 @@ function openPreview(kind) {
   else refreshPreview(kind);
 }
 
-async function showPreviewHtml(element, html) {
+async function showPreviewHtml(element, content) {
   if (!element) return;
-  element.innerHTML = html;
+  element.innerHTML = content;
   hydrateThumbnails(element);
 }
 
-/* タブごとのプレビュー：入力欄から読む関数と、HTML を作る関数（読む関数は UiEditors にあるので、呼ぶときに探す） */
-const PREVIEW_SOURCES = {
-  recruit: { elementId: 'recruitPreview', read: () => readRecruitFromDom(), render: (items) => renderRecruitPreview(items) },
-  activity: { elementId: 'activityPreview', read: () => readActivitiesFromDom(), render: (items) => renderActivityPreview(items) },
-  exhibition: { elementId: 'exhibitionPreview', read: () => readExhibitionsFromDom(), render: (items) => renderExhibitionPreview(items) },
-  request: { elementId: 'requestPreview', read: () => readRequestsFromDom(), render: (items) => renderRequestPreview(items) }
+/* タブごとのプレビューを作る関数。表示する場所は id が「種類 + Preview」の要素 */
+const PREVIEW_RENDERERS = {
+  recruit: (items) => renderRecruitPreview(items),
+  activity: (items) => renderActivityPreview(items),
+  exhibition: (items) => renderExhibitionPreview(items),
+  request: (items) => renderRequestPreview(items)
 };
 
 async function refreshPreview(kind) {
-  const source = PREVIEW_SOURCES[kind];
-  const preview = source ? document.getElementById(source.elementId) : null;
+  const render = PREVIEW_RENDERERS[kind];
+  const preview = render ? document.getElementById(kind + 'Preview') : null;
   if (!preview || !ensurePreviewOpen(kind, preview)) return;
   try {
-    showPreviewHtml(preview, await source.render(source.read()));
+    showPreviewHtml(preview, await render(buildPayloadList(kind)));
   } catch (error) {
-    preview.innerHTML = `<div class="preview-empty">${escapeHtml(error.message || String(error))}</div>`;
+    preview.innerHTML = html`<div class="preview-empty">${error.message || String(error)}</div>`;
   }
 }
 
 async function renderRecruitPreview(items) {
   const recruit = items.find((item) => item.published !== false) || items[0] || {};
-  if (!recruit.mediaFolderId) return '<div class="preview-empty">画像は未設定です。</div>';
+  if (!recruit.mediaFolderId) return html`<div class="preview-empty">画像は未設定です。</div>`;
   const files = await getFolderImagesCached(recruit.mediaFolderId);
   const registered = orderedFilesByIds(files, mediaIdsForItem(recruit));
-  return `
+  return html`
     <div class="preview-site">
       <article class="preview-site-card">
         <span class="preview-site-kicker">WELCOME CALENDAR</span>
-        <h4>${escapeHtml(recruitCalendarLabel(recruit.year))}</h4>
+        <h4>${recruitCalendarLabel(recruit.year)}</h4>
         ${buildRecruitPreviewHtml(registered.slice(0, GENERAL_IMAGE_LIMIT))}
         ${folderImageWarning(registered.length, GENERAL_IMAGE_LIMIT, '画像')}
       </article>
-    </div>
-  `;
+    </div>`;
+}
+
+/* 記事のプレビュー（活動記録・告知と取り組み事例）：登録した画像を GENERAL_IMAGE_LIMIT 枚まで出す */
+async function buildArticleItemPreviewHtml(item, kicker, metaText) {
+  const folderId = item.mediaFolderId || '';
+  const files = folderId ? await getFolderImagesCached(folderId) : [];
+  const registered = folderId ? orderedFilesByIds(files, mediaIdsForItem(item)) : [];
+  return buildArticlePreviewHtml(
+    kicker, metaText,
+    item.title || 'タイトル未入力', item.body || '本文未入力',
+    registered.slice(0, GENERAL_IMAGE_LIMIT), folderImageWarning(registered.length, GENERAL_IMAGE_LIMIT, '画像'));
 }
 
 async function renderActivityPreview(items) {
   const visible = (items || []).filter((item) => item.published !== false).slice().sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
-  if (!visible.length) return '<div class="preview-empty">公開中の記事はありません。</div>';
-  return Promise.all(visible.map(async (item) => {
-    const folderId = item.mediaFolderId || '';
-    const files = folderId ? await getFolderImagesCached(folderId) : [];
-    const registered = folderId ? orderedFilesByIds(files, mediaIdsForItem(item)) : [];
-    const imageResult = { total: registered.length, items: registered.slice(0, GENERAL_IMAGE_LIMIT) };
-    return buildArticlePreviewHtml(
-      escapeHtml(activityCategoryLabel(item.category)), formatDate(item.createdAt),
-      item.title || 'タイトル未入力', item.body || '本文未入力',
-      imageResult.items, folderImageWarning(imageResult.total, GENERAL_IMAGE_LIMIT, '画像'));
-  })).then((cards) => `<div class="preview-site">${cards.join('')}</div>`);
+  if (!visible.length) return html`<div class="preview-empty">公開中の記事はありません。</div>`;
+  const cards = await Promise.all(visible.map((item) => buildArticleItemPreviewHtml(item, activityCategoryLabel(item.category), formatDate(item.createdAt))));
+  return html`<div class="preview-site">${cards}</div>`;
 }
 
 async function renderExhibitionPreview(items) {
@@ -232,58 +226,44 @@ async function renderExhibitionPreview(items) {
   const archive = visible.filter((item) => item.displayBucket === 'archive');
   const recent = archive.length ? archive[0] : null;
   const archiveRest = archive.slice(1);
-  const sections = [];
+  const dmOf = (item, images) => normalizeIdList(item.dmFileIds).map((id) => fileById(images, id)).filter(Boolean);
 
-  if (upcoming.length) {
-    const upcomingCards = await Promise.all(upcoming.map(async (item, idx) => {
-      const images = await getFolderImagesCached(item.mediaFolderId);
-      const dm = normalizeIdList(item.dmFileIds).map((id) => fileById(images, id)).filter(Boolean);
-      return buildExhibitionPreviewCardHtml(item, idx === 0 ? 'NEXT EXHIBITION' : 'UPCOMING', dm);
-    }));
-    sections.push(upcomingCards.join(''));
-  }
+  const upcomingCards = await Promise.all(upcoming.map(async (item, idx) => {
+    const images = await getFolderImagesCached(item.mediaFolderId);
+    return buildExhibitionPreviewCardHtml(item, idx === 0 ? 'NEXT EXHIBITION' : 'UPCOMING', dmOf(item, images));
+  }));
 
+  let recentCard = '';
   if (recent) {
     const images = await getFolderImagesCached(recent.mediaFolderId);
-    const dm = normalizeIdList(recent.dmFileIds).map((id) => fileById(images, id)).filter(Boolean);
     const workImages = (recent.works || []).map((work) => {
       const found = fileById(images, work.fileId);
       return found ? { file: found, title: work.title, artist: work.artist } : null;
     }).filter(Boolean);
-    sections.push(buildExhibitionPreviewCardHtml(recent, 'RECENT EXHIBITION', dm, '', buildWorkGalleryPreviewHtml(workImages)));
+    recentCard = buildExhibitionPreviewCardHtml(recent, 'RECENT EXHIBITION', dmOf(recent, images), '', buildWorkGalleryPreviewHtml(workImages));
   }
 
   const archiveCards = await Promise.all(archiveRest.map(async (item) => {
-    const archiveImages = await getFolderImagesCached(item.mediaFolderId);
-    const archiveDm = normalizeIdList(item.dmFileIds).map((id) => fileById(archiveImages, id)).filter(Boolean);
-    const folderId = item.mediaFolderId || '';
-    const link = folderId
-      ? `<a class="preview-drive-link" href="${escapeHtml(driveFolderUrl(folderId))}" target="_blank" rel="noopener noreferrer">Google Driveで作品を観る ↗</a>`
-      : '';
-    return buildExhibitionPreviewCardHtml(item, 'ARCHIVE', archiveDm, link);
+    const images = await getFolderImagesCached(item.mediaFolderId);
+    const link = item.mediaFolderId && html`<a class="preview-drive-link" href="${driveFolderUrl(item.mediaFolderId)}" target="_blank" rel="noopener noreferrer">Google Driveで作品を観る ↗</a>`;
+    return buildExhibitionPreviewCardHtml(item, 'ARCHIVE', dmOf(item, images), link);
   }));
 
-  sections.push(archiveCards.length
-    ? archiveCards.join('')
-    : '<article class="preview-site-card"><div class="preview-empty">公開中のアーカイブはありません。</div></article>');
-
-  return `<div class="preview-site">${sections.join('')}</div>`;
+  return html`
+    <div class="preview-site">
+      ${upcomingCards}
+      ${recentCard}
+      ${archiveCards.length
+        ? archiveCards
+        : html`<article class="preview-site-card"><div class="preview-empty">公開中のアーカイブはありません。</div></article>`}
+    </div>`;
 }
 
 async function renderRequestPreview(items) {
   const visible = (items || []).filter((item) => item.published !== false);
-  if (!visible.length) return '<div class="preview-empty">公開中の事例はありません。</div>';
-  const cards = await Promise.all(visible.map(async (item, index) => {
-    const folderId = item.mediaFolderId || '';
-    const files = folderId ? await getFolderImagesCached(folderId) : [];
-    const registered = folderId ? orderedFilesByIds(files, mediaIdsForItem(item)) : [];
-    const imageResult = { total: registered.length, items: registered.slice(0, GENERAL_IMAGE_LIMIT) };
-    return buildArticlePreviewHtml(
-      '過去の取り組み事例', `表示順 ${index + 1}`,
-      item.title || 'タイトル未入力', item.body || '本文未入力',
-      imageResult.items, folderImageWarning(imageResult.total, GENERAL_IMAGE_LIMIT, '画像'));
-  }));
-  return `<div class="preview-site">${cards.join('')}</div>`;
+  if (!visible.length) return html`<div class="preview-empty">公開中の事例はありません。</div>`;
+  const cards = await Promise.all(visible.map((item, index) => buildArticleItemPreviewHtml(item, '過去の取り組み事例', `表示順 ${index + 1}`)));
+  return html`<div class="preview-site">${cards}</div>`;
 }
 
 let logsPreviewTimer = 0;
@@ -299,37 +279,43 @@ function scheduleLogsPreviewRefresh() {
   }, 350);
 }
 
+const LOGS_PREVIEW_BADGES = { added: '追加', removed: '非表示' };
+
 function buildLogsPreviewCardHtml(compared, noteHtml, isLoading, closed = false) {
   const items = compared || [];
   if (closed) {
-    return `
+    return html`
       <div class="card">
         <h2>サイトの更新履歴プレビュー</h2>
         ${previewPlaceholderHtml('logs')}
-      </div>
-    `;
+      </div>`;
   }
-  return `
-      <div class="card">
-        <div data-help>
+  return html`
+    <div class="card">
+      <div data-help>
         <div class="help-title"><h2>サイトの更新履歴プレビュー</h2>${HELP_BUTTON}</div>
         <p class="panel-lead help-text">緑は今回の公開で新しく表示される項目、赤は今回の公開でサイト上から非表示になる項目です。</p>
-        </div>
-        <div class="preview-sim-legend">
-          <span class="preview-sim-chip is-added">追加・再表示</span>
-          <span class="preview-sim-chip is-removed">非表示</span>
-          <span class="preview-sim-chip is-unchanged">継続表示</span>
-        </div>
-        ${noteHtml || ''}
-        <div class="preview-sim-list">
-          ${items.length ? items.map((entry) => `
-            <div class="preview-sim-item">
-              <div class="preview-sim-date">${escapeHtml(entry.date)}</div>
-              <ul class="preview-sim-bullets">${entry.items.map((item) => `<li class="is-${escapeHtml(item.status)}"><span class="preview-sim-badge is-${escapeHtml(item.status)}">${item.status === 'added' ? '追加' : (item.status === 'removed' ? '非表示' : '継続')}</span><span class="preview-sim-text">${escapeHtml(item.summary)}</span></li>`).join('')}</ul>
-            </div>`).join('') : (isLoading ? '' : '<div class="small-note">まだ履歴がありません。</div>')}
-        </div>
       </div>
-  `;
+      <div class="preview-sim-legend">
+        <span class="preview-sim-chip is-added">追加・再表示</span>
+        <span class="preview-sim-chip is-removed">非表示</span>
+        <span class="preview-sim-chip is-unchanged">継続表示</span>
+      </div>
+      ${noteHtml}
+      <div class="preview-sim-list">
+        ${items.length
+          ? items.map((entry) => html`
+            <div class="preview-sim-item">
+              <div class="preview-sim-date">${entry.date}</div>
+              <ul class="preview-sim-bullets">${entry.items.map((item) => html`
+                <li class="is-${item.status}">
+                  <span class="preview-sim-badge is-${item.status}">${LOGS_PREVIEW_BADGES[item.status] || '継続'}</span>
+                  <span class="preview-sim-text">${item.summary}</span>
+                </li>`)}</ul>
+            </div>`)
+          : !isLoading && html`<div class="small-note">まだ履歴がありません。</div>`}
+      </div>
+    </div>`;
 }
 
 async function renderLogsPreviewContent() {
@@ -340,14 +326,14 @@ async function renderLogsPreviewContent() {
     return;
   }
   const requestSeq = ++logsPreviewRequestSeq;
-  wrap.innerHTML = buildLogsPreviewCardHtml([], '<div class="small-note" style="margin-bottom:12px;">公開後の履歴を確認しています...</div>', true);
+  wrap.innerHTML = buildLogsPreviewCardHtml([], html`<div class="small-note" style="margin-bottom:12px;">公開後の履歴を確認しています...</div>`, true);
   try {
-    const data = await serverCall('previewSiteHistory', appState.sessionToken, buildPayloadFromDom());
+    const data = await serverCall('previewSiteHistory', appState.sessionToken, buildPayload());
     if (requestSeq !== logsPreviewRequestSeq || !document.getElementById('logsPreviewContent')) return;
     wrap.innerHTML = buildLogsPreviewCardHtml((data && data.compared) || []);
   } catch (error) {
     if (requestSeq !== logsPreviewRequestSeq || !document.getElementById('logsPreviewContent')) return;
-    wrap.innerHTML = buildLogsPreviewCardHtml([], '<div class="small-note error-text" style="margin-bottom:12px;">更新履歴プレビューを取得できませんでした: ' + escapeHtml(error.message || error) + '</div>');
+    wrap.innerHTML = buildLogsPreviewCardHtml([], html`<div class="small-note error-text" style="margin-bottom:12px;">更新履歴プレビューを取得できませんでした: ${error.message || error}</div>`);
   }
 }
 </script>

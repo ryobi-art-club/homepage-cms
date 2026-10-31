@@ -367,7 +367,6 @@ test('client retains only explicitly uploaded IDs and preserves removals on the 
   const ctx = sources.loadClient();
   const item = { mediaFolderId: 'folder', dmFileIds: [], works: [{ fileId: 'kept', title: 'Title' }] };
   ctx.currentMediaContext = () => ({ kind: 'exhibition', item });
-  ctx.syncActiveMediaHiddenFields = () => {};
   ctx.refreshPreview = () => {};
   ctx.applyMediaResult({ folderId: 'folder', files: ['kept', 'orphan', 'removed', 'added'].map(id => ({ id, kind: 'image' })) },
     { type: 'upload', role: 'work', newIds: ['added'] });

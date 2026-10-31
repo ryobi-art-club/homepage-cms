@@ -196,6 +196,8 @@ node tools/preview/shoot.cjs     # 全機能を動かして撮影（任意）
 - 画面のスクリプト（`UiCore.html` など5つ）の関数のうち、一度も動かなかったもの（機能を足したら、ここに出ないよう撮影の手順も足す）
 - Excel 読み込み用のライブラリ（SheetJS）を、整合性チェック付きで読み込めたか
 
+見た目や動きを変えないはずの作業では、作業の前後の撮影結果を `tools/preview/compare.cjs` で比べます（画像は1画素ずつ、サーバーに送った内容も比べる）。使い方は [`tools/preview/README.md`](tools/preview/README.md) の 3。
+
 ### 4-4. GAS に送る
 
 ```bash
@@ -238,7 +240,7 @@ homepage リポジトリに push しても、サイトは自動では作り直�
 
 | 項目 | 確認すること | 方法 |
 |---|---|---|
-| SheetJS（Excel の目録の読み込み） | 新しい版が出ていないか | [cdn.sheetjs.com](https://cdn.sheetjs.com/) を見る。版を上げるときは `UiScript.html` の `SHEETJS_URL` と `SHEETJS_INTEGRITY`（整合性チェックの値）を一緒に変える。整合性チェックの値は `curl -s <URL> \| openssl dgst -sha384 -binary \| openssl base64 -A` の結果の頭に `sha384-` を付けたもの。変えたら `shoot.cjs` で読み込めるか確かめる |
+| SheetJS（Excel の目録の読み込み） | 新しい版が出ていないか | [cdn.sheetjs.com](https://cdn.sheetjs.com/) を見る。版を上げるときは `UiMedia.html` の `SHEETJS_URL` と `SHEETJS_INTEGRITY`（整合性チェックの値）を一緒に変える。整合性チェックの値は `curl -s <URL> \| openssl dgst -sha384 -binary \| openssl base64 -A` の結果の頭に `sha384-` を付けたもの。変えたら `shoot.cjs` で読み込めるか確かめる |
 | Font Awesome（アイコン） | 古すぎないか | 管理画面の `Ui.html` と、サイトの `build_site.py` で 6.4.2 を使っている |
 | Gemini のモデル | 提供が終わっていないか | 目録の読み取りや誤字チェックが「モデルが見つからない」などで失敗したら、スクリプト プロパティ `GEMINI_MODEL` を新しいモデル名にする |
 | GitHub App | 使える状態か | 今は GitHub App を使っているので、トークンの期限切れはない（管理画面が毎回、短時間だけ使えるトークンを作る）。App の秘密鍵を作り直したら、スクリプト プロパティ `GH_PRIVATE_KEY` も新しいものにする |
@@ -523,6 +525,8 @@ Drive とスプレッドシートの更新全体は、途中で失敗しても�
 
 - サーバーの関数は `serverCall(関数名, ...引数)` で呼びます（`google.script.run` を Promise にしたもの）。プレビューでは `window.MOCK_BACKEND` に差し替わります。
 - 画面の状態は `appState` にまとめています。
+- 内容（記事・展示会など）の置き場所は `appState.state` だけです。入力欄に打ち込むと、その場で `appState.state` に入ります（`onEditorInput`、画像ダイアログの作品名は `onWorkInput`）。描き直し・プレビュー・下書き保存・公開・誤字チェックは、どれも `appState.state` から作ります。サーバーに送る形（前後の空白を取る、年度は数字だけ、決まった順に並べる、など）にそろえるのは `buildPayload()` だけです。
+- HTML は `html` で始まるテンプレート（`` html`<p>${value}</p>` ``）で作ります。`${…}` に入れた値は文字として表示されるように書き換わるので、利用者が入力した `<` や `"` もそのまま表示されます。アイコンなど、コードの中で決めた HTML だけを `trustedHtml(…)` で包みます。`onclick="…('値')"` の値には `jsString(値)` を使います。
 - エラーは必ず `showError(error, '操作名', 表示場所)` で出します。1行の要約・「詳細」で開くカード・管理者向けの報告文、の3段階で見せます。
 - 画像は `mediaImageHtml(file)` で表示します。誰でも見られる画像は Drive の URL をブラウザが直接読み、見られない画像は表示したあとで `hydrateThumbnails()` がサーバー（`getMediaThumbnails`）に10枚ずつ頼んで埋めます。受け取った画像は `appState.thumbnailCache` に覚えておきます。
 - 画像のアップロードでは、選んだ時点で画像以外（動画など）を取り消します（`onMediaFilesChosen`）。長い辺が2000pxを超えるか3MBを超える画像は、送る前にブラウザで長い辺2000pxの JPEG に縮小します（`prepareUploadPayload`）。GAS には画像を縮小する機能がなく、サーバーで縮めるには元の大きな画像を一度送る必要があるためです。描き直すので、写真の撮影場所などの情報も消えます。

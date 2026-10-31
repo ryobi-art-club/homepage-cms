@@ -8,8 +8,7 @@ const CATALOG_MAX_TEXT_LENGTH = 300000;
 
 const CATALOG_MAX_PARTS = 20;
 
-// 目録ファイル（PDF・画像・テキスト）から作品情報を抽出する。
-// Excel はブラウザ側で CSV テキストに変換して text として送られてくる。
+// Excel は、ブラウザで CSV のテキストにしてから text として送られてくる。
 // request の形：{ name, parts: [{ kind: 'pdf' | 'image', mimeType, data（base64） } | { kind: 'text', name, text }] }
 function extractExhibitionCatalog(sessionToken, request) {
   requireSession_(sessionToken);

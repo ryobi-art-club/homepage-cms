@@ -158,7 +158,6 @@ function compareExhibitions_(a, b) {
   return String(b.startDate || '').localeCompare(String(a.startDate || ''));
 }
 
-/* 終了日は YYYY-MM-DD だけを受け付ける（シートの日付型は normalizeSheetCellValue_ で文字列になっている） */
 function normalizeIsoDate_(value) {
   const text = String(value || '').trim();
   return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : '';
