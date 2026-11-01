@@ -2,7 +2,7 @@
 
 // サイトの更新履歴（ChangeLog、版2）は1行に1つの変更を持つ：kind（種類）・itemId（項目の ID）・note（メモの文）。
 // サイトに出す文言は、表示するときに今の内容から作る（タイトルは保存しない。名前を変えても過去の行がそのまま新しい名前になる）。
-// 文言の作り方は、サイトのビルド（homepage の build_site.py の CHANGE_LOG_TEXT）と同じにする（README「8-4」）
+// 文言の作り方は、サイトのビルド（homepage の sitebuild/sections.py の CHANGE_LOG_TEXT）と同じにする（README「8-4」）
 const CHANGE_LOG_ITEM_LISTS = {
   activity: { listName: 'activityArticles', idKey: 'articleId', text: (title) => '活動記録・告知「' + title + '」' },
   request: { listName: 'requestCases', idKey: 'caseId', text: (title) => '取り組み「' + title + '」' },
@@ -176,9 +176,15 @@ function buildAdminDiffSummary_(beforeSnapshot, afterSnapshot, manualNote) {
   compareCollections(beforeSnapshot.activityArticles || [], afterSnapshot.activityArticles || [], 'articleId', '活動記録・告知', function(item) {
     return { title: item.title, body: item.body, category: item.category, mediaFolderId: item.mediaFolderId, mediaFileIds: item.mediaFileIds, createdAt: item.createdAt, published: item.published };
   });
-  // ご依頼事例は並び順も内容のうち（並べ替えも「編集」として残す）
-  const withPosition = (items) => (items || []).map((item, position) => Object.assign({ position }, item));
-  compareCollections(withPosition(beforeSnapshot.requestCases), withPosition(afterSnapshot.requestCases), 'caseId', '取り組み', function(item) {
+  // ご依頼事例は並び順も内容のうち（並べ替えも「編集」として残す）。順番は、前後のどちらにもある事例どうしで数える
+  // （ほかの事例を足したり消したりしただけで、番号がずれて「編集」と出ないように）
+  const withPosition = (items, others) => {
+    const shared = {};
+    (others || []).forEach((item) => shared[item.caseId] = true);
+    let position = 0;
+    return (items || []).map((item) => Object.assign({ position: shared[item.caseId] ? position++ : -1 }, item));
+  };
+  compareCollections(withPosition(beforeSnapshot.requestCases, afterSnapshot.requestCases), withPosition(afterSnapshot.requestCases, beforeSnapshot.requestCases), 'caseId', '取り組み', function(item) {
     return { title: item.title, body: item.body, mediaFolderId: item.mediaFolderId, mediaFileIds: item.mediaFileIds, position: item.position, published: item.published };
   });
   compareCollections(beforeSnapshot.exhibitions || [], afterSnapshot.exhibitions || [], 'exhibitionId', '展示会', function(item) {
@@ -191,73 +197,4 @@ function buildAdminDiffSummary_(beforeSnapshot, afterSnapshot, manualNote) {
   });
   if (manualNote) pushIf('補足: ' + manualNote);
   return messages.length ? messages.join('\n') : '変更なし';
-}
-
-// ---------- 版1 → 版2 の移し替え（2026年11月）----------
-// 版1は、変更を文章（summary。「活動記録・告知「題」」などを改行でつなぐ）で持っていた。
-// 読むときに版2に直し、次の公開で版2として書き直す。本番の ChangeLog が版2の見出しになったら、ここから下の3つと、readChangeLog_ の版1の分かれ道を消す
-function upgradeChangeLogRows_(rows, content) {
-  // タイトル → そのタイトルの項目の ID（古い順：展示会は開始日、記事は作成日）
-  const idsByTitle = {};
-  Object.keys(CHANGE_LOG_ITEM_LISTS).forEach((kind) => {
-    const list = CHANGE_LOG_ITEM_LISTS[kind];
-    idsByTitle[kind] = {};
-    ((content || {})[list.listName] || []).filter((item) => item.title)
-      .sort((a, b) => String(a.startDate || a.createdAt || '').localeCompare(String(b.startDate || b.createdAt || '')))
-      .forEach((item) => (idsByTitle[kind][item.title] = idsByTitle[kind][item.title] || []).push(item[list.idKey]));
-  });
-  // 同じタイトルの項目が複数あるとき（毎年の六甲祭など）は、そのタイトルの行を古い公開から順に、古い項目に当てる。
-  // 版1は文章しか持たず、どちらの項目の行か区別できないため
-  const timesByTitle = {};
-  rows.forEach((row) => splitLegacySummary_(row.summary).forEach((segment) => {
-    const key = legacySummaryKey_(segment);
-    if (!key.title) return;
-    const times = timesByTitle[key.kind + ':' + key.title] = timesByTitle[key.kind + ':' + key.title] || [];
-    if (times.indexOf(row.timestamp) === -1) times.push(row.timestamp);
-  }));
-  Object.keys(timesByTitle).forEach((key) => timesByTitle[key].sort());
-  const itemIdFor = (key, timestamp) => {
-    const ids = idsByTitle[key.kind][key.title] || [];
-    const order = timesByTitle[key.kind + ':' + key.title].indexOf(timestamp);
-    return ids[Math.min(order, ids.length - 1)];
-  };
-  const out = [];
-  rows.forEach((row) => {
-    const base = { timestamp: row.timestamp, actorName: row.actor_name || '', fromVersion1: true };
-    splitLegacySummary_(row.summary).forEach((segment) => {
-      const key = legacySummaryKey_(segment);
-      if (key.kind === 'recruit') {
-        out.push(Object.assign({}, base, { kind: 'recruit', itemId: '', note: '' }));
-      } else if (key.kind) {
-        // 今の内容にない項目（削除したもの）の文は、今も表示されていないので捨てる
-        const itemId = itemIdFor(key, row.timestamp);
-        if (itemId) out.push(Object.assign({}, base, { kind: key.kind, itemId, note: '' }));
-      } else {
-        out.push(Object.assign({}, base, { kind: 'note', itemId: '', note: segment }));
-      }
-    });
-  });
-  return out;
-}
-
-function splitLegacySummary_(summary) {
-  const normalized = String(summary || '').replace(/\r\n?/g, '\n').trim();
-  if (!normalized) return [];
-  if (normalized.indexOf('\n') !== -1) return normalized.split(/\n+/).map((part) => part.trim()).filter(Boolean);
-  // もっと古い版は「 / 」でつないでいた
-  const parts = normalized.split(/\s\/\s/).map((part) => part.trim()).filter(Boolean);
-  if (parts.length > 1 && parts.every((part) => legacySummaryKey_(part).kind)) return parts;
-  return [normalized];
-}
-
-// 昔の言い方（活動記事・ご依頼事例・取り組み事例、「を追加」「を更新」）も読む
-function legacySummaryKey_(segment) {
-  if (segment === CHANGE_LOG_RECRUIT_TEXT) return { kind: 'recruit', title: '' };
-  let match = segment.match(/^(活動記事|活動記録・告知)「(.+?)」(?:を追加|を更新|の情報を公開)?$/);
-  if (match) return { kind: 'activity', title: match[2] };
-  match = segment.match(/^(ご依頼事例|取り組み事例|取り組み)「(.+?)」(?:を追加|を更新|の情報を公開)?$/);
-  if (match) return { kind: 'request', title: match[2] };
-  match = segment.match(/^展示会「(.+?)」(?:を追加|を更新|の情報を公開)?$/);
-  if (match) return { kind: 'exhibition', title: match[1] };
-  return { kind: '', title: '' };
 }

@@ -90,11 +90,8 @@ function publishState(sessionToken, payload) {
       writePublishedState_(currentPayloadJson, currentHash);
       mark('sheets');
       const changeRows = buildChangeLogRows_(publishedInfo.payload, publicSnapshot, normalized.manualChangeNote, currentState.changeLog);
-      // 版1の行が残っていれば、足す行がなくても版2で書き直す（移し替えが済んだら、この条件の後ろ半分を消す）
-      if (changeRows.length || currentState.changeLog.some((row) => row.fromVersion1)) {
-        appendChangeLog_(currentState.changeLog, session.name || session.email, changeRows);
-      }
       if (changeRows.length) {
+        appendChangeLog_(currentState.changeLog, session.name || session.email, changeRows);
         const titles = buildChangeLogTitles_(publicSnapshot);
         changeSummary = changeRows.map((row) => changeLogText_(row, titles)).join('\n');
       }

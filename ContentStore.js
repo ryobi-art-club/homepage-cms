@@ -5,9 +5,8 @@
 // spreadsheet は省略できる。prefetchSheets_ の結果も渡せる
 function readContentState_(spreadsheet) {
   spreadsheet = spreadsheet || SpreadsheetApp.openById(getConfig_().CONTENT_SPREADSHEET_ID);
-  const content = contentLists_(readPublishedState_(spreadsheet).payload);
-  return Object.assign(content, {
-    changeLog: readChangeLog_(spreadsheet, content),
+  return Object.assign(contentLists_(readPublishedState_(spreadsheet).payload), {
+    changeLog: readChangeLog_(spreadsheet),
     manualChangeNote: ''
   });
 }
@@ -36,16 +35,14 @@ function writePublishedState_(payloadJson, sha256) {
 // サイトの更新履歴（版2）の列。サイトのビルドも読む（README「8-4」）
 const CHANGE_LOG_HEADER = ['timestamp', 'kind', 'item_id', 'note', 'actor_name'];
 
-// 新しい順。content は版1の行を版2に直すときに、タイトルから項目の ID を探すのに使う
-function readChangeLog_(spreadsheet, content) {
-  const rows = readSheetObjects_(spreadsheet, CONTENT_SHEETS.changeLog);
-  const log = rows.length && 'summary' in rows[0]
-    ? upgradeChangeLogRows_(rows, content)
-    : rows.map((row) => ({ timestamp: row.timestamp, kind: row.kind, itemId: row.item_id || '', note: row.note || '', actorName: row.actor_name || '' }));
-  return log.sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)));
+// 新しい順
+function readChangeLog_(spreadsheet) {
+  return readSheetObjects_(spreadsheet, CONTENT_SHEETS.changeLog)
+    .map((row) => ({ timestamp: row.timestamp, kind: row.kind, itemId: row.item_id || '', note: row.note || '', actorName: row.actor_name || '' }))
+    .sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)));
 }
 
-// log は readChangeLog_ で読んだ今の行。シート全体を版2で書き直す（版1の行もここで版2になる）。
+// log は readChangeLog_ で読んだ今の行。シート全体を書き直す。
 // サイトのビルドが読むシートなので、メールアドレスは置かない（_AdminLog にある）
 function appendChangeLog_(log, actorName, rows) {
   const spreadsheet = SpreadsheetApp.openById(getConfig_().CONTENT_SPREADSHEET_ID);

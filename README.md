@@ -241,7 +241,7 @@ homepage リポジトリに push しても、サイトは自動では作り直�
 | 項目 | 確認すること | 方法 |
 |---|---|---|
 | SheetJS（Excel の目録の読み込み） | 新しい版が出ていないか | [cdn.sheetjs.com](https://cdn.sheetjs.com/) を見る。版を上げるときは `UiMedia.html` の `SHEETJS_URL` と `SHEETJS_INTEGRITY`（整合性チェックの値）を一緒に変える。整合性チェックの値は `curl -s <URL> \| openssl dgst -sha384 -binary \| openssl base64 -A` の結果の頭に `sha384-` を付けたもの。変えたら `shoot.cjs` で読み込めるか確かめる |
-| Font Awesome（アイコン） | 古すぎないか | 管理画面の `Ui.html` と、サイトの `build_site.py` で 6.4.2 を使っている |
+| Font Awesome（アイコン） | 古すぎないか | 管理画面の `Ui.html` と、サイトの `sitebuild/page.py` で 6.4.2 を使っている |
 | Gemini のモデル | 提供が終わっていないか | 目録の読み取りや誤字チェックが「モデルが見つからない」などで失敗したら、スクリプト プロパティ `GEMINI_MODEL` を新しいモデル名にする |
 | GitHub App | 使える状態か | 今は GitHub App を使っているので、トークンの期限切れはない（管理画面が毎回、短時間だけ使えるトークンを作る）。App の秘密鍵を作り直したら、スクリプト プロパティ `GH_PRIVATE_KEY` も新しいものにする |
 | Python のライブラリ（サイト側） | 大きな版上げが出ていないか | homepage の `requirements.txt` は大きな版上げで壊れないよう上限を付けている。上限を上げるときは手元でビルドを確かめる |
@@ -645,9 +645,9 @@ GAS エディタの「プロジェクトの設定」→「スクリプト プロ
 | `request` | 取り組み「（タイトル）」 |
 | `note` | （メモの文） |
 
-この表は管理画面（`ContentHistory.js` の `CHANGE_LOG_ITEM_LISTS`）とサイトのビルド（`build_site.py` の `CHANGE_LOG_TEXT`）の2か所にあります。変えるときは両方を一緒に直します。
+この表は管理画面（`ContentHistory.js` の `CHANGE_LOG_ITEM_LISTS`）とサイトのビルド（`sitebuild/sections.py` の `CHANGE_LOG_TEXT`）の2か所にあります。変えるときは両方を一緒に直します。
 
-2026年11月までは、変更を文章で1つのセル（`summary`）に書いていました（版1）。版2に移すあいだ、管理画面は版1の行を読むときに版2に直し（`upgradeChangeLogRows_`）、次の公開で書き直します。サイトのビルドは両方を読みます。移し終えたら、この直す処理と、版1を読む処理を両方から消します。
+2026年11月までは、変更を文章で1つのセル（`summary`）に書き、表示するときに文章からタイトルを読み取っていました（版1）。版2に移すときは、管理画面が版1の行を版2に直して書き直し、サイトのビルドは移し終わるまで両方を読みました。移し終えたあと、どちらの処理も消しました。
 
 **下書きと公開内容の保存形式**：`_Drafts` と `_PublishedState` は内容を JSON でセルに保存します。1つのセルには5万字までしか入らないため、45,000字を超えたら20,000字ずつ `payload_json_2`、`payload_json_3`、… の列に分けて保存し（`buildPayloadCells_`）、`payload_json` には `{"storage_format":"chunked-json-v1","chunk_count":n}` を書きます。読むときにつなげます（`parsePayloadCells_`。サイトのビルドでは `read_published_content`）。列は自動で増えます。
 

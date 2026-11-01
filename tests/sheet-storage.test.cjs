@@ -213,41 +213,28 @@ test('with no snapshot the content is empty; a broken snapshot stops instead of 
   assert.throws(() => ctx.readContentState_(), /JSON/);
 });
 
-test('the change log keeps one change per row without e-mail addresses, and rewrites rows of the old sentence format', () => {
+test('the change log keeps one change per row without e-mail addresses', () => {
   const {ctx, sheets} = setup();
-  publish(ctx, sample(ctx));
-  sheets.ChangeLog = new Sheet([['timestamp', 'summary', 'actor_name', 'actor_email_input', 'revision'],
-    ['2026-04-28T16:59:08.244Z', '活動記事「Article」 / 新歓イベントカレンダーを更新', 'A', 'a@example.com', '1.0'],
-    ['2026-05-01T00:00:00.000Z', '展示会「Exhibition」の情報を公開\nご依頼事例「Request」\n展示会「削除した展示」の情報を公開\n部室を移りました', 'A', 'a@example.com', '2.0']]);
+  sheets.ChangeLog = new Sheet([['timestamp', 'kind', 'item_id', 'note', 'actor_name'],
+    ['2026-04-28T16:59:08.244Z', 'activity', 'a', '', 'A'],
+    ['2026-05-01T00:00:00.000Z', 'note', '', '部室を移りました', 'A']]);
   const log = ctx.readContentState_().changeLog;
-  assert.deepEqual(JSON.parse(JSON.stringify(log.map(row => [row.timestamp.slice(0, 10), row.kind, row.itemId, row.note]))), [
-    ['2026-05-01', 'exhibition', 'e', ''], ['2026-05-01', 'request', 'r', ''], ['2026-05-01', 'note', '', '部室を移りました'],
-    ['2026-04-28', 'activity', 'a', ''], ['2026-04-28', 'recruit', '', '']]);
-
-  assert.ok(log.every(row => row.fromVersion1), 'the next publish rewrites the sheet even when it adds no row');
-  ctx.appendChangeLog_(log, 'B', [{kind: 'note', itemId: '', note: 'メモ'}]);
-  assert.deepEqual(sheets.ChangeLog.values[0], ['timestamp', 'kind', 'item_id', 'note', 'actor_name']);
-  assert.deepEqual(sheets.ChangeLog.values.slice(1).map(row => row.slice(1, 5)), [
-    ['activity', 'a', '', 'A'], ['recruit', '', '', 'A'],
-    ['exhibition', 'e', '', 'A'], ['request', 'r', '', 'A'], ['note', '', '部室を移りました', 'A'],
-    ['note', '', 'メモ', 'B']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(log.map(row => [row.timestamp.slice(0, 10), row.kind, row.itemId, row.note, row.actorName]))), [
+    ['2026-05-01', 'note', '', '部室を移りました', 'A'], ['2026-04-28', 'activity', 'a', '', 'A']]);
+  ctx.appendChangeLog_(log, 'B', [{kind: 'exhibition', itemId: 'e', note: ''}, {kind: 'note', itemId: '', note: 'メモ'}]);
+  assert.deepEqual(sheets.ChangeLog.values.map(row => row.slice(0, 5)), [['timestamp', 'kind', 'item_id', 'note', 'actor_name'],
+    ['2026-04-28T16:59:08.244Z', 'activity', 'a', '', 'A'], ['2026-05-01T00:00:00.000Z', 'note', '', '部室を移りました', 'A'],
+    ['2026-09-24T00:00:00.000Z', 'exhibition', 'e', '', 'B'], ['2026-09-24T00:00:00.000Z', 'note', '', 'メモ', 'B']]);
   assert.ok(!JSON.stringify(sheets.ChangeLog.values).includes('@'));
-  assert.equal(ctx.readContentState_().changeLog.length, 6);
-  assert.ok(!ctx.readContentState_().changeLog.some(row => row.fromVersion1));
 });
 
-test('rows of the old format for two items with the same title go to the older item first', () => {
-  const {ctx, sheets} = setup();
-  const state = sample(ctx);
-  state.exhibitions = [
-    {...state.exhibitions[0], exhibitionId: 'rokko-2026', title: '六甲祭', startDate: '2026-11-07'},
-    {...state.exhibitions[0], exhibitionId: 'rokko-2025', title: '六甲祭', startDate: '2025-11-08'}];
-  publish(ctx, state);
-  sheets.ChangeLog = new Sheet([['timestamp', 'summary', 'actor_name'],
-    ['2026-09-24T00:00:00.000Z', '展示会「六甲祭」の情報を公開', 'A'],
-    ['2026-05-12T00:00:00.000Z', '展示会「六甲祭」の情報を公開', 'A']]);
-  assert.deepEqual(JSON.parse(JSON.stringify(ctx.readContentState_().changeLog.map(row => [row.timestamp.slice(0, 7), row.itemId]))),
-    [['2026-09', 'rokko-2026'], ['2026-05', 'rokko-2025']]);
+test('the admin log calls a request edited when it is moved, not when another request is added or deleted', () => {
+  const {ctx} = setup();
+  const request = (caseId) => ({caseId, title: caseId, body: '', mediaFolderId: '', mediaFileIds: [], published: true});
+  const before = {requestCases: [request('kobe'), request('other')]};
+  assert.equal(ctx.buildAdminDiffSummary_(before, {requestCases: [request('test'), request('kobe'), request('other')]}, ''), '取り組み「test」を公開');
+  assert.equal(ctx.buildAdminDiffSummary_({requestCases: [request('test'), request('kobe'), request('other')]}, before, ''), '取り組み「test」を削除');
+  assert.equal(ctx.buildAdminDiffSummary_(before, {requestCases: [request('other'), request('kobe')]}, ''), '取り組み「other」を編集\n取り組み「kobe」を編集');
 });
 
 test('the site history shows the current titles of published items and drops hidden ones', () => {

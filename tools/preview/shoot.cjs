@@ -36,7 +36,7 @@ const CATALOG_CSV = '番号,作者,作品名,サイズ,技法\n1,山田 花子,�
 
   const browser = await puppeteer.launch({ executablePath, headless: true, defaultViewport: null });
   const page = await browser.newPage();
-  /* 撮るたびに同じ画像・同じ送る内容になるように（compare-shots.cjs で比べるため）、時計を1つの時刻に止め、
+  /* 撮るたびに同じ画像・同じ送る内容になるように（compare.cjs で比べるため）、時計を1つの時刻に止め、
      画面の動き（transition・animation）をなくす */
   await page.evaluateOnNewDocument(() => {
     const fixed = Date.parse('2026-10-31T12:00:00+09:00');
